@@ -8,9 +8,11 @@
  * is a SOLID OBJECT that occludes what is behind it and carries a thin
  * specular highlight on its cutting edge. It does not glow. So the ribbon is a
  * swept STEEL BAND: asymmetric cross-section with the cutting edge ON the
- * pointer path and the flat trailing to one side; NORMAL blending at alpha
- * ~0.58 over a nearly-black steel base, so it DARKENS the fruit behind it; and
- * exactly one bloomable feature, a thin specular filament on the edge.
+ * pointer path and the flat trailing to one side; NORMAL blending over a
+ * nearly-black steel base, so it DARKENS the fruit behind it; and exactly one
+ * bloomable feature, a thin specular filament on the edge. (The alpha that
+ * sentence used to quote, 0.58, was measured in round 8 to darken the streak by
+ * 3% — see BODY_A. The principle was right and the number was not.)
  *
  * ── ROUND 7: the trail joins the lens ──────────────────────────────────────
  * It was the last hard-edged element in every frame. r3, r4, r5 and r6 all
@@ -94,17 +96,50 @@
  * receding trail), so nothing ever measured on this project moves except in
  * portrait, where it was wrong.
  *
- * The other portrait term is RECEDE, and it is deliberately ABSOLUTE (a
- * multiple of `focalLength`) rather than proportional to camZ, because
- * `cocOf`'s slab is absolute: an absolute recession gives an IDENTICAL circle
- * of confusion on both aspects. Making it proportional would have handed
- * portrait 2.16x the blur — r6's bug, re-derived from the other end.
+ * The other portrait term is RECEDE. Round 7 made it ABSOLUTE (a multiple of
+ * `focalLength`) so that both aspects got an identical circle of confusion.
+ * ROUND 8 SCALES IT BY THE STROKE'S WORLD ARC LENGTH INSTEAD, and that is not
+ * a retreat from the r7 argument, it is the same argument taken one step
+ * further: `cocOf`'s slab is absolute, so the thing that drives it must be a
+ * WORLD length, and the arc is one. Measured on `12-idle-blade`, same NDC
+ * stroke: landscape 640x360 recedes 0.086 world units, iphone 215x466 recedes
+ * 0.141 — 1.6x, and it is 1.6x because that stroke really does sweep 1.2x more
+ * world in portrait. `main.js` fits the stage box to the SHORT side, so at
+ * camZ 22.02 the portrait frame is 16.9 world units tall against landscape's
+ * 7.8. The same finger travels further. The blur that results is 12% of
+ * saturation on both, and the WIDTH invariance r7 bought is untouched: widest
+ * station 3.44% of the short side at 215x466, 3.44% at 390x844, 3.48% at
+ * 640x360.
+ *
+ * ── ROUND 8: the trail gets a TIMELINE, and the band gets to be SOLID ──────
+ * Three defects, each measured on the frozen probe before and after, each with
+ * its own block below. In one place:
+ *
+ *   1. EVERY CAPTURED FRAME SINCE ROUND 2 SHOWED A TRAIL WITH NO AGE IN IT.
+ *      `ZS.swipe()` emits a whole stroke inside one call and the harness clock
+ *      does not advance during it, so all of a synthetic stroke's samples got
+ *      one timestamp and therefore ONE age. Every age-driven term in this file
+ *      — the two fades, the age-keyed reflection, the TRAIL_LIFE prune — was a
+ *      constant in every frame any critic has ever scored, and none of that is
+ *      true under real pointer input. See the 'swipe' listener.
+ *   2. THE BAND DID NOT OCCLUDE. Ablation (`.r8blade.mjs ablate`): the blade
+ *      crossing stage.js's streak took it from luma 184..189 to 180..189 and
+ *      added +32 at the filament — a hot wire in front of a lamp, which is the
+ *      plate-02 anti-pattern exactly. See BODY_A / FLAT_K.
+ *   3. THE EDGE HIGHLIGHT HAD NO GEOMETRY AND THE WRONG SPEED LAW. r2's
+ *      `1.45 + 1.35*speed` made the fastest stroke the brightest, and `void`
+ *      says the fastest stroke was supplying 99.2% of its frame's blown
+ *      pixels. See GL_FLOOR / SMEAR_K: a smear conserves flux, and a thin
+ *      cylinder has an anisotropic highlight.
  *
  * FEEL RULES (preserved verbatim from round 1 — this is where "does it feel
  * perfect" lives, and none of it may regress):
  *  1. Zero added latency. pointerrawupdate when available; every coalesced
  *     event is consumed so fast flicks are not decimated into straight lines.
- *     ROUND 7 TOUCHED NOTHING IN THE INPUT PATH.
+ *     ROUNDS 7 AND 8 TOUCHED NOTHING IN THE REAL INPUT PATH — `push()`,
+ *     `handleMove` and the listener registrations are byte-identical to r6.
+ *     Round 8's timeline work is inside the SYNTHETIC 'swipe' listener, which
+ *     real input never reaches (it is guarded by `selfEmit`).
  *  2. The trail is geometry, not a decaying texture — resolution independent.
  *  3. Width tracks speed and tapers to nothing at both ends. The taper also
  *     gates the defocus margin (`tp`), so the quad still collapses to a point
@@ -282,10 +317,17 @@ const RIP_MEAN = 0.91;
 // GL_FLOOR is the part that is not a specular lobe at all — the edge's own
 // broad reflection of the room — so the three weights sum to 1 and the glint
 // spans [GL_FLOOR, 1] instead of collapsing to zero on an unlucky stroke angle.
-const GL_FLOOR = 0.30;
-const GL_KEY = 0.42;
-const GL_RIM = 0.28;
-const GL_P = 1.5;
+// GL_FLOOR is large because a ground edge is not a mirror: it is a rough
+// cylinder, so most of what it returns is the broad lobe and only the rest is
+// the anisotropic one. Shipped at 0.30 first and measured — the diagonal idle
+// stroke, which runs nearly ALONG the key, lost 2.0x and the blade read as a
+// wisp. The lobe exponent came down with it (1.5 -> 1.0) for the same reason:
+// a rough edge has a broad lobe. Range is now [0.52, 1.0] with the beats
+// landing at 0.78 (idle, along the key) to 0.89 (hero, across it).
+const GL_FLOOR = 0.52;
+const GL_KEY = 0.28;
+const GL_RIM = 0.20;
+const GL_P = 1.0;
 const SMEAR_K = 0.90;
 // EDGE_A is set so the SLOW cleave — the one stroke whose blown-pixel share is
 // already small (0.0347% composited) and whose look r2 tuned — reproduces r7's
@@ -659,6 +701,16 @@ export function createBlade() {
   api.frame = (dt, alpha, ctx) => {
     if (!geo) return;
     const now = nowSec();
+    // ⚠ THE TIME SOURCE CAN JUMP, AND ONLY BACKWARDS IS FATAL.
+    // `nowSec()` is the wall clock until the first `ZS.step()`, then the
+    // harness's virtual clock (main.js:311-318, contract.js:215) — a jump of
+    // however long the page has been open. Forwards, ageing retires the stale
+    // samples on its own. BACKWARDS leaves every sample stamped in the FUTURE,
+    // where `now - t` is negative, the age clamps to 0 and the prune below can
+    // never fire: the trail freezes, un-ageing, until the next stroke. It is
+    // reachable in the real game too (`ZS.pause()` mid-stroke, then a
+    // deterministic step) and it is one comparison to close.
+    if (pts.length && pts[pts.length - 1].t > now + TRAIL_LIFE) pts.length = 0;
     while (pts.length && now - pts[0].t > TRAIL_LIFE) pts.shift();
     if (pts.length < 2) { geo.setDrawRange(0, 0); return; }
 
@@ -737,7 +789,14 @@ export function createBlade() {
       const u = i / (m - 1);
       // a real blade tapers to a point at the tip; the tail is motion smear
       const tipT = 1 - Math.pow(clamp((u - 0.90) / 0.10, 0, 1), 0.8);
-      const shape = Math.pow(u, 0.42) * tipT * (0.80 + 0.20 * Math.sin(u * Math.PI));
+      // ROUND 8: the tail exponent was 0.42 when the tail had no FADE — every
+      // captured stroke was one uniform age (see the 'swipe' listener), so the
+      // width taper was the only thing saying "this end is older". It now says
+      // it twice, and twice was measurably too much: the retained stub of the
+      // idle stroke lost both its width and its alpha at the same end. 0.22
+      // keeps R3's "tapered, fattest just behind the tip" — that shape is the
+      // tipT and the sin term — and hands the age cue back to the age.
+      const shape = Math.pow(u, 0.22) * tipT * (0.80 + 0.20 * Math.sin(u * Math.PI));
       const sp = clamp(sSpd[i] / 10, 0, 1);
 
       // THE STROKE IS AN ARC IN WORLD SPACE. u = 1 is the live pointer, at the
