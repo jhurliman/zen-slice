@@ -1,0 +1,64 @@
+{
+ "round": 8,
+ "at": "2026-08-08 \u2014 round 8",
+ "perf": {
+  "desktop": {
+   "peakDrawCalls": 113,
+   "peakTriangles": 202659,
+   "cpuMsPerFrame": 2.4
+  }
+ },
+ "note": "All five pieces are now 68-73, mean delta +4.8, and perf recovered while five builders each added structure: draw calls 123 -> 113, triangles 218k -> 203k, worst-case JS frame 7.3 -> 2.4 ms. Making the budget a standing constraint on every builder rather than one agent's task worked on its first outing. Two findings outrank the scores. (1) THE SILHOUETTE METRIC IS INVALID, not merely noisy: `separation` divides by within-species pose variance, so it is maximised by a smooth mirror-symmetric body and is actively PAID FOR by deleting appendages. The builder duly tucked the strawberry calyx inside the waist to clear the gate, and the shipped silhouette lost its only outline cue \u2014 five of six fruit now read as featureless ovals. The frozen suite fixed reproducibility; this is validity, and a metric that rewards the opposite of the goal is worse than no metric. (2) THE ENTIRE FLESH DELIVERABLE IS OFF ON THE SHIPPING CONFIGURATION: fleshCells is gated behind pxFade(c, 3.4), and portrait renders the cut face at 0.745x linear, pushing fwidth past the edge. Desktop gained flesh R 131.0 -> 150.6; portrait gained 93.8 -> 96.3, and its G/R went the WRONG way. Third portrait-only defect found so far.",
+ "pieces": [
+  {
+   "key": "stage",
+   "name": "Lighting, grade & DOF",
+   "score": 73,
+   "verdict": "render",
+   "biggestGap": "The r7 headline is HALF fixed and the half that is left is the visible half: a hot cusp was PAINTED ON TOP of the disc-chord slab instead of replacing it, so the near half of the streak is now a needle-thin white core sitting on a flat amber plateau that ends in a ruled straight silhouette edge -- a ~2x luminance drop in ONE pixel, held over ~400 px of the hero -- because stage.js still zeroes the scene lobe at the optical rim (`s = (1-u^2).max(0.0)`) and lines 1948-1949, the exact two lines r7 asked to be replaced, are unchanged.",
+   "fix": "src/render/stage.js, streakNode, line ~1946 and lines 1948-1949 -- the same two lines r7 named, which were not touched. Do not add a fourth lobe; DELETE the disc-chord scene lobe's hard rim. (a) `const s = u.mul(u).oneMinus().max(0.0)` forces the profile to zero at |u|=1, so the plateau MUST end in "
+  },
+  {
+   "key": "fruit-mat",
+   "name": "Fruit materials",
+   "score": 68,
+   "verdict": "render",
+   "biggestGap": "The entire round-8 flesh deliverable is switched OFF on the shipping configuration: species.js gates `fleshCells` behind `pxFade(c, 3.4)`, whose own header records the coarse octave at weight 0.70 at the 640x360 review frame, and portrait renders the same cut face at 0.745x linear (frozen `foam` ellipse a 45.92 -> 34.21), which pushes fwidth past the 1/3.4 edge and takes the mesh, the groove, the 1.20 relief and the roughness redistribution with it -- so desktop gained flesh_mean_rgb R 131.0 -> 150.6 while portrait gained 93.8 -> 96.3, 13% of it, and portrait's flesh_GR went the WRONG way, 0.4917 -> 0.5060 against plate-01's 0.3505.",
+   "fix": "src/fruit/species.js, `fleshCells` return block (~line 1108): stop multiplying the mesh by its own resolution guard and start CROSS-FADING IT TO ITS AREA MEAN. Change `bun: crest.mul(u.detail.mul(0.26).add(0.74)).clamp(0.0,1.0)` to `bun: mix(float(BUN_MEAN), crest, wmax).mul(u.detail.mul(0.26).add(0"
+  },
+  {
+   "key": "fruit-geo",
+   "name": "Fruit silhouette",
+   "score": 73,
+   "verdict": "render",
+   "biggestGap": "The outline-identity gates this piece is steered by \u2014 elongation_median, boundary_cv and above all `separation`, whose DENOMINATOR is within-species pose variance \u2014 are maximised by a smooth mirror-symmetric body and are actively PAID FOR by deleting appendages, so r8 tucked the strawberry calyx inside the waist to clear them (geometry.js:972, 'so the tips sit inside the waist instead of 9% outside it') and the shipped silhouette lost its only outline cue: on shots/r8/11-combo+550ms five of six fruit now silhouette as featureless ovals and I cannot name any of them but the pineapple.",
+   "fix": "src/fruit/geometry.js \u2014 TILT THE APPENDAGES OFF THE POLAR AXIS. The apple entry already proved the negative theorem for concavities (at screen-x 0 the far meridian contributes +r sin t, so no dish can notch an outline); it never drew the corollary, which is that an on-axis PROTRUSION fails for the s"
+  },
+  {
+   "key": "cutter",
+   "name": "Cut faces & rind",
+   "score": 72,
+   "verdict": "render",
+   "biggestGap": "The cut face's radial luminance profile has the WRONG SIGN \u2014 frozen `foam` mean R FALLS 183.7 -> 174.8 from scale 0.40 to 0.80 while plate-01's RISES 171.5 -> 189.2 over the identical sweep, so ours is a centre-hot airbrushed dome where the reference is a deep-saturated core with a bright wet rim at the flesh/pith join, and the round moved the level by +6.7 counts without changing that slope by a tenth of a percent.",
+   "fix": "One change, in src/fruit/species.js, and do NOT spend it on another albedo or exposure gain \u2014 the level is DONE (`foam scale=0.5` default window 157.1 -> 175.3 against the scale-matched plate's 176.3) and every round that has moved an albedo and an exposure together has netted zero. Flip the sign of"
+  },
+  {
+   "key": "juice",
+   "name": "Juice fluid",
+   "score": 70,
+   "verdict": "render",
+   "biggestGap": "The spray is still a few dozen congruent fat beads rather than a heavy-tailed mist-to-bead population -- on the CLEAN shipping path the hero's resolvable droplets have median_area_px 90.5 against plate-01's 24.0 scale-matched to the same 1280x720 raster, and the size SPREAD is roughly half the plate's everywhere (area_p95_over_median 4.57 hero / 2.66 on 04-cut+250ms against 8.36 / 5.51 scale-matched), because fluid.js's spray size law spans only exp(0.9*w^1.4) = 2.46x in radius for a cleave.",
+   "fix": "src/juice/fluid.js, the spray size law at ~line 2013. Change `Math.exp((1.9 - 1.0 * filmness) * Math.pow(w, 3.0 - 1.6 * filmness))` to `Math.exp((1.9 - 0.35 * filmness) * Math.pow(w, 3.0 - 1.6 * filmness))` and, in the SAME edit, drop `base` from `(0.0085 + 0.050 * filmness)` to `(0.0085 + 0.030 * f"
+  }
+ ],
+ "shots": [
+  "shots/r8/00-hero.png",
+  "shots/r8/01-whole-watermelon.png",
+  "shots/r8/04-cut+250ms.png",
+  "shots/r8/05-cut+500ms.png",
+  "shots/r8/08-citrus-caps.png",
+  "shots/r8/15-fast-flick+50ms.png",
+  "shots/r8/16-slow-cleave+50ms.png",
+  "shots/r8/11-combo+550ms.png"
+ ]
+}

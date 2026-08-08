@@ -46,7 +46,53 @@ import sys, json, math
 import numpy as np
 from PIL import Image
 
-PROBE_VERSION = 8
+PROBE_VERSION = 9
+# ── v8 -> v9 (round 8 critic, stage) ─────────────────────────────────────────
+# LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 8 -> 9.
+#
+# ADDED one probe, `glare`, and appended one SUITE row (glare:00-hero.png).
+# NO EXISTING PROBE'S EXECUTABLE CODE CHANGED BY ONE CHARACTER — clip, void,
+# ring, silhouette, droplets, particles, tintlaw, lens, foam, collar, filament,
+# species and limb are byte-identical to v8, and the shared helpers
+# `_radon_ridge`, `_edge_1090`, `_radial_edges`, `_spearman` are untouched, so
+# `glare`, `filament` and `lens` all profile the SAME ridge found by the SAME
+# code. PROBES gains one key; the pre-existing SUITE rows are unchanged and in
+# the same order.
+# VERIFIED RATHER THAN ASSERTED, the way v6/v7/v8 did it: the full suite was
+# captured on shots/r5, r6, r7, r8, r7-iphone and r8-iphone under v8, the edit
+# was made, the suite re-run and diffed key-by-key on all six directories. Every
+# pre-existing row is identical on all six; only the new `glare:00-hero.png` key
+# appears (and only in the landscape dirs, which are the ones that have a hero).
+#
+# WHY IT EXISTS. `filament` measures w90/w50 — the shape of the ribbon's CORE.
+# It is blind by construction to what the core is sitting on. A needle-thin cusp
+# painted down the middle of the same flat-topped slab v8 was built to detect
+# scores an EXCELLENT `flattop`, because w90 and w50 both collapse onto the
+# needle. That is not hypothetical: r8's hero drove flattop_p50 0.409 -> 0.222,
+# straight through the plates' 0.300/0.286 and out the other side, while the
+# slab underneath survived. `glare` measures the complementary half — the SKIRT:
+#
+#   u20/u50, u05/u50   the transverse offsets at 20% and 5% of the profile's
+#                      amplitude, each divided by the offset at 50%. Pure shape
+#                      ratios, invariant to width, brightness and blur, and
+#                      measured OUTSIDE the core where `filament` stops looking.
+#                        hard-edged slab      1.00 / 1.00
+#                        defocus-disc chord   ~1.06 / ~1.10
+#                        Gaussian             1.52 / 2.08
+#                        Lorentzian           2.00 / 4.36
+#                        two-population
+#                        (cusp on a slab)     -> u05/u50 inflates without limit
+#                      Both plates land in the same narrow place: plate-01
+#                      1.479/1.970, plate-02-highspeed-citrus 1.336/1.462. Two
+#                      cameras, two subjects, two lenses, one answer — the same
+#                      independent-control test `filament` passed.
+# First crossing outward from the peak is used, per side, per station, so a
+# single bright speck sitting in the wing cannot lengthen a tail; the median over
+# up to 2*nline crossings is reported and `n` says how many were formed. Stations
+# whose amplitude is under `min_amp` are dropped. Geometric and colour-blind: the
+# ridge is the one `_radon_ridge` already finds, and only luma is read. mask_px
+# is reported.
+#
 # ── v7 -> v8 (round 7 critic, stage) ─────────────────────────────────────────
 # LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 7 -> 8.
 #
@@ -1279,11 +1325,111 @@ def probe_filament(img, ref=None, floor=8.0, nline=25, halfw=26,
     return out
 
 
+def probe_glare(img, ref=None, nline=25, halfw=40, min_amp=12.0, **kw):
+    """
+    WHAT IS THE CUSP SITTING ON? — the skirt half of `filament`. See the v8 -> v9
+    notice at the top of this file.
+
+    Same ridge as `lens` and `filament` (`_radon_ridge`: geometric, colour-blind,
+    the identical call), the same perpendicular window, `nline` stations. Reports
+    the cross-section's TAIL shape, which `filament`'s w90/w50 cannot see:
+
+      u20_u50   offset at 20% of amplitude / offset at 50%
+      u05_u50   offset at  5% of amplitude / offset at 50%
+
+    Pure shape ratios — invariant to the ribbon's width, brightness and blur.
+      hard slab 1.00/1.00 · disc chord ~1.06/1.10 · Gaussian 1.52/2.08 ·
+      Lorentzian 2.00/4.36 · a narrow cusp on a wide plateau inflates u05_u50
+      without limit, because u50 collapses onto the cusp while u05 stays out on
+      the plateau's edge.
+    CONTROL, both plates, independently: plate-01 1.479/1.970,
+    plate-02-highspeed-citrus 1.336/1.462.
+
+    Crossings are taken FIRST-outward from the peak on each side, so a bright
+    speck parked in the wing cannot manufacture a tail. `n` reports how many of
+    the up-to-2*nline crossings were formed.
+    """
+    L = luma(img)
+    h, w = L.shape
+    out = {"mask_px": int((L > 6.0).sum()), "shape": [int(w), int(h)]}
+    found = _radon_ridge(L)
+    if found is None:
+        out["found"] = False
+        return out
+    t, u0 = found
+    ct, st = math.cos(t), math.sin(t)
+    ax, ay = -st, ct
+    ts = np.linspace(-math.hypot(w, h) / 2.0, math.hypot(w, h) / 2.0, 4096)
+    px = w / 2.0 + u0 * ct + ts * ax
+    py = h / 2.0 + u0 * st + ts * ay
+    inside = (px >= 1) & (px < w - 1) & (py >= 1) & (py < h - 1)
+    if inside.sum() < 32:
+        out["found"] = False
+        return out
+    tin = ts[inside]
+    hw = int(halfw)
+    uu = np.arange(-hw, hw + 1, dtype=np.float64)
+
+    def crossing(side, thr):
+        for i in range(len(side)):
+            if side[i] < thr:
+                if i == 0:
+                    return None
+                a0, a1 = float(side[i - 1]), float(side[i])
+                return (i - 1) + (a0 - thr) / max(a0 - a1, 1e-6)
+        return None
+
+    r20, r05, pos, stations = [], [], [], []
+    for k in range(int(nline)):
+        tk = tin[0] + (tin[-1] - tin[0]) * (k + 0.5) / int(nline)
+        cxk = w / 2.0 + u0 * ct + tk * ax
+        cyk = h / 2.0 + u0 * st + tk * ay
+        sx = np.clip((cxk + uu * ct).astype(int), 0, w - 1)
+        sy = np.clip((cyk + uu * st).astype(int), 0, h - 1)
+        prof = L[sy, sx]
+        pos.append([int(round(cxk)), int(round(cyk))])
+        base = float(np.median(np.concatenate([prof[:6], prof[-6:]])))
+        amp = float(prof.max()) - base
+        if amp < float(min_amp):
+            stations.append(None)
+            continue
+        j = int(np.argmax(prof))
+        got = []
+        for side in (prof[j:], prof[:j + 1][::-1]):
+            u50 = crossing(side, base + 0.50 * amp)
+            if u50 is None or u50 < 1.0:
+                continue
+            u20 = crossing(side, base + 0.20 * amp)
+            u05 = crossing(side, base + 0.05 * amp)
+            if u20 is not None:
+                r20.append(u20 / u50)
+            if u05 is not None:
+                r05.append(u05 / u50)
+                got.append(u05 / u50)
+        stations.append(round(float(np.median(got)), 3) if got else None)
+    out.update({
+        "found": True,
+        "angle_deg": round(math.degrees(t), 2),
+        "span_px": int(inside.sum() * (math.hypot(w, h) / 4096.0)),
+        "samples": pos,
+        "u05_u50_per_station": stations,
+        "n20": len(r20),
+        "n05": len(r05),
+    })
+    if r20:
+        out["u20_u50_p50"] = round(float(np.median(r20)), 3)
+    if r05:
+        out["u05_u50_p50"] = round(float(np.median(r05)), 3)
+        out["u05_u50_p90"] = round(float(np.percentile(r05, 90)), 3)
+    return out
+
+
 PROBES = {
     "clip": probe_clip, "void": probe_void, "silhouette": probe_silhouette,
     "droplets": probe_droplets, "particles": probe_particles, "ring": probe_ring,
     "lens": probe_lens, "tintlaw": probe_tintlaw, "foam": probe_foam,
     "collar": probe_collar, "filament": probe_filament,
+    "glare": probe_glare,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1635,6 +1781,9 @@ SUITE = [
     ("collar", "05-cut+500ms.png"),
     # v8: is that ribbon light or geometry. Same ridge `lens` above already found.
     ("filament", "00-hero.png"),
+    # v9: what is that cusp sitting on. Same ridge again; the SKIRT half of
+    # `filament`, which is blind to everything outside the core.
+    ("glare", "00-hero.png"),
 ]
 
 def main():
