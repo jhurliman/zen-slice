@@ -738,9 +738,9 @@ export function createStage() {
     //       in portrait against 0.32 on the hero at identical settings. The
     //       floor binds only below ~430x932; at the real device buffer
     //       fApW*bokeh is 1.37 px and this does nothing.
-    fApA: uniform(0.46),
-    fApW: uniform(0.105),
-    fApM: uniform(1.25),
+    fApA: uniform(0.56),
+    fApW: uniform(0.095),
+    fApM: uniform(1.60),
     fApP: uniform(0.5),
     fApS: uniform(0.13),
     fApT: uniform(0.72),
@@ -1257,12 +1257,23 @@ export function createStage() {
    * `.xy` is the vec2(grow, energy) the round-5 verdict asked for; z and w are
    * there so a caller can reuse a sprite-shaped code path unchanged.
    *
-   * THE POINT OF PUBLISHING IT. stage.js's own streak no longer needs this —
-   * it writes depth now, so the frame's gather defocuses it for free (see
-   * streakMat.depthWrite). A blade trail cannot take that route: it is a long
-   * additive ribbon that overlaps itself, so depth-writing it would make its own
-   * segments occlude each other. It is the one class for which per-vertex
-   * defocus is the RIGHT structure rather than a patch, and this is the exact
+   * WHO CALLS IT (verified this round by reading the files, not by assuming).
+   * TWO callers, both in the shipped bundle:
+   *   src/render/stage.js  streakPos()   — the flare streak, per vertex
+   *   src/input/blade.js   bladeVert()   — the trail filament, per vertex,
+   *                                        `lens.line(EDGE_R0_LD, dist, gMax)`
+   *                                        at blade.js:314, with the same
+   *                                        `1 + 1.30*bCap/r0` growMax idiom.
+   * ⚠ THE SENTENCE THAT USED TO BE HERE WAS STALE AND IS DELETED. It read
+   * "stage.js's own streak no longer needs this — it writes depth now, so the
+   * frame's gather defocuses it for free". That was true in r6 and FALSE from
+   * r7 on: the streak stopped writing depth the moment it became a segment
+   * crossing the focal plane (see streakMat.depthWrite), and it has been this
+   * function's first caller ever since. A blade trail could not take the depth
+   * route either: it is a long additive ribbon that overlaps itself, so
+   * depth-writing it would make its own segments occlude each other. It is the
+   * one class for which per-vertex defocus is the RIGHT structure rather than a
+   * patch, and this is the exact
    * function for it. Call it per vertex with the strip's in-focus half-width in
    * device pixels and -viewZ of that vertex; the taper along the trail then
    * comes out of the geometry for free, because the near end and the far end of
@@ -1850,15 +1861,40 @@ export function createStage() {
       const sv = modelViewMatrix.mul(vec4(p.x, 0.0, 0.0, 1.0)).xyz;
       const dist = sv.z.negate().max(0.05).toVar();
       const r0 = U.fR0.mul(U.pix).div(dist).max(0.05).toVar();
-      // `growMax` chosen so lineDefocus's internal ratio cap lands exactly on
-      // an ABSOLUTE pixel cap of fBCap. See lineDefocus's third argument.
-      const gMax = float(1.0).add(U.fBCap.mul(1.30).div(r0)).toVar();
+      // ── THE MITRE CREASE, AND WHY IT WAS A `min` ─────────────────────────
+      // The r7 critic saw "a visible mitre crease at ~(350,323) in the hero,
+      // where the segment chain changes direction with a corner in it", and
+      // could not instrument it. It is not a chain — the streak is ONE straight
+      // world-space segment and the projection of a straight segment is a
+      // straight line, so the centreline cannot kink. What kinks is the
+      // SILHOUETTE, i.e. this half-width, and it kinks because it was built out
+      // of hard clamps: `min(coc*bokeh, fBCap)` inside lineDefocus stops the
+      // growth dead at the ceiling, which is a slope discontinuity in the quad
+      // edge, and a slope discontinuity in a long thin bright shape is exactly
+      // what the eye reads as a mitred corner. (I confirmed the attribution
+      // rather than assuming it: forcing the streak's radiance to zero via
+      // fCeil = 2e-6 and re-shooting the hero removes the crease and the whole
+      // band with it, so it is this object and not blade.js's trail.)
+      //
+      // Fix: saturate SMOOTHLY at the same ceiling. bSoft = fBCap*(1 - e^-b/fBCap)
+      // is the same soft-ceiling idiom the radiance already uses; it is within
+      // 1% of b below 0.15*fBCap, asymptotes to fBCap, and — the point —
+      // bSoft <= b everywhere, so lineDefocus's own `min(coc*bokeh, bMax)` is
+      // satisfied by bMax and the hard branch never fires. The published API is
+      // untouched; only what this one caller asks of it changes.
+      const bRaw = cocPixelsNode(dist).toVar();
+      const bSoft = U.fBCap.mul(bRaw.div(U.fBCap).negate().exp().oneMinus()).toVar();
+      const gMax = float(1.0).add(bSoft.mul(1.30).div(r0)).toVar();
       const L = lineDefocus(r0, dist, gMax).toVar();
       // half-height of the quad in device px, and the scale that puts it there:
       // local y = 0.5 is r0 px before growth (see layoutStreak's _sY), so the
       // multiplier is halfPx / r0.
-      const halfPx = r0.mul(L.x).mul(STREAK_HALO)
-        .max(U.fApW.mul(U.bokeh).max(U.fApM).mul(STREAK_AP_REACH)).toVar();
+      // The floor is a soft max for the same reason: a hard max() against the
+      // aperture reach would simply move the crease rather than remove it.
+      // (a^6 + b^6)^(1/6) is within 1.2% of max(a,b) and has no corner.
+      const wS = r0.mul(L.x).mul(STREAK_HALO).toVar();
+      const wA = U.fApW.mul(U.bokeh).max(U.fApM).mul(STREAK_AP_REACH).toVar();
+      const halfPx = wS.pow(6.0).add(wA.pow(6.0)).pow(1.0 / 6.0).toVar();
       vLens.assign(vec4(halfPx, L.y, r0, dist));
       return vec3(p.x, p.y.mul(halfPx.div(r0)), p.z);
     });
@@ -1893,8 +1929,13 @@ export function createStage() {
       const halfPx = vLens.x.toVar();
       const r0 = vLens.z.max(0.05).toVar();
       const dist = vLens.w.max(0.05).toVar();
-      // the same CoC the opaque gather uses, capped in PIXELS (see fBCap)
-      const b = cocPixelsNode(dist).min(U.fBCap).toVar();
+      // the same CoC the opaque gather uses, SOFTLY capped in PIXELS — the
+      // identical expression the vertex stage feeds lineDefocus, so the optical
+      // rim the profile is normalised to and the quad that carries it agree
+      // exactly. A `min` here and a soft cap there would put the rim inside or
+      // outside the quad by up to 30% at the widest station. See streakPos.
+      const bRaw = cocPixelsNode(dist).toVar();
+      const b = U.fBCap.mul(bRaw.div(U.fBCap).negate().exp().oneMinus()).toVar();
       const R = r0.add(b).toVar();                    // optical half-width, px
       // uv().y spans the WIDENED quad. yPx is the perpendicular offset from the
       // spine in DEVICE PIXELS — the unit the aperture lobe is written in, and
