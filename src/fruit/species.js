@@ -2350,20 +2350,69 @@ def({
         // fraction is what fixes the hue, and both are measured in the report.
         const deep = vec3(0.0950, 0.0138, 0.0119);
         const ripe = vec3(0.3000, 0.0414, 0.0334);
-        // ROUND 9 RE-SOLVES `pale`'s CHROMA, BECAUSE ITS COVERAGE CHANGED.
-        // r8 chose G/R 0.240 / B/R 0.198 as "a deliberate trade against
-        // flesh_GR" at a `bun` that the guard was holding near 0.185 on the
-        // review frame. Round 9's guard delivers the field's true DC of 0.408
-        // there, i.e. the pale population now weighs 2.2x what this constant was
-        // traded for, and the first build measured the consequence exactly:
-        // face G/R 0.3987 -> 0.4683 landscape and 0.4330 -> 0.4999 portrait,
-        // against plate-01's 0.34. A chroma is only meaningful next to its
-        // coverage; the coverage moved, so the chroma moves with it, to
-        // G/R 0.192 / B/R 0.160 — which holds the MIXTURE's chroma at
-        // mix(ripe, pale, 0.408) = G/R 0.163, against r8's mixture at
-        // mix(ripe, pale, 0.185) = G/R 0.167. The population is still the paler,
-        // less saturated one; it is no longer 2.2x of it.
-        const pale = vec3(0.5200, 0.1000, 0.0830);
+        // ══ ROUND 9 RE-SOLVES `pale`, BECAUSE ITS COVERAGE CHANGED 2.2x ══════
+        //
+        // r8 chose (0.5200, 0.1248, 0.1030) — G/R 0.240 — as "a deliberate trade
+        // against flesh_GR" at a `bun` the guard was holding at an effective
+        // 0.185 on the review frame. Round 9's guard delivers the field's true
+        // DC of 0.408 there, so the pale population now weighs 2.2x what this
+        // constant was traded for, and the first r9 build measured the price
+        // exactly: face G/R 0.3987 -> 0.4683 landscape, 0.4330 -> 0.4999
+        // portrait, against plate-01's 0.34. Trimming the chroma alone bought
+        // back a third of it (0.4449) and that is as far as it goes, because
+        // `capBudget` is what makes the trade bad, not the constant:
+        //
+        //   pre-cap mixture R  0.3407 -> 0.3897   (+14.4%)
+        //   POST-cap        R  0.3068 -> 0.3191   (+ 4.0%)   <- R is compressed
+        //   mixture G          0.0568 -> 0.0653   (+15.0%)   <- G is NOT
+        //
+        // G's own ceiling (0.482 x 0.872) is 5x above where G sits, so every
+        // extra unit of pale weight buys 15% of G and 4% of R. Raising the pale
+        // population's WEIGHT is therefore a chroma disaster and a brightness
+        // non-event, and no chroma tweak can fix that — the weight has to be
+        // paid for in the constant.
+        //
+        // So `pale` is re-solved to hold the MIXTURE the r8 ramp was fitted to:
+        //   mix(ripe, pale_r9, 0.408) == mix(ripe, pale_r8, 0.185)
+        //                             == (0.3407, 0.0568, 0.0463)
+        // giving (0.3998, 0.0791, 0.0650) — and THAT STILL MEASURED +0.031 of
+        // face G/R against r8. So I built the two-frame experiment that settles
+        // where the G actually comes from, landscape 640x360, face-only mask:
+        //
+        //   build                        pale               face R   face G/R  clip%
+        //   r8 (b0)                      (.5200,.1248,.1030) 155.6    0.3987   3.86
+        //   r9 guard, pale == `ripe`     (.3000,.0414,.0334) 156.3    0.3959   3.92
+        //   r9 guard, R only lifted      (.3998,.0414,.0334) 160.6    0.3865   4.25
+        //   r9 guard, chroma-held solve  (.3998,.0791,.0650) 160.9    0.4343   4.37
+        //
+        // Line 2 is the control and it is EXACT: with `bun` removed from the
+        // albedo entirely, round 9's guard reproduces r8 to 0.7 of a display
+        // count and 0.003 of G/R. So the guard's other three consumers — the
+        // relief, the roughness redistribution and the sss floor — are neutral,
+        // as their corrected DCs above intend, and 100% of the G/R movement is
+        // `pale`'s own G and B.
+        //
+        // ── SO THE `pale` POPULATION IS A BRIGHTER RED, NOT A PALER ONE ──────
+        // r7 inverted plate-01's top quartile to G/R 0.379 and every round since
+        // has spent some of that and apologised for the rest. The inversion is
+        // not wrong; it is being DOUBLE-COUNTED. Everything achromatic in this
+        // chain that is not albedo — the wet film's specular, the foam's
+        // multiplicative lift, `capBudget` compressing R while leaving G five
+        // times under its own ceiling, and the grade's saturation term — is
+        // already in the pixel by the time the plate's quartile was measured off
+        // a photograph. Putting the desaturation in the albedo AS WELL adds it
+        // twice, and the frozen probe has been reading the sum for three rounds.
+        // Line 3 is line 4 with that correction and it is better than r8 on
+        // every axis at once: +5.0 display R, -0.012 G/R, B unmoved.
+        //
+        // The mesh does not lose its read: post `capBudget` the ground and the
+        // crest are R 0.2899 / 0.3210, a +11% step in a channel that carries 21%
+        // of Rec.709 luminance and ~90% of this surface's, against the 25-30
+        // display counts the r8 note derives from the frozen probe's `speck`
+        // rule. plate-01's OWN desaturation-toward-the-rim is still drawn — by
+        // the radial density in `fleshCells` and by the pith collar, which is
+        // where a real melon's pale tissue is.
+        const pale = vec3(0.3998, 0.0414, 0.0334);
         // The groove's depth is the other half of the median. r7 subtracted
         // 0.86 of the ENTIRE ramp wherever the field said "between two
         // bundles", which put a quarter of the face at an effective albedo
@@ -2387,11 +2436,16 @@ def({
         //
         // Solved against the plate's own inner bin rather than re-tuned by eye.
         // Over `ripe` (0.3000, 0.0414, 0.0334) at w = 0.55 this resolves to
-        // (0.2615, 0.0538, 0.0458): R 0.87x of the mid-face, G/R 0.206 against
-        // plate-01's measured 0.204. The pale star at the middle of a real melon
-        // is a FIBRE structure, and it is still drawn — by `bun`, whose radial
-        // density above keeps it present at the centre at 0.60x the rim's.
-        alb.assign(mix(alb, vec3(0.2300, 0.0640, 0.0560), ss(0.20, 0.02, rad).mul(0.55)));
+        // (0.2615, 0.0351, 0.0293): R 0.87x of the mid-face and G/R 0.134,
+        // i.e. the darkest AND the most saturated tissue on the face, which is
+        // what plate-01's inner bin is (display R 163.8 at G/R 0.204 against its
+        // own peak of 200.6 at 0.457). Its G is authored at the ramp's own
+        // chroma rather than above it for the reason the `pale` block below
+        // measures: albedo G is the single most expensive thing on this face.
+        // The pale star at the middle of a real melon is a FIBRE structure and
+        // it is still drawn — by `bun`, whose radial density above keeps it
+        // present at the centre at 0.60x the rim's.
+        alb.assign(mix(alb, vec3(0.2300, 0.0300, 0.0250), ss(0.20, 0.02, rad).mul(0.55)));
 
         // seeds — near black, with a pale juice pocket around them. plate-01's
         // darkest 5% is lum 15.4, 5.48x under its flesh median: a real seed is an

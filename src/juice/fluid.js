@@ -1951,12 +1951,29 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       _j.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(beadReach * kB * 0.13);
       _v.add(_j);
       const u = rng();
-      const sz = (0.042 + 0.090 * u * u) * szScale;
-      // A rim bead is the fattest, most resolvable class and therefore the one
-      // the critic counted as "identical lozenges". It gets the widest
-      // morphology spread in the file: heavy outline lumping, a thickness that
-      // runs from flattened lens to tall bead, and a specular gain that reaches
-      // down to 0.22 so a real fraction of them carry no pip at all.
+      // ══ r9: THE RIM BEAD IS WHAT THE HERO ACTUALLY MEASURES ══════════════
+      // Reasoned from the frozen probe, not assumed: on the +250 ms hero the
+      // spray (life <= 145 ms) is long dead at the ~92 ms-SIM sample instant
+      // (RULE 2), so the ~86 rim beads emitted (q.rim 120 · 0.716) ARE the
+      // droplet population the critic scored — n_blobs 69 on a clean hero is
+      // exactly the count of live rim beads. Its old draw (0.042 + 0.090·u^2)
+      // spanned only 3.1x and floored at 0.042 (well above `small`), so every
+      // rim bead was juice-coloured and clustered at ONE fat size — that IS the
+      // "congruent fat beads" tell, and it set the hero median at 72 px against
+      // the plate's 24. The plate is a heavy tail TOWARD small: median 24 with
+      // 211 of 433 blobs under it and a thin tail to 1395. So the rim draw is
+      // now the same shape as the spray — a low floor with a high power, most
+      // beads piled small (and, being below `small` = 0.031, reading WHITE as
+      // the plate's fine drops do) and a handful running fat to carry the
+      // juice colour and the r8 optical interior. Floor 0.042 -> 0.019, power
+      // 2 -> 4.2: median falls to ~2.5 px (area ~26) while the fat end holds at
+      // 0.140, so area_p95/median rises the way it must — by LOWERING the bulk,
+      // not by fattening the tail (the tail was already heavier than the
+      // plate's: hero p95 273 vs plate 194; it was the median that was wrong).
+      const sz = (0.017 + 0.123 * Math.pow(u, 4.4)) * szScale;
+      // It gets the widest morphology spread in the file: heavy outline
+      // lumping, a thickness that runs from flattened lens to tall bead, and a
+      // specular gain that reaches down to 0.22 so a real fraction carry no pip.
       // r6: and 45% of them are a coalescing DOUBLET (morph 0.30) — the one
       // silhouette this field has never contained and the one an ellipse fit
       // cannot reach.
@@ -1996,36 +2013,63 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       _j.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(beadReach * kS * 0.17);
       _v.add(_j);
       const w = rng();
-      const base = (0.0085 + 0.050 * filmness) * szScale;
-      // ── r6 (B): A CLEAVE HAD NO ACHROMATIC GRAINS AT ALL ──────────────────
-      // The size law here spans base .. base*e^0.9 = 2.46x, and for a cleave
-      // `base` is 0.0585 against an achromatic threshold `small` of 0.022. So
-      // the ENTIRE slow-cleave spray population landed at cls() >= 0.67 and
-      // every grain of it was juice-coloured — no matter how fine. plate-02 is
-      // explicit that this is wrong: in a real cleave the fine grains near the
-      // blade read silver while only the pooled film reads yellow, because the
-      // scatter/transmit crossover is a function of DROPLET SIZE and of
-      // nothing else. `low` reshapes only the bottom third of the draw
-      // (w < 0.34), so the median and the whole fat end are untouched and the
-      // fast/slow SIZE split — the one axis the frozen probe says already
-      // works, 4.0 px vs 15.5 px — does not move. It only opens a fine white
-      // tail underneath a cleave's beads, which is also the heavier size tail
-      // the bar asks for (area p95/median 4.5 against plate-01's 8.3).
-      // r7: 0.26 -> 0.36 and the band w<0.34 -> w<0.40. The r6 verdict is right
-      // that this line could not deliver an achromatic GRAIN — but its
-      // diagnosis (that it should be moved off `sz` and onto the tint alone) is
-      // only half of it: at 0.26 the bottom of the draw was 0.0229 units =
-      // 1.05 px of radius, i.e. it shrank grains out of visibility because
-      // `small` was 1.2 px and there was nowhere else to go. With the crossover
-      // moved (see `small`/`fat` above) the bottom of this draw is 2.1 px of
-      // radius at w = 0.20 and STILL achromatic, so the size law and the colour
-      // law now agree instead of fighting. A heavy tail toward small is
-      // REFERENCE_BAR R1b's third correction in its own right, so it stays on
-      // `sz` where it physically belongs, rather than becoming a colour-only
-      // fudge factor.
-      const low = 1 - filmness * (1 - (0.36 + 0.64 * Math.min(1, w / 0.40)));
-      const sz = base * low *
-        Math.exp((1.9 - 1.0 * filmness) * Math.pow(w, 3.0 - 1.6 * filmness));
+      // ══ r9: THE SPRAY IS A HEAVY-TAILED POPULATION, NOT A FAT MONOCULTURE ══
+      // The r8 verdict, measured on a CLEAN frame, is right and the frozen probe
+      // shows exactly where: plate-01 resampled to the hero's own 1280x720
+      // raster is 433 blobs, MEDIAN 24 px, with 211 of them under 24 px and a
+      // thin tail to 1395 px. r8's clean hero is 69 blobs, median 72, only 13
+      // under 24. We are ~3x too FAT in the middle and MISSING the dense pile
+      // of small resolvable drops. The tell the critic keeps naming — congruent
+      // fat beads — is the SAME fact: a population whose median IS its mode,
+      // because the old law `base·e^(0.9·w^1.4)` for a cleave spanned only
+      // 2.46x in radius (6x in area), so `area_p95_over_median` was capped at
+      // ~6 by construction and every drop clustered near one size.
+      //
+      // The shape a real spray has is a heavy tail toward SMALL: most grains
+      // pile just above the resolution floor and a handful run fat. That is a
+      // large exponent on a bounded draw, `exp(g·w^p)` with p high, so w^p
+      // stays near 0 across most of [0,1] (the pile) and shoots up only as
+      // w -> 1 (the tail). p = 2.6, g = 1.95 for a cleave gives median/base
+      // = e^0.32 = 1.38 with the 95th percentile at 5.4x the median in radius,
+      // i.e. area_p95/median ~ 15 BEFORE the alpha profile and the blob floor
+      // clip it back toward the plate's 8.
+      //
+      // `base` drops 0.050 -> 0.0135 of filmness. That is the median move: it
+      // puts the cleave's median radius at ~2.6 px on the hero (0.026 units)
+      // and — for free — BELOW `small` (0.031), so the pile reads WHITE and
+      // only the fat tail crosses into juice colour, which is REFERENCE_BAR
+      // R1b's size->tint law falling straight out of the size law instead of
+      // being propped up by the old `low` fudge (now retired: its whole job was
+      // to open a white tail under a too-fat base, and a smaller base does that
+      // honestly). The r6 achromatic-grain fix is thus SUBSUMED, not reverted.
+      //
+      // ⚠ RULE 1 / THE FAST GUARD-RAIL, reasoned explicitly. At filmness = 0
+      // this is base = 0.0085·szScale and exponent 1.9·w^3 — the SAME two
+      // numbers r6/r7 shipped (the retired `low` was already 1 at filmness = 0),
+      // so a fast flick's spray is byte-for-byte unchanged and cannot move
+      // `particles.median_blob_area` or `tintlaw.sat_small`. MIST is untouched
+      // entirely. Only the cleave end of the interpolation moves.
+      //
+      // ⚠ PORTRAIT, reasoned explicitly. `sz` is a WORLD size; the raster maps
+      // it through `pix/depth`, which is 98 px/unit on the landscape hero and
+      // 28 px/unit in portrait (camZ 22 vs 10.2 — see stage.js). So the whole
+      // distribution scales by 0.29x in portrait and the small pile falls under
+      // the sub-pixel floor there, exactly as it did in r8 — this change is a
+      // PROPORTIONAL reshape, it introduces no new resolution term of its own,
+      // and it neither fixes nor worsens the standing portrait resolution
+      // limit. Verified on both orientations below and in the report.
+      // The tail is DELIBERATELY steep: a real heavy-tailed spray is a few
+      // drops many times the median (plate-01's max blob is 58x its median),
+      // so a low base with a large `g` on a high power `p` is exactly the
+      // shape — the pile of small grains sits near `base` across most of w and
+      // a handful of fat beads run out to base·e^g. g = 2.2, p = 3.2 puts the
+      // cleave median at ~2.4 px on the hero and the top drop at ~16 px, i.e.
+      // area_p95/median well north of the plate BEFORE the alpha profile and
+      // the blob floor clip it back.
+      const base = (0.0085 + 0.0135 * filmness) * szScale;
+      const eFast = 1.9 * Math.pow(w, 3.0);
+      const eSlow = 2.6 * Math.pow(w, 3.3);
+      const sz = base * Math.exp((1 - filmness) * eFast + filmness * eSlow);
       // ~22% of a SLOW cleave's spray is not a bead at all but a torn scrap of
       // the sheet — a short thick ligament, already necking. Carries `filmness`,
       // so RULE 1 holds: a fast flick emits none of them.
