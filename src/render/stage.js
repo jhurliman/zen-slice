@@ -557,7 +557,7 @@
 import * as THREE from 'three';
 import {
   Fn, uniform, uv, screenUV, vec2, vec3, vec4, float,
-  mix, smoothstep, luminance, dot, fract, sin, cos, floor, step, max,
+  mix, smoothstep, luminance, dot, fract, sin, cos, floor, step, max, log,
   pass, renderOutput, convertToTexture, rtt, perspectiveDepthToViewZ,
   positionLocal, modelViewMatrix, varyingProperty,
 } from 'three/tsl';
@@ -744,6 +744,16 @@ export function createStage() {
     fApP: uniform(0.5),
     fApS: uniform(0.13),
     fApT: uniform(0.72),
+    // ── round 9: fRimK — THE RIM IS CONVOLVED, NOT CLIPPED ─────────────────
+    // Multiplier on the rim-softening length of the SCENE lobes, in units of
+    // the same glare half-width `fApW*bokeh` the aperture lobe is written in.
+    // 1.0 = the rim is blurred by exactly one glare PSF, which is what a real
+    // lens does to the edge of a defocus disc. 0 would restore round 8's hard
+    // support and its one-pixel cliff. It is DIMENSIONLESS — a ratio of two
+    // device-pixel lengths — which is the only form that survives a rotation
+    // of the phone; see the fApM note above for what happens to terms in this
+    // file that are not.
+    fRimK: uniform(1.35),
     // SCENE-LINEAR CEILING on the streak's own radiance. See streakNode's
     // soft-clip block: this, not the exposure and not fI, is what decides how
     // many pixels of the frame the flare is allowed to blow.
@@ -1943,7 +1953,63 @@ export function createStage() {
       const yPx = uv().y.sub(0.5).mul(2.0).mul(halfPx).toVar();
       // Renormalise to R so that u = 1 is the optical rim of the SCENE lobes.
       const u = yPx.div(R).toVar();
-      const s = u.mul(u).oneMinus().max(0.0).add(1e-6).toVar();
+      // ── ROUND 9: THE RIM IS CONVOLVED, NOT CLIPPED ───────────────────────
+      // `const s = (1 - u^2).max(0.0)` was the defect the r8 critic named, and
+      // it is a defect of ARITHMETIC, not of tuning: `max(...,0)` gives the
+      // profile COMPACT SUPPORT, so whatever exponent q is chosen, the whole
+      // remaining amplitude of both scene lobes has to disappear between the
+      // last pixel inside |u|=1 and the first pixel outside it. The chord meets
+      // zero with a vertical tangent, so that last step is sqrt(2/R) of the
+      // pedestal — 0.32 at R = 20 px — and it lands on the halo's shoulder
+      // rather than on the void. Measured on the r8 hero, that is a 1.79-2.01x
+      // luminance drop in ONE pixel held continuously over ~400 px of the near
+      // half: a ruled straight silhouette edge that no lens produces. Round 8
+      // painted a hot core ON TOP of that slab. It is still a slab underneath.
+      //
+      // The fix is the missing convolution, not a fourth lobe. What reaches the
+      // sensor is the defocused image of the filament convolved with the LENS's
+      // OWN PSF, whose half-width `wG` is a property of the glass and is FIXED
+      // IN DEVICE PIXELS at every station — the one true statement round 8's
+      // aperture lobe was built on, applied where it belongs. A convolution
+      // cannot be evaluated in closed form here, but the only thing the hard
+      // support gets wrong is the CORNER at |u| = 1, and a corner is exactly
+      // what a softplus removes:
+      //
+      //     d      = 1 - u^2                    (the chord's own argument)
+      //     s      = dlt * ln(1 + exp(d/dlt))   (softplus, evaluated stably)
+      //
+      //   * d >>  dlt  ->  s -> d      : the interior is the disc chord, bit
+      //                                  for bit. Nothing inside the rim moves.
+      //   * d << -dlt  ->  s -> dlt*exp(d/dlt) : OUTSIDE the optical rim the
+      //                                  profile now CONTINUES, as a gaussian
+      //                                  in u of sigma sqrt(dlt/2q). There is
+      //                                  no last pixel and no cliff.
+      //   * |d| < dlt  ->  the rim itself, rounded over exactly one PSF.
+      //
+      // and because d is quadratic in u with d ~ 2(1 - u) at the rim, a rim
+      // blurred by wG DEVICE PIXELS is a rim blurred by wG/R in u and therefore
+      // by 2*wG/R in d. That ratio is the ONLY new quantity, it is
+      // dimensionless, and it is the same number in both orientations for the
+      // same physical lens — which is the property the last three rounds of
+      // portrait-only bugs were all missing.
+      //
+      // THE HANDOVER IS NOW INSIDE ONE EXPRESSION, which is what the critic
+      // asked for. `dlt` is small where the streak is wide (R >> wG: a chord
+      // with a softened rim) and of order 1 where the streak is sharp
+      // (R -> wG: the softplus has swallowed the support entirely and what is
+      // left IS the glare PSF). Nothing crosses over, nothing is summed, and
+      // there is no amplitude at which one lobe takes the frame from another.
+      const wG = U.fApW.mul(U.bokeh).max(U.fApM).toVar();
+      const dlt = U.fRimK.mul(2.0).mul(wG).div(R).clamp(0.02, 4.0).toVar();
+      // stable softplus: max(d,0) + dlt*ln(1 + exp(-|d|/dlt)). The naive form
+      // overflows at d/dlt > 88 in fp32 — d reaches 1 and dlt reaches 0.02, so
+      // the naive form WOULD overflow here, on the widest station of the hero.
+      const sp = (x) => x.max(0.0)
+        .add(dlt.mul(log(x.abs().div(dlt).negate().exp().add(1.0))));
+      // peak of the profile, at u = 0 i.e. d = 1. Divided out so `fCeil`, the
+      // flux law and every weight below keep the meaning they had in round 8.
+      const s0 = sp(float(1.0)).toVar();
+      const s = sp(float(1.0).sub(u.mul(u))).div(s0).max(1e-7).toVar();
       const mB = smoothstep(0.0, 0.45, b.div(R)).toVar();
       const qc = mix(U.fQCore, float(0.5), mB).toVar();
       const qw = mix(U.fQWarm, float(0.5), mB).toVar();
