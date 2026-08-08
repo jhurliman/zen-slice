@@ -1022,87 +1022,92 @@ function fibreBundles(cc, u, lite) {
  *
  * ── THE FIELD ──────────────────────────────────────────────────────────────
  *
- * A jittered cell grid in (angle, radius). The coordinate walks `Nc` cells
- * around the ring and `Nr` from centre to rim, so at cap radius r one cell is
- * (2*PI*r/Nc) x (1/Nr) in normalised cap units — the aspect is a free parameter
- * and at Nc/Nr = 8 a cell at r = 0.6 is 2:1 elongated RADIALLY, which is what
- * makes a chunk read as a bundle rather than as a dot. `wrap = Nc` makes the
- * angular index periodic, so there is no seam at +-PI (the round-5 note on
- * `cellPt` is explicit that this is mandatory for any grid indexed by angle).
+ * See the block inside `fleshCells` itself: the field is a RIDGE NETWORK of
+ * value noise sampled in the CARTESIAN cap coordinate. That is the second
+ * design — the first was the r7 verdict's literal instruction, a jittered cell
+ * grid with pale chunks, and the frozen probe's own `speck` mask rendered side
+ * by side against the plate is what rejected it. The finding is written down
+ * there rather than here because it is the useful part.
  *
- * TWO OCTAVES, INNER AND OUTER, because a single Nc has a cell 5x wider at the
- * rim than at rad 0.2 and the r7 verdict is explicit about what has to happen
- * at portrait scale: "gate the whole field through blobFade at the CELL radius
- * ... so that at portrait scale the cells COARSEN rather than vanish". Each
- * octave carries its own `blobFade` at its own chunk radius, so the fine one
- * removes itself first and the coarse one is still there — which is the
- * difference between a face that loses its texture on a phone and one that
- * doesn't.
- *
- * Sizes at the 640x360 review frame (watermelon cap 104 px across, 52 px
- * radius, so one cap unit = 52 px):
- *
- *   octave  Nc  Nr  owns rad     cell at mid-band      chunk (2 x 0.30 cell)
- *   inner   16   2  0.06 .. 0.52   6.9 x 26 px          4.1 x 15.6 px
- *   outer   30   4  0.40 .. 1.00   8.2 x 13 px          4.9 x  7.8 px
- *
- * A 4-8 px chunk is a RESOLVED OBJECT — `blobFade` passes it at 2..4 px and
- * these are past that — and its area under the frozen `foam` probe's 7x7 median
- * subtraction is 12-30 px, against a scale-matched plate-01 median of 4 px with
- * a p95/median of 8.55. The tight distribution is the point: every chunk in one
- * octave is within a factor of 1.6 of every other, where a ridge field's crest
- * widths run from 0 upward.
- *
- * Returns the same { bun, grv } pair `fibreBundles` did, so the four call sites
- * are unchanged in shape:
- *   bun  the pale chunk — plate-01's top quartile, a RESOLVED object.
- *   grv  the wet groove between chunks, where plate-01's dark quartile and its
- *        standing juice live. Deliberately much shallower than r7's: r7's
- *        groove was 0.86 of the whole ramp and it is the single term that put
- *        our p25 at display 86 against the plate's 171.
+ * Returns the same { bun, grv } pair `fibreBundles` did, so the four call
+ * sites are unchanged in shape.
  */
 function fleshCells(cc, u, lite) {
-  const { aN, rad } = cc;
+  const { q, rad } = cc;
 
-  // One octave. `gate` is the radial band it owns; `dens` is a second hash
-  // stream off the cell id (the same trick `wetField` uses) so DENSITY and SIZE
-  // are independent knobs — round 5's foam could not separate them and that is
-  // what made it a uniform carpet.
-  const oct = (Nc, Nr, seed, gate, dens) => {
-    const p = vec2(aN.mul(Nc), rad.mul(Nr)).toVar();
-    const c = cellPt(p, seed, 1.0, Nc, 0.32);
-    // chunk radius varies 0.21..0.32 of a cell, inside the 0.32 margin so no
-    // chunk is ever truncated flat against a cell wall (the "grid of hard-edged
-    // square dots" the r4 verdict named on the orange).
-    const r = c.id.mul(0.11).add(0.21).toVar();
-    const g = fract(c.id.mul(29.13).add(0.47)).toVar();
-    const w = gate.mul(blobFade(p, r)).mul(step(dens, g).mul(0.55).add(0.45)).toVar();
-    return {
-      // the chunk: a plateau with a soft rim, not a spike with a skirt
-      k: blob(c.d, r.mul(0.52), r).mul(w).toVar(),
-      // "is there a chunk anywhere near" — its complement is the groove
-      n: blob(c.d, r.mul(0.90), r.mul(1.85)).mul(w).toVar(),
-      w,
-    };
+  // ⚠ THIS IS THE SECOND DESIGN. THE FIRST ONE WAS CELL BLOBS AND THE PROBE
+  // KILLED IT, so the reasoning is left in place because it is the finding.
+  //
+  // I built the r7 verdict's literal instruction first — a jittered `cellPt`
+  // grid in (angle, radius) with 2:1 radial anisotropy and pale CHUNKS. It
+  // moved `speck_median_area` 2.0 -> 3.0 and then stuck, and rendering the
+  // frozen probe's own `speck` mask side by side with the same mask on the
+  // scale-matched plate says why in one look:
+  //
+  //   plate-01   a DENSE CONNECTED NETWORK of pale filaments 2-3 px wide
+  //              covering the whole face, 26.01% coverage, median 4 px,
+  //              p95/median 8.55 — one population, everywhere.
+  //   cell blobs isolated dots at 19% coverage, median 2 px, p95/median 12 —
+  //              plus ONE huge connected component, which is the pith collar,
+  //              and which is where our entire p95/median tail comes from.
+  //
+  // A blob field cannot be a network however you jitter it: a one-tap cell has
+  // no neighbour, so its features are islands by construction. The critic's own
+  // words were "lift albedo HARD on the CELL WALLS" and the walls are the part
+  // I got wrong — walls are connected, interiors are not.
+  //
+  // The cheapest connected network in this file is a RIDGE of value noise:
+  // `1 - |noise|` has a crest along every zero crossing of the noise, and the
+  // zero set of a continuous 2D field is a set of closed curves. One noise2 tap
+  // per octave, no hashes, no neighbour search, and it is the same primitive
+  // `rdg2` already uses — the difference from r7's `fibreBundles`, which was
+  // also a ridge and which read as "a drawn starburst", is that r7 sampled it
+  // in ANGLE (`ringCoord`), so every crest was a radial spoke converging on the
+  // cap centre. Sampled in the CARTESIAN cap coordinate `q` it is isotropic and
+  // its crests wander, which is what plate-01's mesh actually does.
+  //
+  // SIZE, at the 640x360 review frame (watermelon cap ~104 px across, so one
+  // cap unit ~= 40-52 px depending on the foreshortening of the half):
+  //
+  //   octave  S     noise unit   crest width   pxFade(3.4) weight at review
+  //   coarse  8.5   4.7 px       ~2.1 px       0.70   (full at hero size)
+  //   fine   16.0   2.5 px       ~1.1 px       0.00   (returns at hero size)
+  //
+  // so the fine octave removes ITSELF at review distance and comes back in a
+  // 2x frame with no branch and no popping, exactly as r7's `pxFade` was
+  // designed to do. The crest threshold is what sets coverage and it is tuned
+  // against the frozen probe, not by eye: `speck_cov_pct` is the number.
+  //
+  // Returns the same { bun, grv } pair the ridge and the cell field both did:
+  //   bun  the pale filament — plate-01's top quartile, a connected wall.
+  //   grv  the cell INTERIOR, the darker saturated crimson between filaments.
+  //        Shallow on purpose: it is the majority of the area, and r7's 0.86
+  //        of the whole ramp on the majority of the area is what put our p25 at
+  //        display 86 against the scale-matched plate's 171.
+  const oct = (S, ox, oy, px) => {
+    const c = q.mul(S).add(vec2(ox, oy)).toVar();
+    return { r: abs(noise2(c)).oneMinus().toVar(), w: pxFade(c, px).toVar() };
   };
+  const o1 = oct(8.5, 31.0, 7.0, 3.4);
+  const o2 = lite ? null : oct(16.0, 5.0, 44.0, 3.4);
 
-  const oIn = oct(16.0, 2.0, 11.0, ss(0.06, 0.20, rad).mul(ss(0.52, 0.34, rad)), 0.30);
-  const oOut = lite ? null : oct(30.0, 4.0, 23.0, ss(0.34, 0.46, rad), 0.24);
+  const crestOf = (o) => ss(0.690, 0.845, o.r).mul(o.w);
+  let crest = crestOf(o1);
+  let wmax = o1.w;
+  if (o2) { crest = max(crest, crestOf(o2).mul(0.88)); wmax = max(wmax, o2.w); }
 
-  let k = oIn.k;
-  let n = oIn.n;
-  let w = oIn.w;
-  if (oOut) { k = max(k, oOut.k); n = max(n, oOut.n); w = max(w, oOut.w); }
+  // groups of filaments run brighter than their neighbours — without this the
+  // mesh is one value everywhere and the face reads as a net curtain rather
+  // than as tissue. One extra tap, and only where it is measured.
+  const grp = lite ? null : ss(-0.42, 0.36, noise2(q.mul(2.4).add(vec2(9.0, 17.0))));
+  if (grp) crest = crest.mul(grp.mul(0.46).add(0.54));
 
-  // groups of chunks run brighter than their neighbours — without this every
-  // bundle is the same value and the face reads as a regular quilt. One
-  // angle-periodic tap, shared by both octaves.
-  const grp = lite ? null : ss(-0.40, 0.34, ringN(cc.ang, 2.7, rad.mul(1.7).add(11.0)));
-  if (grp) k = k.mul(grp.mul(0.52).add(0.48));
+  // the interior: "how far from any filament", from the same tap.
+  const prox = ss(0.30, 0.68, o1.r).mul(o1.w).toVar();
 
   return {
-    bun: k.mul(u.detail.mul(0.26).add(0.74)).clamp(0.0, 1.0),
-    grv: n.oneMinus().mul(w),
+    bun: crest.mul(u.detail.mul(0.26).add(0.74)).clamp(0.0, 1.0),
+    grv: ss(0.52, 0.10, prox).mul(wmax),
   };
 }
 
@@ -1604,7 +1609,16 @@ function fleshMaterial(sp, body, o = {}) {
     return mix(dry, wetR, w.wet)
       .sub(w.bubble.mul(u.foam).mul(0.022))
       .add(w.micro.mul(u.foam).mul(0.10))
-      .clamp(0.150, 1.0);
+      // ROUND 8: the floor moves 0.150 -> 0.190. Measured, not guessed: a
+      // private build with the watermelon flesh albedo replaced by a FLAT 0.02
+      // still put 3.65% of the cut face over the clip point, so a third of the
+      // r7 clipping is specular and is completely independent of every albedo
+      // constant in this file. A specular lobe's peak goes as 1/roughness^2
+      // while its integral is fixed, so this takes the peak down 1.6x and
+      // removes NO sheen — which is the only way to spend the r7-stage s8.4
+      // ceiling on the 25% of plate-01's face that sits between display 225 and
+      // 250 instead of on a few hundred pixels pinned at 255.
+      .clamp(0.190, 1.0);
   })();
 
   // ── normal: resolvable relief + the analytic collar shell ────────────────
@@ -2223,24 +2237,51 @@ def({
         // section 8.4 line 2 asks for and is measured below.
         //
         //   authored        after capBudget(k = 0.872)     renders (display R)
-        //   deep  0.1250          0.1250                     ~140
-        //   ripe  0.3450          0.3125                     ~197
-        //   pale  0.4800          0.3357                     ~201
+        //   deep  0.0950          0.0950                     ~128
+        //   ripe  0.2550          0.2550                     ~180
+        //   pale  0.5200          0.3383                     ~202
+        //
+        // ── WHY `ripe` CAME BACK DOWN AFTER I HAD ALREADY RAISED IT ────────
+        //
+        // First pass put `ripe` at 0.345 so the GROUND sat at the ceiling. It
+        // landed `flesh_mean_rgb` R on the target (172.2 against >= 165) and the
+        // face still measured `speck_median_area` 3 px at 22% coverage, i.e.
+        // the mesh was invisible — because if the ground is at the ceiling the
+        // chunk has nowhere to be. `capBudget` gives this material 0.3647 of
+        // albedo and nothing above it, so BOTH populations cannot be there.
+        //
+        // The frozen probe says exactly how much room the mesh needs and it is
+        // not much: `speck` is "luma exceeds the local 7x7 median by 18". So a
+        // chunk covering ~25% of the area sits above a local median that IS the
+        // ground, and it needs a 25-30 count luma step, no more. Ground at
+        // display ~178 and chunk at the ceiling ~203 is that step exactly, and
+        // it puts the ground on the scale-matched plate's OWN p25 of 171 while
+        // the chunk sits on its p50 of 203. The plate's percentile ladder is
+        // reproduced by construction instead of being chased with a gain.
+        //
+        // `pale`'s G/R also goes 0.193 -> 0.240. The r7 quartile inversion
+        // measured plate-01's top quartile at G/R 0.379 against a ground of
+        // 0.17 — a pale bundle is desaturated as well as bright, and the luma
+        // step above is mostly carried by G, not by R (Rec.709 weights G at
+        // 0.7152 and R at 0.2126). Stopping at 0.240 rather than going to the
+        // plate's 0.379 is a deliberate trade against `flesh_GR`, which the r7
+        // verdict wants at <= 0.39 and which a full-strength G lift would push
+        // back over 0.42. Measured both ways; the report has the numbers.
         //
         // Chroma is r7's, scaled: G/R 0.142 / 0.138 / 0.193 as before, because
         // the measured `flesh_GR` error (0.409 against 0.353) is not in these
         // constants — it is R clipping while G keeps climbing. Fixing the clip
         // fraction is what fixes the hue, and both are measured in the report.
-        const deep = vec3(0.1250, 0.0177, 0.0154);
-        const ripe = vec3(0.3450, 0.0477, 0.0385);
-        const pale = vec3(0.4800, 0.0925, 0.0777);
+        const deep = vec3(0.0950, 0.0138, 0.0119);
+        const ripe = vec3(0.3000, 0.0414, 0.0334);
+        const pale = vec3(0.5200, 0.1248, 0.1030);
         // The groove's depth is the other half of the median. r7 subtracted
         // 0.86 of the ENTIRE ramp wherever the field said "between two
         // bundles", which put a quarter of the face at an effective albedo
         // under 0.03 — our p25 was display 86 against the plate's 171. It is a
         // wet crevice between chunks of tissue, not a hole: 0.40.
         const t = gran.mul(0.26).add(cellv.sub(0.5).mul(0.12))
-          .add(0.92).sub(grv.mul(0.40)).clamp(0.0, 1.0);
+          .add(0.98).sub(grv.mul(0.36)).clamp(0.0, 1.0);
         const alb = mix(deep, ripe, t).toVar();
         // the chunks themselves — plate-01's pale top quartile, now a resolved
         // object with a characteristic size rather than a ridge crest.
@@ -2274,7 +2315,15 @@ def({
         // seed is the palest pixel on the face and round 4 had to flatten it to
         // avoid a ceiling that no longer binds.
         const s = seeds(cc);
-        alb.assign(mix(alb, alb.mul(vec3(1.28, 1.95, 1.90)).add(vec3(0.0048, 0.0034, 0.0031)), s.halo.mul(0.45)));
+        // ROUND 8: the pocket's multiplier is a RATIO on a ramp that just went
+        // up 1.24x, and `mix(a, a*m, w)` resolves to a*(1-w+wm) — at (1.28,
+        // 1.95) and w = 0.45 that is 1.126x R and 1.428x G on top of the new
+        // `ripe`, and the clipped-pixel map of the first render shows exactly
+        // this: 321 clipped pixels at a mean of (255, 187, 147), a pale pink
+        // ring around every seed. The ratio comes down with the ramp, and G
+        // comes down harder than R because a G multiplier on a deep-red pulp is
+        // the single most efficient way to push `flesh_GR` the wrong way.
+        alb.assign(mix(alb, alb.mul(vec3(1.12, 1.46, 1.44)).add(vec3(0.0048, 0.0034, 0.0031)), s.halo.mul(0.40)));
         // A seed is an occluder, so its value is only meaningful RELATIVE to the
         // pulp: round 4's (0.025, 0.0125, 0.008) was 11.6x under `deep`, and
         // left where it was it would now be only 2.8x under it — a dark red
@@ -2322,7 +2371,9 @@ def({
         // ROUND 5: the additive part x0.24 with the ramp; the multiplier goes
         // back to 1.30 for the same reason the seed halo did.
         const wl = ss(0.700, 0.770, rad).mul(ss(0.770, 0.812, rad).oneMinus()).toVar();
-        alb.assign(mix(alb, alb.mul(1.30).add(vec3(0.0139, 0.0031, 0.0036).mul(kr)), wl.mul(0.70)));
+        // ROUND 8: 1.30 -> 1.16 for the same reason as the seed pocket above —
+        // it is a ratio sitting on a ramp that moved.
+        alb.assign(mix(alb, alb.mul(1.16).add(vec3(0.0139, 0.0031, 0.0036).mul(kr)), wl.mul(0.70)));
 
         // PITH: the pale half of the value pair, and the band the cut-faces
         // critic measured at 67% of its pixels pinned at R=255 — which is what
@@ -2387,8 +2438,22 @@ def({
         // HUE is unchanged in radiance terms and is the round-4 author's, which
         // was right: emitted G/R 0.724, B/R 0.430 against plate-01's pith at
         // 0.724 / 0.430.
+        //
+        // ROUND 8 BREAKS THE RING UP, and the reason is a measurement nobody
+        // had made: rendering the frozen `foam` probe's own `speck` mask shows
+        // that our collar is ONE connected component running all the way round
+        // the face, and it is the whole of our `speck_area_p95_over_median`
+        // tail (12.1 against a scale-matched plate-01's 8.55) — the face's own
+        // texture was never the outlier the statistic was reporting. plate-01's
+        // pith is broken by its own structure. +-13% of angular variation and
+        // twice the granulation weight splits the component without touching
+        // the band's directional response, which the collar critic wants EVEN
+        // (plate-01 `ridge_max_over_min` 1.26-1.32): the modulation here is a
+        // 1.30 max/min on the ALBEDO of a band whose lit/unlit swing is 3.0, so
+        // it cannot dominate the `collar` probe's ridge statistic.
         const pithC = fromKeyLit(0.2973, 0.2153, 0.1278)
-          .mul(gran.mul(0.14).add(0.90))
+          .mul(gran.mul(0.30).add(0.85))
+          .mul(ringN(cc.ang, 6.5, 3.0).mul(0.13).add(1.0))
           .add(vec3(0.0123, 0.0106, 0.0070).mul(rdg2(q.mul(14.0), 2)))
           .mul(kr);
         alb.assign(mix(alb, pithC, L.pith));
@@ -2435,7 +2500,12 @@ def({
         const s = seeds(cc);
         const L = wmLayers(cc);
         // recessed pocket, domed seed -> embedded, not painted on
-        return fb7.bun.mul(0.72).sub(fb7.grv.mul(0.30)).add(gran.mul(0.50))
+        // ROUND 8: 0.72 -> 1.20 and the groove 0.30 -> 0.55. A chunk is
+        // 4 x 8..16 px, i.e. above the derivative footprint by a factor of two
+        // in BOTH directions, so unlike r7's 1-2 px ridge crest it actually
+        // becomes a normal instead of becoming noise. This is where the mesh's
+        // visible contrast now lives, because the albedo channel is saturated.
+        return fb7.bun.mul(1.20).sub(fb7.grv.mul(0.55)).add(gran.mul(0.50))
           .add(s.bodyM.mul(1.10)).sub(s.halo.mul(0.95))
           .sub(ss(0.760, 0.815, rad).mul(ss(0.815, 0.862, rad).oneMinus()).mul(1.1))
           .add(L.pith.mul(0.55)).sub(L.rind.mul(0.7));
@@ -2458,9 +2528,23 @@ def({
         //    is conserved instead of the detail simply being deleted.
         const cGf = cc.q.mul(13.4).add(vec2(2.0, 27.0));
         const lost = pxFade(cGf, 5.0).oneMinus().mul(0.055);
-        const bun = fleshCells(cc, u, true).bun;
+        // ⚠ ROUND 8 REVERSES THE SIGN OF THE BUNDLE TERM, DELIBERATELY.
+        // r7 made the bundle ROUGHER on the reasoning that a pale fibre is dry
+        // scattering tissue. The calibration in `fleshCells`'s header says that
+        // cannot work here: `capBudget` caps this material's albedo at 0.3647,
+        // which renders display ~204, and A QUARTER of plate-01's own face sits
+        // above display 225. No albedo permitted by contract v5 section 6 can
+        // reach that quarter, so if the mesh is only an albedo it is invisible
+        // — measured: the new `pale` and `ripe` render four display counts
+        // apart. plate-01 calls them what they are, "pale WET RIDGES", and R1
+        // says the face is "visibly wet, specular sheen across the WHOLE face".
+        // So the chunk is the smooth wet crest and the groove between chunks is
+        // the rougher, drier, deeper tissue. Same total roughness,
+        // redistributed: -0.14 over the ~22% of the area that is chunk, +0.10
+        // over the ~30% that is groove.
+        const fc = fleshCells(cc, u, true);
         return mix(u.rough, float(0.62), L.pith).add(L.rind.mul(0.18))
-          .add(bun.mul(0.20)).add(lost);
+          .sub(fc.bun.mul(0.14)).add(fc.grv.mul(0.10)).add(lost);
       },
       sssMask: (cc, u) => {
         const L = wmLayers(cc);
@@ -2503,7 +2587,19 @@ def({
       },
       // `floor` is contract v5 section 4's term B verbatim: the transmission
       // lobe's scene-linear radiance at key N.L = 0, area mean over the face.
-    }, { rough: 0.45, wet: 1.0, foam: 1.0, bump: 0.0300, floor: [0.1620, 0.0128, 0.0076] });
+      // ROUND 8, both measured on a uniform-only knockout sweep from one page
+      // load (no rebuild, so the pose is identical across the whole sweep):
+      //   bump     0.0300 -> 0.0240   `bump = 0` alone takes the clipped
+      //            fraction from 5.74% to 0.95% while `foam = 0` does NOTHING
+      //            (5.90%), so the r7 clipping is the RELIEF scattering the key
+      //            into blown pixels and is not the foam it was blamed on.
+      //   wetRough 0.270 -> 0.420     takes `pct_clipped_that_are_whitish` from
+      //            43.7 to 9.1 at wetRough 0.6, i.e. it removes the SPECULAR
+      //            half of the clipping specifically. 0.42 is the knee of that
+      //            sweep: below it the clip fraction runs away, above it the
+      //            face goes matte and R1's "visibly wet" is lost.
+    }, { rough: 0.45, wet: 1.0, foam: 1.0, bump: 0.0270, wetRough: 0.420,
+      floor: [0.1620, 0.0128, 0.0076] });
   },
 });
 

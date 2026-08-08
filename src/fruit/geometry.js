@@ -547,26 +547,57 @@
  * (5.0 against >= 6 deg) was failing, and it now passes. The numbers that
  * actually separate r6 from r7 are the separations and the eye.
  *
- * ── uv.y > 1.0 marks appendages ──────────────────────────────────────────────
- * skinMaterial() in species.js drives everything off positionGeometry and does
- * not read uv at all, so the skin's uv channel is free. It now carries a mask so
- * a crown can be painted as a crown:
+ * ── uv.y > 1.0 marks appendages — LIVE AS OF ROUND 8, WITH A CONSUMER ────────
+ * For three rounds this block asserted that "species.js keys
+ * `wood = step(1.72, uv.y)` off exactly this". IT DID NOT. The r7 fruit-geo
+ * critic caught it; the r8 materials owner implemented the consuming side.
+ * I have now read src/fruit/species.js AT HEAD rather than trusting either the
+ * comment or the brief, and these are the ACTUAL consumers, quoted:
+ *
+ *   species.js:1771  appendage()  wood  = smoothstep(1.680, 1.755, uv.y)
+ *   species.js:1772               leafy = smoothstep(1.020, 1.120, uv.y)*(1-wood)
+ *   species.js:1774               green = smoothstep(1.260, 1.600, uv.y)
+ *   species.js:1775               bh    = clamp01((uv.y - 1.00) / 0.70)
+ *   species.js:1776               sh    = clamp01((uv.y - 1.75) / 0.20)
+ *   species.js:1258  capCoords()  uv.y.clamp(0,1)   — the CUT FACE, unaffected
+ *
+ * and nothing else in src/ reads the fruit's uv (`grep -rn 'uv()' src/`:
+ * stage.js's three hits are its own lens quad). So the bands this file writes
+ * are:
  *
  *      uv.y  in [0.02, 0.98]  body skin, 0.02 = bottom pole, 0.98 = top pole
- *      uv.y  in (1.00, 1.70]  crown blade / calyx sepal, ramping with blade height
- *      uv.y  in [1.75, 1.95]  stem (woody)
+ *      uv.y  in (1.00, 1.70]  FOLIAGE: crown blade / calyx sepal, ramping with
+ *                             blade height; also a `stemLeaf` profile stem
+ *      uv.y  in [1.75, 1.95]  WOOD: profile stem, or a crown with woody:true
  *
- * Round 4: a crown may now set `woody: true`, which moves its blades from the
- * LEAF band into the STEM band. The watermelon's stem spur, the orange's navel
- * pucker and the apple's dried calyx all set it; the pineapple crown and the
- * strawberry calyx do not. So `wood` now covers every appendage that should be
- * brown and `leaf` every appendage that should be green, with no species test.
+ * `woody: true` on a crown moves its blades from the LEAF band into the STEM
+ * band. The watermelon's stem spur and the apple's dried calyx set it; the
+ * pineapple crown and the strawberry calyx do not.
  *
- * so `leaf = smoothstep(1.0, 1.14, uv().y)` and `wood = step(1.72, uv().y)` are
- * all species.js needs. It is continuous at the blade root (v -> 1.0 exactly
- * where the blade height goes to zero), and cutter.js's collar writes uv.y = 1.0
- * which sits at the "no leaf, no wood" end of both ramps, so nothing that
- * already exists changes value.
+ * ── TWO THINGS THE ROUND-8 READ-THROUGH FOUND, BOTH FIXED HERE ───────────────
+ * 1. `sh` IS NOT WHAT THIS FILE WAS WRITING. species.js reads the stem band as
+ *    a height fraction ("0 at the root and 1 at the tip on every appendage in
+ *    the game") and mixes a pale dry BROKEN END in at sh -> 1. The woody-crown
+ *    path was correct — 1.75 + 0.20*clamp01(h/crownMax) really is 0 at the root
+ *    — but the PROFILE STEM path wrote 1.75 + 0.20*ring.v, and `v` is the
+ *    fraction of the WHOLE profile array, which is ~0.96 on the ring at the
+ *    well floor. Every stalk in the game would have shaded as pale straw end to
+ *    end. layoutRings now carries `sv`, the stem-local fraction, and the mark
+ *    uses it. This is a one-line-of-arithmetic bug that neither file could see
+ *    alone, which is the exact failure mode this project keeps repeating.
+ * 2. A STRAWBERRY'S STALK IS GREEN. The mask is defined on uv.y RANGES, not on
+ *    which geometric feature produced them, so `stemLeaf: true` puts a species'
+ *    profile stem in the foliage band. It is also the more continuous of the
+ *    two: a leaf-band stem starts at exactly 1.0, where `leafy` is still 0 and
+ *    the body skin ends at 0.98, so there is no fringe quad at all — whereas
+ *    the woody band's 1.75 floor steps across one quad (species.js documents
+ *    that trap and defuses it by putting `green` late in the band).
+ *
+ * Continuity, re-verified: a NON-woody crown blade's mark -> 1.0 exactly as its
+ * height goes to 0, and `leafy` is 0 at 1.0. cutter.js's cap rim and collar
+ * write uv.y = 1.0 (cutter.js:998 / 1062), the same "no leaf, no wood" end of
+ * both ramps, and cutter.js:1113 blits the retained skin's original uv, so a
+ * sliced half keeps its appendage mask. Nothing that already existed changes.
  *
  * ── STALE NOTE, CORRECTED IN ROUND 6: "crown islands" ────────────────────────
  * Rounds 3-5 carried a warning here that a plane clipping a pineapple blade far
@@ -698,6 +729,7 @@ const BASE = {
   wellTop: 0, wellTopW: 0.3,
   wellBot: 0, wellBotW: 0.3,
   stem: null,
+  stemLeaf: false,
   crown: null,
   facets: null,
   asym: 0, asymFreq: 1.2, asymOct: 2,
@@ -1301,6 +1333,12 @@ function layoutRings(prof, S, res) {
       y, r, u: U[i], cols: Math.max(8, cols),
       v: i / (n - 1),
       stem,
+      // ROUND 8 — `sv` is the STEM-LOCAL height fraction, 0 at the well floor
+      // where the stalk stands and 1 at its tip. `v` above is the fraction of
+      // the WHOLE profile array and is therefore ~0.96 on the first stem ring;
+      // the two are not interchangeable and the appendage mask needs this one.
+      // See the uv.y contract note at the head of the file.
+      sv: stem ? (i - prof.stemStart) / Math.max(1, n - 1 - prof.stemStart) : 0,
       // Generous guard band: a ring's own polar angle is not quite its vertices'
       // (triaxial scale and relief move them), and skipping the blade field on a
       // ring that does contain footprint would step the blade root.
@@ -1517,7 +1555,7 @@ export function makeFruitGeometry(species, detail = 3) {
   UV[0] = 0.5; UV[1] = 0.0;
   P[3] = 0; P[4] = prof.Y[prof.n - 1]; P[5] = 0;
   UV[2] = 0.5;
-  UV[3] = prof.stemStart < prof.n ? 1.95 : 0.98;
+  UV[3] = prof.stemStart < prof.n ? (S.stemLeaf ? 1.70 : 1.95) : 0.98;
 
   let vi = 2;
   for (let ri = 0; ri < rings.length; ri++) {
@@ -1615,7 +1653,19 @@ export function makeFruitGeometry(species, detail = 3) {
       }
 
       // ── appendage lobes (crown blades / calyx sepals) ────────────────────
-      let mark = ring.stem ? 1.75 + 0.20 * ring.v : -1;
+      // ROUND 8 — `ring.sv`, NOT `ring.v`. See the ring note in layoutRings and
+      // the contract block at the head of the file: species.js reads the stem
+      // band as `sh = (uv.y - 1.75)/0.20` and mixes a DRY BROKEN END in at
+      // sh -> 1, so `v` (the whole-profile fraction, ~0.96 on the first stem
+      // ring) painted the entire stalk with the pale cut-end colour.
+      // `stemLeaf` moves a species' profile stem into the LEAF band instead: a
+      // strawberry's stalk is green, not lignified, and the contract is written
+      // on uv.y RANGES, not on which geometric feature produced them. It is
+      // also the more continuous of the two, because a leaf-band stem starts at
+      // exactly 1.0 where the body skin ends at 0.98.
+      let mark = ring.stem
+        ? (S.stemLeaf ? 1.0 + 0.70 * ring.sv : 1.75 + 0.20 * ring.sv)
+        : -1;
       if (blades && ring.nearCrown) {
         const len = Math.hypot(px, py, pz) || 1e-9;
         const a = Math.acos(clamp(py / len, -1, 1));

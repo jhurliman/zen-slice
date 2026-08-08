@@ -236,6 +236,48 @@
  *          because the probe drives itself with unseeded Math.random.
  *      Quote repeated runs or quote nothing.
  *
+ * ── What round 7 got wrong (65/100, +6) ────────────────────────────────────
+ *  The r7 verdict passed both named tasks (the film beat moved 2.6-4.5x in
+ *  mass, the size-to-tint law flipped sign) and then separated two properties
+ *  this file had been treating as one. That separation is the round:
+ *
+ *   u) SHAPE and INTERIOR ARE DIFFERENT PROBLEMS. Rounds 5, 6 and 7 all
+ *      attacked SHAPE (per-particle morphology, then the union-of-two-discs
+ *      topology). The INTERIOR — what happens INSIDE the outline — had never
+ *      been touched at all: it was ONE FLAT FILL, `mix(1.12, 0.26 + ndl^2*0.62,
+ *      big)`, constant across the whole disc, plus a stamped specular pip.
+ *      A real droplet is a LENS. It has a dark refractive core (the axial ray
+ *      is undeviated and carries the background, which over the void is black),
+ *      an interior that brightens outward as the deviation grows, a thin dark
+ *      grazing ring where total internal reflection kills transmission, and a
+ *      hot rim. See the OPTICAL INTERIOR block in `shade()`: five terms, ~22
+ *      ALU, zero draw calls, zero attributes, zero uniforms, zero programs.
+ *
+ *   v) THE DEFOCUSED DROPS WERE FLAT DISCS, and the reason was a category
+ *      error, not a missing feature. r7's rim was `fres`, an ANGULAR term, and
+ *      §B4.3(c) correctly flattens angular terms with the lens — so a bokeh'd
+ *      drop lost its rim entirely. But the defocused image of a rim-bright
+ *      drop is that rim CONVOLVED with the aperture: a WIDER, DIMMER RING, not
+ *      a flat disc. The angular term still flattens (contract untouched) and a
+ *      GEOMETRIC ring, whose width is read from the lens's own `flat`, takes
+ *      over. No second CoC — §B4.5 in full.
+ *
+ *   w) THE LIGHT DIRECTIONS AT THE TOP OF THIS FILE DID NOT MATCH stage.js,
+ *      and had a comment saying they did. The key was 7 degrees off; the RIM
+ *      WAS 44 DEGREES OFF AND ON THE WRONG SIDE IN X. Every droplet's second
+ *      specular lobe and the sheet's back-scatter pointed at a lamp that is
+ *      not in the scene. Fixed by reading stage.js rather than the comment.
+ *
+ *   x) THE ONE PRESCRIBED FIX I DID NOT MAKE. The r7 verdict's fix note asks
+ *      for `dblRim`/`dblSpray` 0.45/0.35 -> 0.75, from 60.22% of hero blobs
+ *      fitting an ellipse at IoU>=0.90 against plate-01's 32.47%. In TODAY's
+ *      tree that same frozen probe reads 37.10% and 38.98% on two runs of the
+ *      shipped r7 fluid.js — the r8 stage landed in between and moved it. The
+ *      prescribed edit would have driven it to ~20% and made every drop a
+ *      peanut. Left at 0.45/0.35; the interior work alone lands the hero on
+ *      28.81% (median IoU 0.8399 against the plate's 0.8228).
+ *      Numbers and both baseline runs: rounds/reports/r8-juice.md.
+ *
  * ── The lens boundary ───────────────────────────────────────────────────────
  * Round 5 added `stage.lens`, and this file defocuses its own sprites through
  * it. Every number comes from stage.js (`_lens.sprite(r0px, dist)` -> grow,
@@ -286,9 +328,27 @@ import {
 } from 'three/tsl';
 import { GRAVITY, clamp as cl, makeRng } from '../core/contract.js';
 
-// Must match render/stage.js: key = (7.5, 8.2, 5.0), rim = (-2.6, 1.6, -9.0).
-const L1 = new THREE.Vector3(7.5, 8.2, 5.0).normalize();
-const L2 = new THREE.Vector3(-2.6, 1.6, -9.0).normalize();
+// ── r8: A CROSS-FILE CONTRACT THAT EXISTED ONLY IN THIS COMMENT ─────────────
+// The line here used to read "Must match render/stage.js: key = (7.5, 8.2,
+// 5.0), rim = (-2.6, 1.6, -9.0)". It did not match. I went and read stage.js
+// instead of trusting the comment (`src/render/stage.js`, `makeLights`):
+//     key  DirectionalLight 0xfff1dd  i 3.40  position (8.2, 7.4, 6.2)
+//     rim  DirectionalLight 0xffd9a8  i 5.00  position (4.6, 2.4, -8.4)
+//     fill DirectionalLight 0x6c7a90  i 1.90  position (-7.0, -3.2, 4.0)
+// The key was 7.1 degrees off — harmless. The RIM WAS 44 DEGREES OFF AND ON
+// THE WRONG SIDE: normalised, this file had (-0.274, 0.168, -0.947) against
+// the lamp's actual (0.466, 0.243, -0.851). Every droplet's second specular
+// lobe, and the juice sheet's back-scatter term, were pointed at a light that
+// is not in the scene, on the opposite side in x. That is precisely the class
+// of failure the round-7 post-mortem describes: two files each correct in
+// isolation with the contract living in a comment. Both constants are now the
+// lamp positions verbatim; a THREE DirectionalLight's `position` IS the
+// surface->light direction with the target at the origin, which is the
+// convention `dot(n, L1)` below already assumes.
+// KEY (below) was already right: 0xfff1dd = (1.000, 0.945, 0.867) linear-ish
+// against this file's (1.00, 0.945, 0.870). Verified, not assumed.
+const L1 = new THREE.Vector3(8.2, 7.4, 6.2).normalize();
+const L2 = new THREE.Vector3(4.6, 2.4, -8.4).normalize();
 const KEY = new THREE.Vector3(1.00, 0.945, 0.870);   // warm white, linear
 
 const TAU = Math.PI * 2;
@@ -895,9 +955,13 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // drops read as painted dots and plate-02's read as glass beads.
       //
       // Everything below is ONE fragment-shader block. ZERO draw calls, zero
-      // attributes, zero uniforms, zero programs; ~22 ALU on top of the ~40 the
-      // r5 morphology already spends. See the perf note in rounds/reports/
-      // r8-juice.md — the draw-call delta this round is +0.
+      // attributes, zero uniforms, zero programs, and — because the VERTEX
+      // shader is untouched — zero change in quad area, so the fill-rate the
+      // droplet pool costs is r7's exactly. What it does spend is ~60 scalar
+      // ALU (counted by hand, two exp / one div / one smoothstep among them)
+      // inside pixels that were already being shaded. Measured draw-call and
+      // triangle delta this round: +0 / +0, landscape AND portrait; see
+      // rounds/reports/r8-juice.md.
       //
       // FIVE terms, each a named piece of geometric optics:
       //
