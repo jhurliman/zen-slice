@@ -1,0 +1,39 @@
+{
+  "key": "cutter",
+  "verdict": "render",
+  "score": 48,
+  "delta": 24,
+  "biggestGap": "The stepped rind lip now exists as geometry but produces almost no shading response — the pith band's luminance varies only 204->237 (1.16x) around the full ring versus 79.6->159.1 (2.00x) on the reference lemon peel, so the cut edge still reads as a decal ring painted on a flat disc rather than a solid shell catching a hard key.",
+  "evidence": {
+    "a_layer_thickness_scan": {
+      "method": "per-scanline classification F(flesh)/W(pith)/G(peel) scanning outward from the cut-face centre of the lower watermelon half, 640x360 native frames",
+      "r1_05_cut500ms": "ZERO scanlines produced a flesh->pith->peel run. Pith classified pixels on the whole lower blob = 55, all isolated singletons; scanlines read FFFFFF...GGGG with a stray W. Pith = 0-1px = ~1% of the 94px fruit diameter. Confirms round 1's '1-2px painted stroke'.",
+      "r2_05_cut500ms": "11/11 usable scanlines produced a clean contiguous flesh->pith->peel run. Median flesh 31px, pith 5px, peel 8px. Pith band = 5.3% of the 94px fruit diameter; peel run = 8.5%. Pith classified pixels on the lower blob = 747, a 13.6x increase over r1's 55.",
+      "ring_width_via_distance_transform": "pith annulus 630px, local widths 2.7-7.2px, mean ~4.3px = 4.6% of diameter, present in 12 of 12 thirty-degree sectors",
+      "raw_scanline_r2_y241": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF WWWW GGGGGG",
+      "raw_scanline_r1_y254": "FFFFFFFFF?F??FFFFFF?FFFF????FFFFFFFF???GGGG???G?GG  (no W run)",
+      "verdict_on_a": "FIXED. Three distinct layers with real thickness, ~5% of diameter, on the lower half."
+    },
+    "b_straight_chords": {
+      "method": "14x nearest-neighbour zoom on the right cut boundary of r2/05 (x355-395,y200-265) plus conic least-squares fit to a 360-sample radial boundary trace",
+      "result": "No polygon chords. At 14x the flesh|pith and pith|peel boundaries show only single-pixel raster staircase, no multi-pixel constant-slope segments. Longest near-straight run (<0.35 deg tangent change per step) = 1-2 degrees of arc, i.e. 0.3-0.6% of perimeter.",
+      "ellipse_fit": "r2/05 lower face: RMS deviation from best-fit conic 3.39px, max 11.11px on a 32.5px mean radius; radial std/mean 0.194 vs r1's 0.129 — the face is measurably LESS radially symmetric than round 1, which is the correct direction per the bar's 'the cut face is never a perfect ellipse'.",
+      "verdict_on_b": "FIXED. Visible straight chords are gone."
+    },
+    "what_still_fails": {
+      "unlit_lip": "Pith ring luminance by 30-deg sector on r2/05: 234,235,231,232,236,237,236,207,204,212,235,229. Range 204-237, max/min = 1.16. Reference plate-02 near-half peel band by 45-deg sector: 101,80,81,90,136,159,124,124 -> max/min = 2.00; far-half pale band 128.5-203.1 -> 1.58. Our band is 4-6x flatter in directional response than the reference. The RINGS profile in cutter.js builds 20-28 degree slopes across the pith (h -0.25 -> +0.34 -> +0.20 over d 3.10 -> 1.99 -> 1.60) and a ~45 degree chamfer wall, but none of that tilt shows up in the pixels.",
+      "no_contact_shadow": "Scanline r2/05 y=225 crossing outward reads (255,100,103) flesh -> (255,190,155) -> (255,246,201) pith -> (96,120,40) peel: monotonically brighter into the pith with no dark groove. A real raised peel lip casts a line of AO onto the flesh under it; there is none anywhere on the ring.",
+      "upper_half_has_no_layering_at_all": "r2/05 upper half cut face sampled at x=320,340,360 over y=178..204 is (60-85, 0-10, 0) — G and B literally clamped to zero, mean RGB (90,31,26), mean luminance 43.1 against the lower face's 87.3. No pith band, no peel band, no seeds, no texture: a matte dark-red lozenge. Half the cut faces in the hero shot show zero rind layering, which is the bar's 'flat, matte, dry-looking cut face' auto-fail.",
+      "citrus": "r2/08 lower citrus (diameter ~60px): the rim is a single blown white ring 2-4px wide with no separable peel band — vertical scans read O O O O W W O O O O with no yellow-peel/white-pith split, and the face interior has no segment wedges, no radial membranes and no central column. plate-02's lemon shows thick yellow peel, a distinctly paler pith and flesh as three separable bands."
+    },
+    "blind_call": "Instantly the render. The lower watermelon half's rind edge is genuinely credible in isolation now — that is the real progress — but the uniform-brightness cream annulus and the dead black-red upper cut face give it away in well under a second."
+  },
+  "fix": "In src/fruit/species.js, the cut-cap band colours (wet line 0.760-0.862, pith 0.828-0.880, rind 0.930-0.968 on uv.y) are written at essentially constant intensity and are ignoring the interpolated cap normal that cutter.js already supplies. Multiply each band by the real N-dot-L from the key plus a shadow/ambient term instead of emitting a fixed cream, and darken the groove ring (v=0.815) by a baked AO factor so the flesh under the raised peel lip picks up a contact shadow. Target: pith-ring luminance max/min around the boundary >= 1.8 (currently 1.16, reference 1.58-2.00), and the upper half's cut face must stop rendering as (90,31,26) with G=B=0.",
+  "roundOneScore": 24,
+  "frames": [
+    "/home/claude/juice/shots/r2/04-cut+250ms.png",
+    "/home/claude/juice/shots/r2/05-cut+500ms.png",
+    "/home/claude/juice/shots/r2/08-citrus-caps.png"
+  ],
+  "source": "/home/claude/juice/src/slice/cutter.js"
+}

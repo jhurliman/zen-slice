@@ -1,0 +1,64 @@
+{
+ "round": 6,
+ "at": "2026-08-08 \u2014 round 6 (frozen probes)",
+ "note": "FOUR PIECES CROSSED 60 for the first time and the deceleration reversed: mean delta +4.4 against round 5's +2.4. Freezing the measurement layer is the likeliest cause \u2014 three of this round's briefs started from CORRECTED baselines (materials was told it sat at 5.2% clipped, not the 14.07% its critic had reported), so builders chased real defects instead of instrument artefacts. The perf brief landed hard: draw calls 129 -> 88 against a bar of 120, triangles 216k -> 164k, worst-case JS frame 7.7 ms -> 3.4 ms. The lens fix was one boolean \u2014 the streak stops being a decal and writes depth \u2014 because post-processing cannot recover a depth that was never written, so opt-in was always the wrong structure. That change exposed two bugs that would have made the entire round worthless on an actual phone: the streak length and the CoC normalisation were both correct only in landscape, and portrait doubled the lens strength.",
+ "perf": {
+  "desktop": {
+   "peakDrawCalls": 88,
+   "peakTriangles": 163957,
+   "cpuMsPerFrame": 0.5
+  }
+ },
+ "pieces": [
+  {
+   "key": "stage",
+   "name": "Lighting, grade & DOF",
+   "score": 63,
+   "verdict": "render",
+   "biggestGap": "Stage's streak now defocuses but never changes shape: across the whole 1280 px hero span it holds FWHM 27-37 px (1.37x) and 10-90 edge 3.87-5.10 px (1.32x) with only its brightness tapering, so it reads as a 2D screen-spanning overlay rather than a foreshortened 3D object -- plate-01's own streak, on the identical frozen `lens` probe, varies FWHM 9.33x (3 -> 28 px) while staying SHARP at edge 1.72 -- and the second ribbon in the frame, blade.js's trail, is still deliberately pinned to the DOF focal plane in clip space and takes CoC 0.",
+   "fix": "src/render/stage.js, the streak mesh at ~line 1483-1517 and streakLen at 1593. Stop drawing the streak as a `PlaneGeometry(1,1)` scaled to `2.2*halfV*camera.aspect` -- that is a frustum-spanning billboard at one depth, which is why one uniform CoC and one uniform width is the physically CORRECT answ"
+  },
+  {
+   "key": "fruit-mat",
+   "name": "Fruit materials",
+   "score": 61,
+   "verdict": "render",
+   "biggestGap": "Now that the confetti is largely gone and the collar is a lit shell, the tell is the flesh itself: the cut face is a smooth, flat, low-saturation brick-red field whose ONLY internal detail is a 1-2 px dither, where plate-01's face is a dense mesh of resolved pale radial fibre bundles over crimson with juice pooled in the grooves - our speck median area is 2 px with 36.0% single-pixel against the plate's 6 px and 16.4%, and our flesh G/R is 0.4448 against 0.3392.",
+   "fix": "In /home/claude/juice/src/fruit/species.js, apply the round-6 rule - 'nothing below the pixel goes into the normal' - to the FLESH BODY, not just to the foam. `blobFade` and `micro` were aimed at wetField's two bead octaves and they worked; the melon flesh's own detail (the `ringN(ang, ...)` fibre t"
+  },
+  {
+   "key": "fruit-geo",
+   "name": "Fruit silhouette",
+   "score": 63,
+   "verdict": "render",
+   "biggestGap": "The three species whose identity lives in an APPENDAGE OR CONCAVITY still have none that reads \u2014 the apple has no stem well on its limb (a smooth 1.13 spheroid whose boundary cv actually FELL 0.095 -> 0.069), the strawberry has no apex and no calyx star (a crumpled red lump), and the pineapple crown is ~8 thin drooping filaments that read as a squid rather than a dense upward rosette of broad sword leaves \u2014 and the frozen probe agrees, ranking exactly those three last in BOTH pose distributions (director 2.55 / 2.90 / 2.77 against 7.73 / 10.92 / 10.18 for melon / orange / kiwi).",
+   "fix": "src/fruit/geometry.js \u2014 stop authoring identity into GROSS PROPORTION, which is now done, and author it into the LIMB, which is untouched. Concretely, in the SHAPE table: (1) the pineapple crown \u2014 replace the ~8 hair filaments with 14-18 BROAD sword leaves, each at minimum 9% of the body's equatoria"
+  },
+  {
+   "key": "cutter",
+   "name": "Cut faces & rind",
+   "score": 62,
+   "verdict": "render",
+   "biggestGap": "The collar defect I named last round is genuinely fixed, and what names the render now is the disc it rings: the cut face is an opaque unlit maroon plate at flesh_mean_rgb R=125.7 against plate-01's 189.2 through the same frozen `foam` region, and it got 11% DARKER this round, so the collar now stands 3.25x brighter than the flesh it encircles where plate-01's stands 2.60x \u2014 a bright stroke around a dark hole.",
+   "fix": "One change, in src/fruit/species.js, and do NOT touch capShade/capKey \u2014 they finally work. Lines 1564-1565 set the watermelon flesh ramp to `deep = vec3(0.0696, 0.0122, 0.0102)` / `ripe = vec3(0.2160, 0.0362, 0.0295)`. Raise BOTH by ~1.45x in R while holding the G/R and B/R ratios that this round go"
+  },
+  {
+   "key": "juice",
+   "name": "Juice fluid",
+   "score": 59,
+   "verdict": "render",
+   "biggestGap": "The slow/heavy cleave \u2014 R1's half of the bar \u2014 still has no liquid phase before beads (droplets on the film beat 02-cut+33ms: n_blobs 1, mask 100 px, down from r5's 13 / 665; 16-slow-cleave: 4 blobs) and the beads it does have run REFERENCE_BAR R1b's size-to-tint law BACKWARDS, with the finest droplets the reddest thing in frame (tintlaw 16-slow sat_small 0.8007 vs sat_large 0.6659, slope -0.1348 against r5's -0.0622), so the frame reads as a red decal painted along the cut line rather than as liquid.",
+   "fix": "One file, src/juice/fluid.js, and it is the line that faked TASK B. DECOUPLE TINT FROM RENDERED SIZE. At line 1571-1572, `low` currently multiplies `sz` itself, so the only way a cleave grain goes achromatic is by shrinking below `small` and out of visibility \u2014 which is why sat_small went UP to 0.80"
+  }
+ ],
+ "shots": [
+  "shots/r6/00-hero.png",
+  "shots/r6/01-whole-watermelon.png",
+  "shots/r6/04-cut+250ms.png",
+  "shots/r6/05-cut+500ms.png",
+  "shots/r6/08-citrus-caps.png",
+  "shots/r6/15-fast-flick+50ms.png",
+  "shots/r6/16-slow-cleave+50ms.png",
+  "shots/r6/09-combo+50ms.png"
+ ]
+}

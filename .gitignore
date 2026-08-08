@@ -141,3 +141,69 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Zen Slice project rules (appended after the Node template above, so the
+# negations below can override its broad patterns — e.g. its `*.log`).
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── agent scratch ────────────────────────────────────────────────────────────
+# Builder agents create private benches to iterate against. They are explicitly
+# NOT the frozen probe suite (tools/probes.py) and their numbers are not
+# comparable to suite numbers, so they are deliberately not versioned.
+tools/r*bench*/
+tools/critic*/
+tools/__pycache__/
+tools/*-snapshot.js
+t*.mjs
+tgpu*.mjs
+bare.mjs
+
+# ── per-agent A/B shot dirs ──────────────────────────────────────────────────
+# Ablation runs a builder shot to prove one claim. The round's canonical frames
+# are shots/rN/ and shots/rN-iphone/; these are working notes.
+shots/r*-juice-*/
+shots/r*-blade/
+shots/r*-stage/
+shots/dbg*.png
+
+# ── round 0 ──────────────────────────────────────────────────────────────────
+# The pre-TSL WebGL baseline, 30MB, superseded by every round since. Its scores
+# and gaps live in rounds/r0.json and in dist/progress.html.
+shots/r0/
+
+# ── local ────────────────────────────────────────────────────────────────────
+.DS_Store
+*.log
+!rounds/stall.log
+.stallwatch-heartbeat
+
+# ── root dotfile scratch ─────────────────────────────────────────────────────
+# Agents drop hidden working files at the repo root (.r8sweep.mjs, .geoview.mjs,
+# .stagemeasure.py, ...). Same rule as the benches: private iteration surfaces,
+# not results, and not comparable to the frozen suite.
+/.*
+!/.gitignore
+
+# ── historical round frames ──────────────────────────────────────────────────
+# Rounds 1-6 raw PNGs are ~35MB and are superseded every round. The full visual
+# history IS preserved: dist/progress.html embeds every round's frames as
+# thumbnails, and rounds/*.json carries each round's scores, verdicts and named
+# gaps. Only the current round's canonical frames are versioned, since those are
+# what the next round's critics measure against.
+shots/r1/
+shots/r1-iphone/
+shots/r2/
+shots/r2b/
+shots/r2-foundation/
+shots/r3/
+shots/r4/
+shots/r4b/
+shots/r5/
+shots/r6/
+
+# ── runtime logs ─────────────────────────────────────────────────────────────
+# The stall daemon's live output gains a line every 10 minutes; tracking it
+# keeps the tree permanently dirty. rounds/*.json is the durable record.
+rounds/stall.log
+rounds/.stallwatch-heartbeat

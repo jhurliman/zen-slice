@@ -1,0 +1,64 @@
+{
+ "round": 2,
+ "at": "2026-08-07 \u2014 round 2 (WebGPURenderer + TSL)",
+ "note": "Migrated to WebGPURenderer + TSL. The workflow itself died mid-round \u2014 all six agents finished their edits then expired on terminal API errors, and the pipeline hung ~12h waiting on one that never returned; the work was recovered from disk and integrated by hand. Every piece moved except the one that mattered most. Measured wins: the round-1 frame flood is gone (idle corners 177/147 -> ~0, blown pixels 1.91% -> 0.27% against the plate's 0.115%), and the flesh now has a real pale pith band at 5.3x the rind value where round 1 had none at all. The juice scored 0 delta: the fast-flick and slow-cleave frames measure as the same fluid in kind, and the critic found why \u2014 the fat juice-tinted spray budget GROWS with stroke speed, the exact inverse of the intent. Hero framing was fixed by hand afterwards: 30.0% -> 39.4% of frame height.",
+ "perf": {
+  "desktop": {
+   "peakDrawCalls": 149,
+   "peakTriangles": 205344,
+   "cpuMsPerFrame": 0.6
+  }
+ },
+ "pieces": [
+  {
+   "key": "stage",
+   "name": "Lighting, grade & DOF",
+   "score": 42,
+   "verdict": "render",
+   "biggestGap": "The frame has no depth: the newly added DOF produces zero measurable defocus on any fruit at any depth, and light does not attenuate with distance either, so every object sits pasted on one flat plane in a black void.",
+   "fix": "In src/render/stage.js, make the focal slab narrower than the playfield instead of wider than it. Drop U.focalLength from 5.0 to ~1.2 world units (line 162), and stop pinning U.focus to camera.position.length() (line 384) -- instead drive it each frame from the view-space Z of the fruit nearest the "
+  },
+  {
+   "key": "fruit-mat",
+   "name": "Fruit materials",
+   "score": 49,
+   "verdict": "render",
+   "biggestGap": "The flesh is driven past the red channel's ceiling \u2014 R is pinned at 255 across 48.3% of the watermelon cut face and 31.2% of the citrus half (plate-01 flesh clips 0.6%, plate-02's lemon half clips 0.00%), so the pulp reads as flat self-lit candy with all internal anatomy carried only by G/B, and the seeds cannot go black.",
+   "fix": "In /home/claude/juice/src/fruit/species.js, buy back red-channel headroom in fleshMaterial. Two coupled changes: (a) drop the pulp albedos about a stop -- watermelon fleshHex '#e33455' is linear R 0.73 and orange fleshHex '#ff9d1e' is linear R 1.0; real cut pulp is linear R 0.35-0.45, so target '#c0"
+  },
+  {
+   "key": "fruit-geo",
+   "name": "Fruit silhouette",
+   "score": 42,
+   "verdict": "render",
+   "biggestGap": "The hero watermelon silhouette is still a mathematically perfect circle \u2014 108x108 px, aspect 1.000 (round 1 was 99x101, 0.980) \u2014 occupying 30.0% of frame height against the plate's 61.1%, so the fruit that anchors the shot is an outline-identical ball at half the reference scale.",
+   "fix": "In src/play/director.js (line 81, radius: sp.radius * 1.06) and the camera setup it feeds, roughly double the hero framing so a whole watermelon subtends >=200 px of a 360 px frame (>=55%, matching plate-01's 61%), and simultaneously bias the spawn orientation in the same file so the authored prolat"
+  },
+  {
+   "key": "cutter",
+   "name": "Cut faces & rind",
+   "score": 48,
+   "verdict": "render",
+   "biggestGap": "The stepped rind lip now exists as geometry but produces almost no shading response \u2014 the pith band's luminance varies only 204->237 (1.16x) around the full ring versus 79.6->159.1 (2.00x) on the reference lemon peel, so the cut edge still reads as a decal ring painted on a flat disc rather than a solid shell catching a hard key.",
+   "fix": "In src/fruit/species.js, the cut-cap band colours (wet line 0.760-0.862, pith 0.828-0.880, rind 0.930-0.968 on uv.y) are written at essentially constant intensity and are ignoring the interpolated cap normal that cutter.js already supplies. Multiply each band by the real N-dot-L from the key plus a "
+  },
+  {
+   "key": "juice",
+   "name": "Juice fluid",
+   "score": 28,
+   "verdict": "render",
+   "biggestGap": "The central test fails outright: 15-fast-flick and 16-slow-cleave are the same fluid in kind \u2014 median particle area 26.5 px vs 25.0 px, 0% of blobs elongated in either, and the fast flick is MORE juice-tinted (75.6% of particle pixels at sat>=0.45) than the slow cleave (69.5%) \u2014 so stroke speed does not change morphology at all, let alone in the atomise-vs-sheet direction plate-02 demands.",
+   "fix": "In /home/claude/juice/src/juice/fluid.js the intent is coded but never reaches the pixels, for two specific reasons. (1) Line ~1039: `const nSpr = Math.round(q.spray * amtK * (0.50 + 0.60 * mistness) * bk)` makes the FAT, JUICE-TINTED spray budget GROW with mistness \u2014 a fast flick emits more of exac"
+  }
+ ],
+ "shots": [
+  "shots/r2b/01-whole-watermelon.png",
+  "shots/r2/03-cut+100ms.png",
+  "shots/r2/04-cut+250ms.png",
+  "shots/r2/05-cut+500ms.png",
+  "shots/r2/08-citrus-caps.png",
+  "shots/r2/15-fast-flick+50ms.png",
+  "shots/r2/16-slow-cleave+50ms.png",
+  "shots/r2/09-combo+50ms.png"
+ ]
+}

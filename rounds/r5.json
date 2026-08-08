@@ -1,0 +1,64 @@
+{
+ "round": 5,
+ "at": "2026-08-08 \u2014 round 5",
+ "note": "Recovered round: the workflow died after the builders and integrator finished, and the stall daemon died with it \u2014 unnoticed for 11.7 hours, because the heartbeat file existed but nothing read it. Fixed: stallcheck now alarms on its own watch's staleness, proven by backdating the heartbeat. The critique was relaunched separately so no builder work was re-spent. Scores are plateauing (mean delta +2.4 against round 3's +10, nothing across 60) and the critics found why \u2014 THE MEASUREMENT LAYER IS NOW THE PROBLEM. The materials critic showed the previous verdict's headline 49.3% was not reproducible because the ellipse mask was refit per round (with a fixed mask r4 was 33.6%), and that the builder's own probe keyed on G<0.80R, which by construction cannot see a white foam pip \u2014 the exact defect it was meant to measure. It returned 4.89% and let the target look met. Builders are optimising against instruments that cannot see the failure, and deltas between rounds are not real.",
+ "perf": {
+  "desktop": {
+   "peakDrawCalls": 129,
+   "peakTriangles": 215606,
+   "cpuMsPerFrame": 0.5
+  }
+ },
+ "pieces": [
+  {
+   "key": "stage",
+   "name": "Lighting, grade & DOF",
+   "score": 58,
+   "verdict": "render",
+   "biggestGap": "The lens is still applied per-object rather than to the frame, so the hole moved instead of closing: drops and strands now defocus at emission, but the two things stage composites over the void with depthWrite:false -- the full-width blade/streak ribbon and the juice sheet -- still take CoC 0, and in 00-hero the brightest, largest object in the picture holds a 4-5 px FWHM and a 2.2-3.6 px 10-90 edge dead constant from x=60 to x=1220 while droplets 20 px away from it are 20 px ghosts.",
+   "fix": "src/render/stage.js. The lens now has exactly one customer class and needs to have none. (1) The streak plane you own sits at z = -6 with depthWrite:false and toneMapped:false while the subject is at ~0 and the camera at ~13.5 -- it is 1.6x the subject distance down the lens and must be one of the m"
+  },
+  {
+   "key": "fruit-mat",
+   "name": "Fruit materials",
+   "score": 55,
+   "verdict": "render",
+   "biggestGap": "The watermelon cut face is buried under a uniform field of clipped white foam pips - 13.6% of the core-0.80 face against plate-01's 4.2%, 42% of them single-pixel, and 78% of every remaining R=255 pixel on the face is one of them at (255,213,174) - which is exactly the residual the round-4 exposure report named as 'almost entirely the foam pips, not the flesh', and it got twice as bad, so the face reads as red pulp with white confetti sprinkled on it rather than as wet flesh.",
+   "fix": "In /home/claude/juice/src/fruit/species.js, stop spreading the env-specular energy and REMOVE it from the flesh. The roughness change at `m.roughnessNode` (u.wetRough 0.115 -> 0.170, clamp floor 0.055 -> 0.105) redistributed the same integral, which is why clipped-white pips went 58 -> 126 px and fl"
+  },
+  {
+   "key": "fruit-geo",
+   "name": "Fruit silhouette",
+   "score": 58,
+   "verdict": "render",
+   "biggestGap": "No fruit is identifiable by its outline: over 32 uniform-SO(3) orientations of the shipping geometry the watermelon, orange, kiwi and apple BODIES all fall inside one band (elongation 1.21-1.36, boundary cv 0.078-0.130) and the between-species silhouette distance is 0.91-1.18x the within-species distance, so two random views of the same fruit differ as much as two different fruits.",
+   "fix": "src/fruit/geometry.js, the SHAPE table - stop spending the round on appendages and differentiate the BODY PROFILES, which the file's own negative result (relief cannot reach an outline) leaves as the only untouched lever besides appendages. Set genuinely different targets and assert them with the ro"
+  },
+  {
+   "key": "cutter",
+   "name": "Cut faces & rind",
+   "score": 59,
+   "verdict": "render",
+   "biggestGap": "The pith collar is a drawn ring, not a lit shell: around the near half's cut face it is the same width and the same brightness at EVERY angle \u2014 12-sector luminance 93,108,107,118,108,113,104,106,125,123,122,96, a max/min of 1.35 on the identical ungated geometric-band probe that read 3.95 on the same frame in round 4 and 2.77 on plate-02's lemon \u2014 because `capKey()` (species.js:462-464) dots `normalWorldGeometry`, which on the flat/domed cap disc the pith band actually lives on is constant all the way round the ring.",
+   "fix": "One change, in src/fruit/species.js, and do not touch stage.js or the albedos again. `capKey()` at species.js:462-464 dots `normalWorldGeometry`, which is azimuthally CONSTANT on the cap disc where the pith band is actually mixed in (species.js:1391 / :1635, `mix(alb, pithC, L.pith)` driven by `wmLa"
+  },
+  {
+   "key": "juice",
+   "name": "Juice fluid",
+   "score": 56,
+   "verdict": "render",
+   "biggestGap": "The r4 gap did not close: every resolvable droplet is still ONE convex analytic primitive \u2014 in the 12-60 px band 58.9% of our blobs fit a mathematically perfect ellipse to within 10% IoU (r4: 58.5%) against plate-01's 22.7%, and full convexity got WORSE (solidity>=0.95 on 28.0% of blobs, up from r4's 16.4%, against the plate's 10.3%) \u2014 because the new outline harmonic is a star-convex radial dent that can never produce a neck, a satellite or a pinched doublet, and it is multiplied to literally zero by defocus.",
+   "fix": "One file, /home/claude/juice/src/juice/fluid.js, and it is still the droplet impostor \u2014 the amplitude of the shape variation is not the problem, its TOPOLOGY is. (1) Line 583: delete the `.mul(sharp)` from `const lump = aS.y.mul(sharp)`. The bokeh integration already smooths the outline by construct"
+  }
+ ],
+ "shots": [
+  "shots/r5/00-hero.png",
+  "shots/r5/01-whole-watermelon.png",
+  "shots/r5/04-cut+250ms.png",
+  "shots/r5/05-cut+500ms.png",
+  "shots/r5/08-citrus-caps.png",
+  "shots/r5/15-fast-flick+50ms.png",
+  "shots/r5/16-slow-cleave+50ms.png",
+  "shots/r5/09-combo+50ms.png"
+ ]
+}

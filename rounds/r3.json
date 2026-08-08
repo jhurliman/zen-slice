@@ -1,0 +1,64 @@
+{
+ "round": 3,
+ "at": "2026-08-07 \u2014 round 3",
+ "note": "Four builders fixed the exact measured defects from round 2. Juice made the biggest gain of the project so far (+18) and cut faces crossed 60. But two things went wrong and both are worth recording. First, materials REGRESSED (-3): the builder dropped the flesh albedo exactly as instructed, and the stage builder simultaneously raised the key light from 6.2 to 7.7 and lifted environmentIntensity \u2014 the two changes cancelled, and the red channel still clips across half the cut face. That is a coordination failure between agents editing different files, not a failure of either agent. Second, the juice central test still fails for a reason nobody predicted: a single speed-INDEPENDENT particle class (cling beads) owns 68% of the fast frame's pixels and drags its statistics back to the slow case, even though every speed-dependent class was fixed correctly.",
+ "perf": {
+  "desktop": {
+   "peakDrawCalls": 112,
+   "peakTriangles": 179337,
+   "cpuMsPerFrame": 0.6
+  }
+ },
+ "pieces": [
+  {
+   "key": "stage",
+   "name": "Lighting, grade & DOF",
+   "score": 50,
+   "verdict": "render",
+   "biggestGap": "The defocus that was added is not a lens: it is a granular, dithered fuzz smear with no bokeh structure, it fires on the hero cut faces rather than on anything behind them, and razor-sharp juice sprites at the same depth sit on top of it -- so the 'blurred' region measures HIGHER high-frequency energy (lapvar 1953) than the in-focus fruit beside it (1415), where a real lens drops it ~19x.",
+   "fix": "src/render/stage.js, softDof(): the gather runs before/without the juice sprite depth, so mist at a defocused depth keeps CoC 0 and stays razor-sharp over blurred flesh -- that is the single loudest tell. Make the sprite pass write depth (or feed softDof a CoC buffer that includes sprite z) so a dro"
+  },
+  {
+   "key": "fruit-mat",
+   "name": "Fruit materials",
+   "score": 46,
+   "verdict": "render",
+   "biggestGap": "The clipping the round-2 verdict named is not fixed and on citrus is worse: the watermelon cut face still pins R at 255 across 49.7% of its area (was 49.8% by the identical probe, target <5%, plate-01 flesh 0.6%) and the orange half now clips 54.0% against 39.3% last round, because the albedo drop in species.js was cancelled by stage.js raising the key from 6.2 to 7.7 and environmentIntensity to 1.31 in the same round.",
+   "fix": "In /home/claude/juice/src/fruit/species.js, re-solve the two flesh ramps against the ACTUAL current chain, not the 6.2/1.08 chain the round-3 comment at :765-786 models. Key is now 7.7 and environmentIntensity 1.31, i.e. ~1.30x more irradiance than the model assumed, so every linear albedo in that m"
+  },
+  {
+   "key": "fruit-geo",
+   "name": "Fruit silhouette",
+   "score": 51,
+   "verdict": "render",
+   "biggestGap": "Three of the six fruits \u2014 watermelon, apple, orange \u2014 are still outline-identical smooth balls: every authored appendage (0.115r stem, 0.54-long apple stem, 0.165 navel, five 6.2% lobes) is a surface-shading event only and none of them reaches the silhouette, so the fruit that anchors the hero can be swapped for the apple without the outline changing.",
+   "fix": "src/play/director.js line 79: replace the uniform `setFromEuler(rr(0,6.28) x3)` with an orientation that first picks a random azimuth about the view axis, then constrains the fruit's +Y (the stem/well/crown axis) to lie within ~30-40 deg of the camera's screen plane \u2014 i.e. sample the polar tilt from"
+  },
+  {
+   "key": "cutter",
+   "name": "Cut faces & rind",
+   "score": 60,
+   "verdict": "render",
+   "biggestGap": "The pith band still blows out to clipped white \u2014 67% of the ring pixels on shots/r3/05-cut+500ms.png sit at R=255 (reference lemon peel: 0.00% clipped) \u2014 so the top of capKey()'s swing is crushed against the display ceiling and the ring's directional response only reached 1.32x versus the 1.8x target and the reference's 2.00-2.64x.",
+   "fix": "In src/fruit/species.js, stop the pith band saturating so capKey()'s swing has somewhere to go. Three edits, all in the watermelon cut-cap colorNode: (1) drop pithC's base from vec3(0.400,0.405,0.325) to ~vec3(0.235,0.238,0.191) and cut capKey's ambient from 0.30 to ~0.10 with gain ~1.20, targeting "
+  },
+  {
+   "key": "juice",
+   "name": "Juice fluid",
+   "score": 46,
+   "verdict": "render",
+   "biggestGap": "The central test still fails on its own numbers: at +50 ms the fast flick's free droplets are median 4.0 px and 76.3% juice-tinted while the slow cleave's are median 3.0 px and 77.6% juice-tinted \u2014 fast is neither finer NOR less saturated than slow, because one speed-independent class (84 cling beads, juice-tinted, ~13 px each) owns 68% of the fast frame's particle pixels and drags it back to the slow frame's statistics.",
+   "fix": "One change, /home/claude/juice/src/juice/fluid.js line 1185, is worth more than everything else: `const nCling = Math.round(q.cling * amtK * bk)` is the last class with no stroke-speed gate, and by pixel mass it is 68% of the fast flick. Make it `Math.round(q.cling * amtK * (0.12 + 0.88 * filmness) "
+  }
+ ],
+ "shots": [
+  "shots/r3/01-whole-watermelon.png",
+  "shots/r3/03-cut+100ms.png",
+  "shots/r3/04-cut+250ms.png",
+  "shots/r3/05-cut+500ms.png",
+  "shots/r3/08-citrus-caps.png",
+  "shots/r3/15-fast-flick+50ms.png",
+  "shots/r3/16-slow-cleave+50ms.png",
+  "shots/r3/09-combo+50ms.png"
+ ]
+}

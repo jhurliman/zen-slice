@@ -1,0 +1,54 @@
+:root { color-scheme: dark; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden; background: #000;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none; touch-action: none;
+  font-family: ui-rounded, -apple-system, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+}
+#zs-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+.zs-hud {
+  position: fixed; inset: 0; pointer-events: none;
+  padding: env(safe-area-inset-top, 12px) env(safe-area-inset-right, 16px)
+           env(safe-area-inset-bottom, 12px) env(safe-area-inset-left, 16px);
+}
+.zs-score {
+  position: absolute; top: max(18px, env(safe-area-inset-top)); left: 50%;
+  transform: translateX(-50%);
+  font-size: clamp(30px, 6vmin, 62px); font-weight: 200; letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.90);
+  text-shadow: 0 0 26px rgba(140,190,255,0.35), 0 2px 12px rgba(0,0,0,0.8);
+  font-variant-numeric: tabular-nums;
+}
+.zs-level {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: clamp(18px, 3.6vmin, 34px); font-weight: 200; letter-spacing: 0.42em;
+  text-transform: uppercase; color: rgba(255,255,255,0.0);
+  text-shadow: 0 0 34px rgba(180,220,255,0.5);
+  white-space: nowrap;
+}
+.zs-level.show { animation: zsLevel 3.4s cubic-bezier(.2,.6,.2,1) forwards; }
+@keyframes zsLevel {
+  0%   { opacity: 0; letter-spacing: 0.62em; color: rgba(255,255,255,0); }
+  18%  { opacity: 1; color: rgba(255,255,255,0.88); }
+  70%  { opacity: 1; color: rgba(255,255,255,0.88); letter-spacing: 0.44em; }
+  100% { opacity: 0; color: rgba(255,255,255,0); letter-spacing: 0.40em; }
+}
+.zs-combos { position: absolute; inset: 0; }
+.zs-combo {
+  position: absolute; transform: translate(-50%,-50%);
+  font-size: clamp(20px, 4vmin, 40px); font-weight: 300;
+  color: #fff; text-shadow: 0 0 28px rgba(255,214,150,0.9), 0 0 60px rgba(255,140,80,0.5);
+  will-change: transform, opacity;
+}
+.zs-hint {
+  position: absolute; bottom: max(30px, env(safe-area-inset-bottom)); left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px; letter-spacing: 0.34em; text-transform: uppercase;
+  color: rgba(255,255,255,0.34); animation: zsPulse 3.2s ease-in-out infinite;
+  transition: opacity .6s ease;
+}
+.zs-hint.gone { opacity: 0; }
+@keyframes zsPulse { 0%,100%{opacity:.22} 50%{opacity:.55} }

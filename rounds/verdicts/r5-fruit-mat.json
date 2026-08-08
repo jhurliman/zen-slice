@@ -1,0 +1,73 @@
+{
+  "key": "fruit-mat",
+  "verdict": "render",
+  "score": 55,
+  "delta": 4,
+  "biggestGap": "The watermelon cut face is buried under a uniform field of clipped white foam pips - 13.6% of the core-0.80 face against plate-01's 4.2%, 42% of them single-pixel, and 78% of every remaining R=255 pixel on the face is one of them at (255,213,174) - which is exactly the residual the round-4 exposure report named as 'almost entirely the foam pips, not the flesh', and it got twice as bad, so the face reads as red pulp with white confetti sprinkled on it rather than as wet flesh.",
+  "evidence": "METHOD NOTE FIRST, because the predecessor's headline number is not reproducible and the builder's headline number is measured with a mask that cannot see the failure. (i) The r4 verdict's 49.3% came from an ellipse re-fitted per round (their n went 1881 -> 935); with a mask held fixed across rounds the r4 face measures 33.6%, not 49.3%. (ii) The builder's own tools/r5probe_clip.py keys its mask on `G < 0.80R & B < 0.80R`, which by construction excludes every near-white pixel - i.e. it cannot see a white foam pip. That mask returns r5 = 4.89% and lets the builder claim the <5% target. Refitting the SAME second-moment ellipse but taking every pixel inside it regardless of colour (which is what the predecessor's hand ellipse did - it reproduces their r3 G/R to 0.003: mine 0.528 vs their 0.525) gives the real series. ALL numbers below are that geometric inner-0.55 on 05-cut+500ms, identical code on r3/r4/r4b/r5/plate-01. (1) CLIPPING - GENUINELY MOVED, FIRST TIME IN FOUR ROUNDS, BUT NOT TO TARGET. R>=255: r3 47.31% -> r4 33.57% -> r4b 47.92% -> r5 14.07%. plate-01 0.49%. Target <5%: MISSED by 2.8x. core-0.80: 35.99 -> 25.01 -> 12.50%, plate 0.75%. (2) THE FLESH ITSELF IS NOW EXPOSURE-CORRECT AND THIS IS THE ROUND'S REAL WIN. Excluding whitish pixels (G > 0.75R), the flesh-only mean is r5 (175.4, 90.2, 66.4) against plate-01 (177.5, 51.4, 38.3) - the RED CHANNEL MATCHES THE PLATE TO 1.2%, from r4's 221.2. Flesh-only R>=255 30.87% -> 3.65% (plate 0.07%). The three-round 'the flesh is blown' blocker is dead. (3) BUT THE RESIDUAL ROUND 4 NAMED WAS NOT ADDRESSED - IT DOUBLED. Of r5's 162 clipped pixels inside inner-0.55, 126 (77.8%) are whitish, mean (255,213,174). r4 had 476 clipped of which only 58 were whitish. So white-pip clipped pixels went 58 -> 126 in absolute count while red-flesh clipped pixels went 418 -> 36. Whitish coverage of the whole face: 4.5% -> 14.2% (plate-01 2.5%). Connected-component analysis of the pips on core-0.80: r4 54 components / 6.3% coverage / 42% single-pixel; r5 83 components / 13.6% coverage / 42% single-pixel; plate-01 179 components / 4.2% coverage / 17% single-pixel on 14.6x the face area, i.e. plate-01 has 12 pips per our-face-area to our 83. Ours is a near-uniform 1px dither at fixed brightness; plate-01's beads vary from 1 to 250 px and cluster. The builder raised wet-film roughness 0.115 -> 0.170 and the floor 0.055 -> 0.105 (species.js roughnessNode, quoted in their own comment as 'spreads the same energy over 2.2x the solid angle'). That is the mechanism: it did not remove the env-specular energy, it smeared it, so fewer pixels clip hard and MORE pixels get veiled. (4) COLOUR BALANCE WENT BACKWARDS, THIRD ROUND RUNNING. Geometric inner-0.55 G/R: r3 0.528 -> r4 0.506 -> r5 0.577 (plate-01 0.309). Flesh-only, pips excluded: 0.498 -> 0.487 -> 0.514 (plate-01 0.290). The builder's report claims the additive `+vec3(0.085)` foam whitening was made purely multiplicative and 'contributes exactly 0 to G/R'. The pixels say otherwise: at a red level now identical to the plate, our G is 1.75x the plate's and our B is 1.73x. In linear terms that is a residual warm-white veil of +0.069 G and +0.035 B on a face whose plate-correct G is 0.033 - the achromatic wash the r4 verdict isolated is still there at full strength; it merely stopped clipping because the red came down under it. On the hero frame the same face measures G/R 0.556, R>=255 12.24%. (5) SEEDS - FLAT TO WORSE. Darkest 5% of the face: r3 68.0 -> r4 53.2 -> r5 52.0 (plate-01 8.4). Fraction at lum <= 25: 0.4% -> 0.1% (plate-01 7.4%). Contrast median/p2: 2.57 -> 2.06 (plate-01 9.97); core-0.80 2.94 -> 2.69 (plate 6.90). The face got 25% darker overall and its internal contrast fell - it flattened. Our cut face contains essentially no true blacks; plate-01's contains 7.4%. (6) CITRUS - REAL, STEADY IMPROVEMENT, STILL SHORT. Verdict's verbatim probe (largest lum>45 CC, 08-citrus-caps): R>=255 34.98 -> 19.01 -> 12.54 -> 8.29% (plate-02 lemon body 0.00%); at lum>80, 45.5 -> 23.9 -> 17.2 -> 11.4%; mean (190.8,122.8,62.2) -> (163.0,98.6,27.8). Two rounds of honest movement. But the tell the r4 verdict flagged is untouched: the peel is still a REGULAR LATTICE of hard-edged dark square dots at 4x zoom, and the orange cut face is a featureless golden-white blob with no segment walls, no membranes and no vesicle direction. (7) BLIND. Side by side at matched apparent size (r5 05-cut+500ms face vs plate-01's melon face), I pick the render in well under a second and I do not need the colour to do it: ours is a radially symmetric starburst converging on a hot centre point, ringed by a perfectly concentric constant-width grey pith outline, with white confetti scattered evenly over the whole disc. Plate-01's face has no radial symmetry, a pith band whose width and brightness vary 3x around the circumference, and black seeds. The confetti is the first thing the eye lands on.",
+  "fix": "In /home/claude/juice/src/fruit/species.js, stop spreading the env-specular energy and REMOVE it from the flesh. The roughness change at `m.roughnessNode` (u.wetRough 0.115 -> 0.170, clamp floor 0.055 -> 0.105) redistributed the same integral, which is why clipped-white pips went 58 -> 126 px and flesh G/R went 0.487 -> 0.514 at a now-correct red level. Add `m.specularIntensityNode` to the flesh material and drive it to about 0.30 (F0 0.04 -> ~0.012 effective) - the measured excess is +0.069 linear in G and +0.035 in B on a face whose plate-correct linear G is 0.033, so the specular+SSS achromatic sum must come down roughly 3x, and the flesh is the only surface that needs it (the skins already measure in family). Then restore the wet read the right way: keep the pip DOMES in `normalNode` but cut their count, gate `wetField`'s `bubble` term so whitish coverage on core-0.80 lands at 4-5% instead of 13.6%, and give the surviving pips a heavy-tailed radius (currently 42% of them are exactly 1 px at one brightness; plate-01 is 17% single-pixel with a 250 px max) so a handful read as fat beads and the rest as sub-pixel sheen. Verify with the GEOMETRIC ellipse - fit the second moment to the flesh CC in window (208:300, 288:392) of 05-cut+500ms, then take EVERY pixel at Mahalanobis <= 0.55*p97 regardless of colour, never the `G<0.80R` mask, which cannot see a white pip - and require simultaneously: R>=255 under 5%, whitish (G>0.75R) coverage under 6%, G/R at 0.31 +/- 0.04 with pips excluded, and fraction at lum <= 25 above 4% (plate-01 7.4%; we are at 0.1%). Ship none of it until all four hold in one frame.",
+  "notes": "51 -> 55. The round did one genuinely hard thing that three previous rounds failed at: the flesh's red channel now sits within 1.2% of plate-01 and flesh-only clipping fell from 30.87% to 3.65%. That is a real, large, visible win and it is the whole of the +4. Everything else in the assignment went the other way. The specific residual round 4 handed forward - 'almost entirely the foam pips, not the flesh' - doubled in absolute clipped-pixel count and tripled in face coverage; the achromatic wash was not removed, only dimmed under a correct red, so G/R regressed for the third consecutive round; and face contrast fell (med/p2 2.57 -> 2.06 against plate-01's 9.97) so the seed probe went backwards too. Two process problems worth naming. First, the builder's own verification probe (tools/r5probe_clip.py) masks on `G < 0.80R`, which structurally excludes white pixels, so the one metric they report as passing (<5%) is measured with an instrument blind to the failure mode they were asked to fix; on a colour-agnostic mask the same face is 14.07%. Second, and in fairness to the builder, the r4 verdict's 49.3% is itself not reproducible - that ellipse was refitted each round and drifted onto the hottest region (n fell 1881 -> 935), so the r3->r4 'moved 0.4 points' claim was a method artefact; held fixed, r4 was 33.6% and had already improved 14 points. Both instruments need to be the same one, and it needs to be the geometric ellipse.",
+  "probes": {
+    "method": "geometric inner-0.55: flesh CC (R>55 & G<0.80R & B<0.80R) inside abs window (208:300,288:392) of 05-cut+500ms [plate-01: (320:565,545:805)], second-moment ellipse, then ALL pixels at Mahalanobis <= 0.55*p97 regardless of colour. Reproduces predecessor r3 G/R 0.525 as 0.528.",
+    "melon_face_geometric_inner055": {
+      "r3": { "n": 2116, "meanRGB": [232.7, 122.9, 100.0], "R255pct": 47.31, "GR": 0.528, "lumMedian": 144.3, "dark5lum": 68.0, "pctBelow25": 0.0, "medOverP2": 2.14, "R255pxMean": [255, 146, 123] },
+      "r4": { "n": 1418, "meanRGB": [222.3, 112.5, 89.2], "R255pct": 33.57, "GR": 0.506, "lumMedian": 135.8, "dark5lum": 53.2, "pctBelow25": 0.4, "medOverP2": 2.57, "R255pxMean": [255, 144, 120] },
+      "r4b": { "n": 1344, "meanRGB": [226.5, 123.7, 101.2], "R255pct": 47.92, "GR": 0.546, "lumMedian": 149.5, "dark5lum": 54.7, "pctBelow25": 0.0, "medOverP2": 2.84 },
+      "r5": { "n": 1151, "meanRGB": [182.7, 105.4, 79.9], "R255pct": 14.07, "GR": 0.577, "lumMedian": 108.8, "dark5lum": 52.0, "pctBelow25": 0.1, "medOverP2": 2.06, "R255pxMean": [255, 213, 174] },
+      "plate01": { "n": 16799, "meanRGB": [179.1, 55.4, 42.2], "R255pct": 0.49, "GR": 0.309, "lumMedian": 73.0, "dark5lum": 8.4, "pctBelow25": 7.4, "medOverP2": 9.97, "R255pxMean": [255, 220, 205] },
+      "predecessor_r4_claim_not_reproducible": { "their_n": 935, "their_R255pct": 49.3, "their_GR": 0.559, "note": "ellipse refitted per round; fixed-mask value for r4 is 33.57%" }
+    },
+    "melon_face_geometric_core080": {
+      "r3": { "R255pct": 35.99, "GR": 0.545, "dark5lum": 45.7, "pctBelow25": 0.1, "medOverP2": 3.15 },
+      "r4": { "R255pct": 25.01, "GR": 0.527, "dark5lum": 41.6, "pctBelow25": 0.5, "medOverP2": 2.94 },
+      "r5": { "R255pct": 12.50, "GR": 0.572, "dark5lum": 38.1, "pctBelow25": 1.2, "medOverP2": 2.69 },
+      "plate01": { "R255pct": 0.75, "GR": 0.343, "dark5lum": 15.5, "pctBelow25": 4.2, "medOverP2": 6.90 }
+    },
+    "flesh_only_pips_excluded_inner055": {
+      "note": "same ellipse, pixels with G <= 0.75R only. Isolates albedo from the achromatic veil.",
+      "r3": { "n": 1942, "meanRGB": [232.0, 115.5, 93.2], "GR": 0.498, "BR": 0.402, "R255pct": 43.92 },
+      "r4": { "n": 1354, "meanRGB": [221.2, 107.8, 85.0], "GR": 0.487, "BR": 0.384, "R255pct": 30.87 },
+      "r5": { "n": 987, "meanRGB": [175.4, 90.2, 66.4], "GR": 0.514, "BR": 0.379, "R255pct": 3.65 },
+      "plate01": { "n": 16371, "meanRGB": [177.5, 51.4, 38.3], "GR": 0.290, "BR": 0.216, "R255pct": 0.07 },
+      "verdict": "RED CHANNEL NOW MATCHES PLATE TO 1.2%. G is 1.75x plate, B 1.73x. Residual linear veil +0.069 G / +0.035 B."
+    },
+    "what_is_clipping_inner055": {
+      "r3": { "clippedPx": 1001, "pctOfClippedWhitish": 14.8, "faceWhitishPct": 8.2 },
+      "r4": { "clippedPx": 476, "pctOfClippedWhitish": 12.2, "faceWhitishPct": 4.5, "whiteClippedPx": 58 },
+      "r5": { "clippedPx": 162, "pctOfClippedWhitish": 77.8, "faceWhitishPct": 14.2, "whiteClippedPx": 126 },
+      "plate01": { "clippedPx": 83, "pctOfClippedWhitish": 85.5, "faceWhitishPct": 2.5 },
+      "verdict": "the r4-named foam-pip residual MORE THAN DOUBLED, 58 -> 126 px, while flesh clipping fell 418 -> 36"
+    },
+    "pip_morphology_core080": {
+      "r4": { "components": 54, "coveragePct": 6.3, "medianSizePx": 2, "maxSizePx": 29, "fracSinglePixel": 43 },
+      "r5": { "components": 83, "coveragePct": 13.6, "medianSizePx": 2, "maxSizePx": 73, "fracSinglePixel": 42 },
+      "plate01": { "components": 179, "coveragePct": 4.2, "medianSizePx": 4, "maxSizePx": 250, "fracSinglePixel": 17, "faceAreaRatio": 14.6 }
+    },
+    "citrus_near_half_08_verdict_probe": {
+      "r3": { "n": 10501, "meanRGB": [190.8, 122.8, 62.2], "R255pct": 34.98, "lum80_R255pct": 45.54 },
+      "r4": { "n": 6170, "meanRGB": [190.8, 115.9, 38.5], "R255pct": 19.01, "lum80_R255pct": 23.90 },
+      "r4b": { "n": 5712, "meanRGB": [173.4, 103.5, 30.8], "R255pct": 12.54, "lum80_R255pct": 17.19 },
+      "r5": { "n": 5621, "meanRGB": [163.0, 98.6, 27.8], "R255pct": 8.29, "lum80_R255pct": 11.38 },
+      "plate02_lemon_body": { "n": 696930, "meanRGB": [114.6, 103.0, 81.0], "R255pct": 0.00 },
+      "note": "steady real improvement; peel pore texture is still a regular square lattice, cut face has no segments"
+    },
+    "hero_cut_face_00hero": {
+      "r4": { "n": 8547, "meanRGB": [214.6, 136.1, 122.5], "GR": 0.634, "R255pct": 26.22, "medOverP2": 2.87 },
+      "r5": { "n": 13845, "meanRGB": [220.3, 122.5, 104.4], "GR": 0.556, "R255pct": 12.24, "medOverP2": 1.85 }
+    },
+    "whole_melon_01": {
+      "note": "01-whole-watermelon.png is BYTE-IDENTICAL between r4b and r5 - the uncut skin did not change this round",
+      "r3": { "meanLum": 95.54, "R255pct": 5.79 },
+      "r4": { "meanLum": 81.18, "R255pct": 5.65 },
+      "r4b_and_r5": { "meanLum": 76.77, "R255pct": 3.66 }
+    },
+    "frame_wide_05": {
+      "r3": { "meanLum": 13.60, "pxR255": 3045 },
+      "r4": { "meanLum": 8.05, "pxR255": 1265 },
+      "r4b": { "meanLum": 8.13, "pxR255": 1281 },
+      "r5": { "meanLum": 7.83, "pxR255": 562 },
+      "note": "frame mean essentially unchanged r4 -> r5, so the clip drop is targeted at the face, not a global dim. Credit where due."
+    },
+    "perf_r5": { "peakDrawCalls": 129, "peakTriangles": 215606, "cpuMedianMs": 0.1, "cpuP95Ms": 0.5, "cpuMaxMs": 7.7, "note": "draw calls 129 exceed the 120 budget in REFERENCE_BAR R4; not this piece's axis but flagged" }
+  }
+}
