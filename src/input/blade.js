@@ -135,6 +135,24 @@ const TRAIL_LIFE = 0.20;     // seconds of visible tail
 const MIN_STEP = 0.0015;     // ndc, ignore jitter
 const EDGE_AT = 0.88;        // where the cutting edge sits across the band
 
+// ── ROUND 8: the band is a SOLID, so it OCCLUDES ───────────────────────────
+// Rounds 2-7 composited the body at alpha 0.58 (and, after the age fade, ~0.40
+// in every frame anyone screenshots). Measured against the frame with the trail
+// hidden — `.r8blade.mjs ablate`, the honest instrument — a blade crossing the
+// stage streak at luma 184..189 came out at 180..189: it darkened the brightest
+// object in the frame by 3%, and added +32 luma at the filament. That is a hot
+// wire lying in front of a lamp, which is the plate-02 anti-pattern verbatim.
+//
+// BODY_A is the coverage of a solid. FLAT_K = 0.58/BODY_A divides the body's
+// own radiance by the same factor, so the EMITTED term (colour x alpha, which
+// is all you can see over the void) is bit-for-bit what it was, and the only
+// thing that changes is the TRANSMITTED term: 0.42 -> 0.10 of whatever is
+// behind it. A polished blade in a black room reflects the black room; it is
+// dark BECAUSE it is opaque, and both halves of that sentence have to be in
+// the shader or it reads as a grey ribbon.
+const BODY_A = 0.90;
+const FLAT_K = 0.58 / BODY_A;
+
 // ── the blade as an object in the scene ────────────────────────────────────
 // Full band width in WORLD units. 0.3044 is not a taste: it is the value for
 // which BLADE_W*pix/dist reproduces r6's 0.078 ndc-y at the focal plane
@@ -155,6 +173,34 @@ const BLADE_W = 0.3044;
 // has to stay a blade.
 const RECEDE = 1.40;
 const RECEDE_P = 2;
+// ⚠ ROUND 8 — RECEDE IS NOW SCALED BY THE STROKE'S OWN WORLD ARC LENGTH, and
+// once the trail has a real timeline (see the 'swipe' listener) it HAS to be.
+// r7 wrote `dist = focus + RECEDE*fL*(1-u)^2` with u the index down whatever
+// stations happened to be retained, so a 3-world-unit stub and a 12-unit
+// full-frame slash receded by the identical 1.61 world units — the stub
+// therefore fell off a cliff into the far slab over a sixth of the length, and
+// its tail came back a defocused blob. The model r7 argued for says otherwise:
+// depth near closest approach goes as (arc from the tip)^2, so the RETAINED
+// window of that arc recedes as (retained arc)^2. Same curve, honest domain.
+//
+// ARC_W is the reference arc, in WORLD units, at which the recession reaches
+// r7's 1.40 — the full-width landscape hero swipe, measured: 3.034 ndc-y units
+// x tan(21 deg) x 10.156 m = 11.83. So nothing about a full-frame slash moves,
+// and only short strokes (which were wrong) change.
+//
+// PORTRAIT: the arc is measured in WORLD units — ndc-y-corrected screen length
+// x tan(fov/2) x focus, which is exactly `world metres per device pixel` times
+// the pixel length. `cocOf`'s slab is also absolute world units, so the two are
+// in the same unit and the ratio is aspect-free. r7 §6 stopped here because it
+// measured the arc in NDC, where `worldArc ∝ focus` looks like a portrait bug;
+// it is not a bug in the world metric, it is the statement that a full-width
+// swipe on a phone held upright sweeps 7.8 world units where the same swipe
+// landscape sweeps 13.9, which is TRUE — main.js fits the stage box to the
+// SHORT side (`camera.position.z = max(distV, distH)`), so the visible world
+// width in portrait really is the visible world height in landscape. Verified
+// numerically: landscape 640x360 camZ 10.16 -> half-width 6.94 world;
+// portrait 215x466 camZ 22 -> half-width 3.90 world = landscape's half-HEIGHT.
+const ARC_W = 11.83;
 // Ceiling on the trail's own CoC, as a fraction of the lens's `bokeh`. Same
 // 0.62 stage.js spends on its streak (`fBCap`), deliberately the same number:
 // bokeh is short-side normalised, so this ceiling is portrait-safe too.
@@ -202,6 +248,56 @@ const SHEEN_MEAN = 0.372;
 const BEVEL_MEAN = 0.215;
 const RIP_MEAN = 0.91;
 
+// ── ROUND 8: the edge highlight is a REFLECTION, so it has a geometry ──────
+// r2's amplitude was `hot = 1.45 + 1.35*speed01`: brighter the faster you swipe,
+// constant along the stroke, and independent of where the lights are. All three
+// are wrong, and the frozen probe says so — `void` on the composited beats,
+// against the same beat with `bladeTrail.visible = false`:
+//
+//     beat                 with trail   without   the trail's share
+//     15-fast-flick+50ms     0.1719%    0.0013%       99.2%
+//     12-idle-blade          0.3585%    0.1159%       67.7%
+//     09-combo+50ms          0.2144%    0.1233%       42.5%
+//
+// The fastest stroke supplies essentially ALL of its frame's blown pixels, and
+// it does so because r2 made speed a gain. Two physical terms replace it.
+//
+// (1) SMEAR FLUX. A persistence trail is one edge's reflected flux spread along
+//     the path it swept. Sweeping twice as far in the same time spreads the
+//     same flux over twice the length, so radiance goes as 1/(1+SMEAR_K*speed)
+//     — DOWN with speed, where r2 had it going up. This is the same
+//     conservation law the filament's own defocus already obeys (`energy =
+//     1/grow`); r2's version violated it along the OTHER axis.
+//
+// (2) THE GLINT. The cutting edge is a thin cylinder, so its highlight is the
+//     anisotropic (Kajiya-Kay) one: bright where the edge runs ACROSS a light,
+//     dark where it runs along it, and it moves as the blade turns. That is
+//     R2's "highlights sparkle and move; static specular is a dead giveaway",
+//     and it is computable exactly — r7 gave every station a real 3-D position,
+//     so there is a real 3-D tangent to take. Evaluated against BOTH analytic
+//     lights that stage.js publishes on `ctx.stage.lights` (verified by reading
+//     stage.js: key at (8.2,7.4,6.2) i 3.40, rim at (4.6,2.4,-8.4) i 5.00 —
+//     the rim is the brighter one and it is BEHIND, which is precisely the
+//     geometry that rim-lights a thin edge).
+// GL_FLOOR is the part that is not a specular lobe at all — the edge's own
+// broad reflection of the room — so the three weights sum to 1 and the glint
+// spans [GL_FLOOR, 1] instead of collapsing to zero on an unlucky stroke angle.
+const GL_FLOOR = 0.30;
+const GL_KEY = 0.42;
+const GL_RIM = 0.28;
+const GL_P = 1.5;
+const SMEAR_K = 0.90;
+// EDGE_A is set so the SLOW cleave — the one stroke whose blown-pixel share is
+// already small (0.0347% composited) and whose look r2 tuned — reproduces r7's
+// amplitude to 2%: 2.25*0.78/(1+0.9*0.12) = 1.58 against r7's 1.61. Everything
+// faster comes down from there, which is where the clipping actually is.
+const EDGE_A = 2.25;
+// stage.js's lights, as a fallback ONLY (a stage without lights, or a future
+// stage that stops publishing them, must not throw or go black). Read live in
+// api.frame; see the cross-file note in the report.
+const KEY_FALLBACK = [8.2, 7.4, 6.2];
+const RIM_FALLBACK = [4.6, 2.4, -8.4];
+
 /** Catmull-Rom (tension 1/2). */
 function cr(p0, p1, p2, p3, t) {
   const t2 = t * t, t3 = t2 * t;
@@ -228,6 +324,13 @@ export function createBlade() {
   // aData = (dPx signed px from the cutting edge (+ = outboard), age 0..1,
   //          speed01, in-focus FULL band width in px)
   const aData = new Float32Array(MAXV * 4);
+  // aEdge = the specular filament's amplitude at this station: the smear flux
+  // law times the two-light Kajiya-Kay glint. It is a property of where the
+  // stroke IS and where the lights ARE, so it cannot be derived in the shader
+  // from a single vertex — it needs the station's neighbours. 4 bytes x 176
+  // vertices = 704 B, uploaded in the same map as the other two, +0 draw calls,
+  // and the fragment gets one multiply-add CHEAPER because `hot` is gone.
+  const aEdge = new Float32Array(MAXV);
   const indices = new Uint16Array((OUT_MAX - 1) * 6);
   for (let i = 0; i < OUT_MAX - 1; i++) {
     const o = i * 6, v = i * 2;
@@ -256,6 +359,7 @@ export function createBlade() {
     geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(position, 3).setUsage(THREE.DynamicDrawUsage));
     geo.setAttribute('aData', new THREE.BufferAttribute(aData, 4).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('aEdge', new THREE.BufferAttribute(aEdge, 1).setUsage(THREE.DynamicDrawUsage));
     geo.setIndex(new THREE.BufferAttribute(indices, 1));
     geo.setDrawRange(0, 0);
 
@@ -288,6 +392,7 @@ export function createBlade() {
 
     const p = attribute('position', 'vec3');
     const A = attribute('aData', 'vec4');
+    const aAmp = attribute('aEdge', 'float');
 
     // (b px, grow, energy, flat) — the filament's lens terms plus the band's
     // CoC radius, computed once per vertex from that vertex's own depth.
@@ -355,8 +460,11 @@ export function createBlade() {
     const rip = mix(sin(age.mul(38.0).add(U.phase)).mul(0.5).add(0.5)
       .mul(U.detail).mul(0.34).add(0.74),
       U.detail.mul(RIP_MEAN - 0.74).add(0.74), bandFlat);
+    // FLAT_K holds `flatC * BODY_A` equal to r7's `flatC * 0.58`, so the body's
+    // emitted radiance over the void does not move by one code value and the
+    // whole of this change lands on what it TRANSMITS. See BODY_A.
     const flatC = vec3(0.60, 0.67, 0.82).mul(sheen.mul(0.20).mul(rip).add(0.024))
-      .add(vec3(1.00, 0.93, 0.80).mul(bevel.mul(0.40).mul(rip)));
+      .add(vec3(1.00, 0.93, 0.80).mul(bevel.mul(0.40).mul(rip))).mul(FLAT_K);
 
     // ── the cutting edge: the ONLY bloomable part, and now the ONLY part of
     //    this file that the lens can see change ──────────────────────────────
@@ -378,7 +486,10 @@ export function createBlade() {
     const sigS = sqrt(float(SHOULDER_SIG * SHOULDER_SIG).add(b.mul(b).mul(0.5)));
     const shoulder = exp(dpx.mul(dpx).div(sigS.mul(sigS).mul(-2.0)))
       .mul(float(SHOULDER_SIG).div(sigS));
-    const hot = spd.mul(1.35).add(1.45);
+    // r7: `hot = 1.35*speed + 1.45`, i.e. a gain on the metric that was already
+    // supplying 99% of the frame's blown pixels. r8: the station's own
+    // amplitude, smear flux x glint, computed per station in api.frame.
+    const hot = aAmp;
     const edgeC = vec3(1.00, 0.965, 0.90).mul(core.mul(hot).add(shoulder.mul(0.14)));
 
     // ── how much of the SILHOUETTE still clips the filament ────────────────
@@ -399,7 +510,7 @@ export function createBlade() {
     const fadeE = fade.pow(1.95);          // the specular dies faster
 
     mat.colorNode = flatC.mul(fadeF).add(edgeC.mul(fadeE)).mul(U.intensity);
-    mat.opacityNode = float(0.58).mul(fadeF).mul(outer).mul(inner)
+    mat.opacityNode = float(BODY_A).mul(fadeF).mul(outer).mul(inner)
       .add(core.mul(0.95).mul(fadeE).mul(oCore).mul(iCore))
       .saturate();
 
@@ -477,12 +588,41 @@ export function createBlade() {
       if (selfEmit || !e || !e.a || !e.b) return;
       const t = nowSec();
       const last = pts[pts.length - 1];
+      // ⚠ ROUND 8: A SYNTHETIC STROKE ARRIVES ALL AT ONE INSTANT, AND SIX
+      // ROUNDS OF SCREENSHOTS WERE OF A TRAIL WITH NO AGE IN IT.
+      // `ZS.swipe()` (main.js:337) emits every segment of a stroke inside one
+      // call, and under the capture harness `nowSec()` is a VIRTUAL clock
+      // (contract.js:215) that does not advance during it. So rounds 2-7
+      // stamped every sample of a synthetic stroke with the SAME `t`, and
+      // therefore ONE age: `fadeF`, `fadeE`, the age-keyed `rip` and the
+      // TRAIL_LIFE prune all collapsed to constants in every frame any critic
+      // has ever seen. Under real pointer input none of that is true, so what
+      // the harness shot was never what the phone draws — the class of bug this
+      // project has now found three times, in a third file.
+      //
+      // The payload already carries what is needed to undo it: `speedNdc` is
+      // the contract, so a segment of length L took L/speed seconds. Stamp the
+      // newest sample at `now` and slide the retained history BACK by that
+      // duration, and the stroke has exactly the timeline a hand would have
+      // produced. Consequences, all of them the device's own behaviour:
+      //   · the tail fades and the head does not — the taper R3 asks for
+      //   · trail LENGTH becomes speed x TRAIL_LIFE, so a fast flick keeps a
+      //     full-frame smear and a slow cleave keeps a short one. Morphology as
+      //     a function of stroke speed, which is the bar's standing demand.
+      // Clamped to TRAIL_LIFE only so one absurd segment cannot make `t`
+      // meaningless; anything older than that is pruned by api.frame anyway.
+      // NOTHING IN THE REAL INPUT PATH IS TOUCHED — `push()` stamps real event
+      // times and is byte-identical to r7.
+      const sp = Math.max(0.05, e.speedNdc || 0);
+      const dt = Math.min(TRAIL_LIFE, Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) / sp);
       // a teleport means a new stroke (e.g. the harness's pointerdown lands in
       // the corner) — restart rather than drawing a spurious connecting slab
       if (!last || Math.hypot(e.a.x - last.x, e.a.y - last.y) > 0.08) {
         pts.length = 0;
         U.phase.value = Math.random() * 6.283;
-        pts.push({ x: e.a.x, y: e.a.y, t, s: e.speedNdc || 0 });
+        pts.push({ x: e.a.x, y: e.a.y, t: t - dt, s: e.speedNdc || 0 });
+      } else {
+        for (let i = 0; i < pts.length; i++) pts[i].t -= dt;
       }
       pts.push({ x: e.b.x, y: e.b.y, t, s: e.speedNdc || 0 });
       api.tipSpeed = e.speedNdc || 0;
@@ -555,6 +695,34 @@ export function createBlade() {
     const edgeSoft = 1.15 + 0.55 * tipSp;
     U.edgeSoft.value = edgeSoft;
 
+    // ── the two light directions, for the glint ────────────────────────────
+    // `main.js:124-126` puts the camera at (0, 0.6, z) looking at (0, 0.6, 0)
+    // and `resize` only ever moves its z, so the camera carries NO rotation:
+    // view space is world space translated. That is why a DirectionalLight's
+    // direction can be used below without a matrix — I read main.js to check
+    // rather than assuming it, and if a future round ever rotates the camera
+    // this is the line that breaks.
+    const lights = (stageRef && stageRef.lights) || null;
+    const kp = (lights && lights.key && lights.key.position) || null;
+    const rp = (lights && lights.rim && lights.rim.position) || null;
+    let kx = kp ? kp.x : KEY_FALLBACK[0], ky = kp ? kp.y : KEY_FALLBACK[1], kz = kp ? kp.z : KEY_FALLBACK[2];
+    let rx = rp ? rp.x : RIM_FALLBACK[0], ry = rp ? rp.y : RIM_FALLBACK[1], rz = rp ? rp.z : RIM_FALLBACK[2];
+    let kl = Math.hypot(kx, ky, kz) || 1; kx /= kl; ky /= kl; kz /= kl;
+    let rl = Math.hypot(rx, ry, rz) || 1; rx /= rl; ry /= rl; rz /= rl;
+    // half-height of the view frustum at 1 m, so an ndc pair plus a depth is a
+    // view-space point: (ndc.x*mTan*aspect*d, ndc.y*mTan*d, -d).
+    const mTan = Math.tan(THREE.MathUtils.degToRad((cam && cam.fov) || 42) * 0.5);
+
+    // ── how far this stroke actually reaches, in world units ───────────────
+    // The retained arc, aspect-corrected to ndc-y (which is the metric `nx,ny`
+    // already works in) and then to metres. Drives RECEDE; see ARC_W.
+    let arcNdc = 0;
+    for (let i = 1; i < m; i++) {
+      arcNdc += Math.hypot((sX[i] - sX[i - 1]) * aspect, sY[i] - sY[i - 1]);
+    }
+    const arcW = arcNdc * mTan * focus;
+    const recede = RECEDE * clamp((arcW * arcW) / (ARC_W * ARC_W), 0, 1);
+
     let v = 0;
     for (let i = 0; i < m; i++) {
       const ip = i > 0 ? i - 1 : 0, ix = i + 1 < m ? i + 1 : m - 1;
@@ -576,8 +744,33 @@ export function createBlade() {
       // arc's closest approach, on the focal plane; u = 0 is the oldest sample,
       // RECEDE focal lengths behind it, quadratically (see RECEDE).
       const back = 1 - u;
-      const dist = focus + RECEDE * fL * Math.pow(back, RECEDE_P);
+      const dist = focus + recede * fL * Math.pow(back, RECEDE_P);
       const bpx = lensOn ? Math.min(lens.cocPixelsForZ(dist), bCap) : 0;
+
+      // ── the glint: Kajiya-Kay on the stroke's real 3-D tangent ────────────
+      // The neighbours' depths come off the same curve, so this is the tangent
+      // of the actual arc, not of its screen shadow — the recession term is
+      // what makes a stroke's highlight change along its length even when the
+      // screen path is dead straight.
+      const dP = focus + recede * fL * Math.pow(1 - ip / (m - 1), RECEDE_P);
+      const dN = focus + recede * fL * Math.pow(1 - ix / (m - 1), RECEDE_P);
+      let tx = (sX[ix] * dN - sX[ip] * dP) * mTan * aspect;
+      let ty = (sY[ix] * dN - sY[ip] * dP) * mTan;
+      let tz = dP - dN;                     // view z = -dist
+      const tl = Math.hypot(tx, ty, tz) || 1; tx /= tl; ty /= tl; tz /= tl;
+      // view direction: from the station toward the camera, which sits at the
+      // view-space origin
+      let vx = -sX[i] * mTan * aspect * dist, vy = -sY[i] * mTan * dist, vz = dist;
+      const vl = Math.hypot(vx, vy, vz) || 1; vx /= vl; vy /= vl; vz /= vl;
+      const cV = tx * vx + ty * vy + tz * vz;
+      const sV = Math.sqrt(Math.max(0, 1 - cV * cV));
+      const cK = tx * kx + ty * ky + tz * kz;
+      const cR = tx * rx + ty * ry + tz * rz;
+      const gK = clamp(Math.sqrt(Math.max(0, 1 - cK * cK)) * sV - cK * cV, 0, 1);
+      const gR = clamp(Math.sqrt(Math.max(0, 1 - cR * cR)) * sV - cR * cV, 0, 1);
+      const glint = GL_FLOOR + GL_KEY * Math.pow(gK, GL_P) + GL_RIM * Math.pow(gR, GL_P);
+      // ...and the smear flux law. Together these replace r7's `1.45+1.35*sp`.
+      const amp = EDGE_A * glint / (1 + SMEAR_K * sp);
 
       // width tracks speed: a slow drag is a fatter smear, a fast flick a razor
       // — and it is a WORLD width now, so perspective thins the receding tail
@@ -604,14 +797,17 @@ export function createBlade() {
       // outboard vertex (past the cutting edge)
       position[v * 3] = sX[i] + nx * kOut; position[v * 3 + 1] = sY[i] + ny * kOut;
       position[v * 3 + 2] = dist;
-      aData[v * 4] = outPx; aData[v * 4 + 1] = age; aData[v * 4 + 2] = sp; aData[v * 4 + 3] = wpx; v++;
+      aData[v * 4] = outPx; aData[v * 4 + 1] = age; aData[v * 4 + 2] = sp; aData[v * 4 + 3] = wpx;
+      aEdge[v] = amp; v++;
       // inboard vertex (the far side of the flat)
       position[v * 3] = sX[i] - nx * kIn; position[v * 3 + 1] = sY[i] - ny * kIn;
       position[v * 3 + 2] = dist;
-      aData[v * 4] = -inPx; aData[v * 4 + 1] = age; aData[v * 4 + 2] = sp; aData[v * 4 + 3] = wpx; v++;
+      aData[v * 4] = -inPx; aData[v * 4 + 1] = age; aData[v * 4 + 2] = sp; aData[v * 4 + 3] = wpx;
+      aEdge[v] = amp; v++;
     }
     geo.attributes.position.needsUpdate = true;
     geo.attributes.aData.needsUpdate = true;
+    geo.attributes.aEdge.needsUpdate = true;
     geo.setDrawRange(0, (m - 1) * 6);
 
     // Row 3 of the projection, so each vertex can synthesise its own clip z
