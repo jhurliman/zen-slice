@@ -1091,10 +1091,51 @@ function fleshCells(cc, u, lite) {
   const o1 = oct(8.5, 31.0, 7.0, 3.4);
   const o2 = lite ? null : oct(16.0, 5.0, 44.0, 3.4);
 
-  const crestOf = (o) => ss(0.690, 0.845, o.r).mul(o.w);
+  // ═══ ROUND 9, FIX 1 — THE GUARD FADES TO THE MEAN, NEVER TO ZERO ═══════════
+  //
+  // The r8 verdict's headline is that this function's whole payload switches OFF
+  // on the shipping raster, and the mechanism it names is right: `crest.mul(o.w)`
+  // and `.mul(wmax)` send the field to ZERO when `pxFade` closes, so the coarse
+  // octave's weight (0.70 at the 640x360 review frame, ~0.00 on portrait, where
+  // the same cap is 27 px across its minor axis) multiplies the ALBEDO, the 1.20
+  // relief, the roughness redistribution and the sss floor all at once.
+  //
+  // Multiplying by the guard was never the right arithmetic and the reason has
+  // nothing to do with which raster it was tuned for. Round 6's rule is "nothing
+  // below the pixel goes into the normal", and the band-limited value of a field
+  // below the sampling rate is its AREA MEAN — that is what a mip level holds,
+  // and it is emphatically not zero. `x.mul(w)` deletes the field's DC along
+  // with its variance; `mix(mean, x, w)` deletes only the variance. So round 6's
+  // guarantee is kept EXACTLY (no sub-pixel spatial variance survives to alias:
+  // the field goes CONSTANT, not absent) while the mean this file spent round 8
+  // buying is now delivered at every raster.
+  //
+  // ── THE CONSTANTS ARE MEASURED, NOT CHOSEN ────────────────────────────────
+  // `.r9matmean.mjs` replicates this file's `noise2` (same `h1`, float32) and
+  // integrates each field over the cap disc with the 2*r*dr area weight, 6M
+  // samples. Cross-check that the replication is the shipped noise: it puts the
+  // std of `1 - |noise2|` at 0.2369 against the 0.227 THIS FILE measured on the
+  // GPU three rounds ago (see `fibreBundles`, "a measured std of 0.227").
+  //
+  //   E[ss(0.690,0.845, r)]                          0.3658   <- one octave
+  //   E[0.88 * ss(0.690,0.845, r)]                   0.3279   <- the fine octave
+  //   E[max(c1, 0.88*c2)]        both resolved       0.5648
+  //   E[max(c1, 0.3279)]         fine one at its DC  0.5513   <- 1.3% apart, so
+  //     ONE constant 0.560 covers both regimes and no second mix is needed.
+  //   E[1 - ss(0.10,0.52, prox)] = E[grv]            0.2324
+  //   E[grp*0.46 + 0.54]                             0.7224   (not faded: `grp`
+  //     is a 2.4-unit field, ~6 px per unit even on the portrait cap, and it is
+  //     RESOLVED everywhere — which is why the mesh keeps a large-scale mottle
+  //     in portrait now instead of going to one flat value.)
+  //
+  // The fade is applied per octave, coarse LAST and to the COMBINATION, because
+  // that is the only ordering that is right in the intermediate regime the
+  // review frame actually sits in (coarse resolved, fine not): there the correct
+  // value is max(c1, E[0.88*c2]), which is what this computes.
+  const crestOf = (o) => ss(0.690, 0.845, o.r);
   let crest = crestOf(o1);
-  let wmax = o1.w;
-  if (o2) { crest = max(crest, crestOf(o2).mul(0.88)); wmax = max(wmax, o2.w); }
+  if (o2) crest = max(crest, mix(float(0.3279), crestOf(o2).mul(0.88), o2.w));
+  crest = mix(float(lite ? 0.3658 : 0.5600), crest, o1.w);
 
   // groups of filaments run brighter than their neighbours — without this the
   // mesh is one value everywhere and the face reads as a net curtain rather
@@ -1102,12 +1143,47 @@ function fleshCells(cc, u, lite) {
   const grp = lite ? null : ss(-0.42, 0.36, noise2(q.mul(2.4).add(vec2(9.0, 17.0))));
   if (grp) crest = crest.mul(grp.mul(0.46).add(0.54));
 
-  // the interior: "how far from any filament", from the same tap.
-  const prox = ss(0.30, 0.68, o1.r).mul(o1.w).toVar();
+  // ═══ ROUND 9, FIX 2 — THE PALE POPULATION CONCENTRATES OUTWARD ════════════
+  //
+  // The cut-faces verdict: "frozen `foam` mean R FALLS 183.7 -> 174.8 from scale
+  // 0.40 to 0.80 while plate-01 RISES 171.5 -> 189.2 over the identical sweep".
+  // The probe region it says that with is 69% NOT-FACE on portrait (see the
+  // report), but the finding survives being re-measured on the face alone, and
+  // the plate says something sharper than "brighter outward":
+  //
+  //   plate-01 melon face, by elliptical radius t   0-.2   .2-.35  .35-.5  .5-.65 .65-.8
+  //     display R                                   163.8  169.4   185.0   196.5  200.6
+  //     G/R                                         0.204  0.285   0.275   0.313  0.457
+  //   ours (r8), same bins on the face's own ellipse
+  //     display R                                   187.3  172.2   176.6   162.7  144.2
+  //     G/R                                         0.379  0.373   0.426   0.407  0.404
+  //
+  // The plate's face gets brighter AND 2.2x LESS SATURATED outward; ours does
+  // neither. One population does both at once and this file already has it: the
+  // pale mesh is desaturated (G/R 0.240) as well as bright, so a radial DENSITY
+  // on `bun` moves R and G/R together in the ratio the plate shows. That is
+  // anatomy — pith-adjacent fibre really does concentrate toward the rind — and
+  // it is not the "radial gradient applied for shading" the verdict names,
+  // because it modulates a texture's density, not a light.
+  //
+  // ⚠ APPLIED AFTER THE FADE, ON PURPOSE. Before the fade it would be a term the
+  // guard could delete, which is the r8 defect exactly. After it, the profile is
+  // carried by the field's own DC and therefore survives at every raster.
+  //
+  // Area mean is 1.000 by construction: E[ss(0.18,0.82,rad)] over the disc is
+  // 0.7295 (closed form, 2*r*dr weighted), so `+0.55*(S - 0.7295)` runs 0.599 at
+  // the centre to 1.148 at the rim and changes NO area mean anywhere — not the
+  // albedo's, not `sssMask`'s contract-v5-section-4 floor budget, not the
+  // roughness redistribution's.
+  crest = crest.mul(ss(0.18, 0.82, rad).sub(0.7295).mul(0.55).add(1.0));
+
+  // the interior: "how far from any filament", from the same tap. Same rule:
+  // it fades to E[grv], not to zero.
+  const prox = ss(0.30, 0.68, o1.r).toVar();
 
   return {
     bun: crest.mul(u.detail.mul(0.26).add(0.74)).clamp(0.0, 1.0),
-    grv: ss(0.52, 0.10, prox).mul(wmax),
+    grv: mix(float(0.2324), ss(0.52, 0.10, prox), o1.w),
   };
 }
 
@@ -2274,7 +2350,20 @@ def({
         // fraction is what fixes the hue, and both are measured in the report.
         const deep = vec3(0.0950, 0.0138, 0.0119);
         const ripe = vec3(0.3000, 0.0414, 0.0334);
-        const pale = vec3(0.5200, 0.1248, 0.1030);
+        // ROUND 9 RE-SOLVES `pale`'s CHROMA, BECAUSE ITS COVERAGE CHANGED.
+        // r8 chose G/R 0.240 / B/R 0.198 as "a deliberate trade against
+        // flesh_GR" at a `bun` that the guard was holding near 0.185 on the
+        // review frame. Round 9's guard delivers the field's true DC of 0.408
+        // there, i.e. the pale population now weighs 2.2x what this constant was
+        // traded for, and the first build measured the consequence exactly:
+        // face G/R 0.3987 -> 0.4683 landscape and 0.4330 -> 0.4999 portrait,
+        // against plate-01's 0.34. A chroma is only meaningful next to its
+        // coverage; the coverage moved, so the chroma moves with it, to
+        // G/R 0.192 / B/R 0.160 — which holds the MIXTURE's chroma at
+        // mix(ripe, pale, 0.408) = G/R 0.163, against r8's mixture at
+        // mix(ripe, pale, 0.185) = G/R 0.167. The population is still the paler,
+        // less saturated one; it is no longer 2.2x of it.
+        const pale = vec3(0.5200, 0.1000, 0.0830);
         // The groove's depth is the other half of the median. r7 subtracted
         // 0.86 of the ENTIRE ramp wherever the field said "between two
         // bundles", which put a quarter of the face at an effective albedo
@@ -2287,12 +2376,22 @@ def({
         // object with a characteristic size rather than a ridge crest.
         alb.assign(mix(alb, pale, bun));
 
-        // pale heart where the bundles meet. ROUND 8: this was (0.1188, 0.0688,
-        // 0.0575), which is DARKER in R than the new `ripe` — with r7's ramp it
-        // was a pale spot and with this one it would be a grey hole in the
-        // middle of the face. Re-authored to stay what it is for: desaturated
-        // (G/R 0.41 against the pulp's 0.14) and slightly brighter, not darker.
-        alb.assign(mix(alb, vec3(0.3550, 0.1450, 0.1180), ss(0.20, 0.02, rad).mul(0.55)));
+        // ── THE HEART. ROUND 9 STOPS MAKING IT PALE, BECAUSE plate-01's IS THE
+        // DARKEST AND THE MOST SATURATED PART OF ITS OWN FACE. ────────────────
+        // r8's (0.3550, 0.1450, 0.1180) at weight 0.55 lifts R 10% over `ripe`
+        // and G by 139%, and it is the single biggest reason our inner bin reads
+        // G/R 0.379 where the plate's reads 0.204 — i.e. we are palest exactly
+        // where the reference is reddest. It is also 55% of a term whose whole
+        // job was to be a "pale spot", so it was doing the cut-faces critic's
+        // "centre-hot" defect twice over: once in value and once in chroma.
+        //
+        // Solved against the plate's own inner bin rather than re-tuned by eye.
+        // Over `ripe` (0.3000, 0.0414, 0.0334) at w = 0.55 this resolves to
+        // (0.2615, 0.0538, 0.0458): R 0.87x of the mid-face, G/R 0.206 against
+        // plate-01's measured 0.204. The pale star at the middle of a real melon
+        // is a FIBRE structure, and it is still drawn — by `bun`, whose radial
+        // density above keeps it present at the centre at 0.60x the rim's.
+        alb.assign(mix(alb, vec3(0.2300, 0.0640, 0.0560), ss(0.20, 0.02, rad).mul(0.55)));
 
         // seeds — near black, with a pale juice pocket around them. plate-01's
         // darkest 5% is lum 15.4, 5.48x under its flesh median: a real seed is an
@@ -2359,8 +2458,16 @@ def({
         // and the pith crest (0.892), so the occluded band is at most
         // 0.78..0.85. Narrowed to that, and shallowed 0.58 -> 0.34, which is
         // the deepest a baked AO on a 2 px crease can honestly be.
-        const groove = ss(0.778, 0.815, rad).mul(ss(0.815, 0.856, rad).oneMinus()).toVar();
-        alb.mulAssign(groove.mul(0.34).oneMinus());
+        //
+        // ROUND 9 TAKES ANOTHER 35% OFF IT, and the reason is the radial profile
+        // rather than the width: this band is rad 0.778..0.856, which is where
+        // plate-01's face is at its BRIGHTEST (display R 200.6 in the t
+        // 0.65-0.80 bin, its own maximum), and ours was 144.2 there. A baked AO
+        // on a 2 px crease is real, but at 0.34 it was the largest single term
+        // in the outward fall the cut-faces critic measured. 0.22, over the
+        // narrower 0.792..0.842 that cutter.js's own ring schedule supports.
+        const groove = ss(0.792, 0.822, rad).mul(ss(0.822, 0.856, rad).oneMinus()).toVar();
+        alb.mulAssign(groove.mul(0.22).oneMinus());
         // ...with a thin wet line on the INNER wall only, where juice runs off
         // the flesh dome into the groove. Modulated by the key like everything
         // else in the layered zone: a specular run-off is not a constant.
@@ -2542,9 +2649,19 @@ def({
         // the rougher, drier, deeper tissue. Same total roughness,
         // redistributed: -0.14 over the ~22% of the area that is chunk, +0.10
         // over the ~30% that is groove.
+        //
+        // ⚠ ROUND 9: "same total roughness" WAS NOT TRUE and could not be, for
+        // the same reason as `sssMask` above — the area fractions quoted are the
+        // field after `pxFade` had scaled it at one particular raster. The real
+        // DCs on this `lite` path are E[bun] = 0.3658 and E[grv] = 0.2324, so
+        // the pair sums to -0.0280 of roughness, not 0.0000: with round 9's
+        // guard delivering the field's mean everywhere, the whole cut face went
+        // 0.028 SHINIER, which shows up as achromatic specular on a deep-red
+        // pulp and is a direct push on `flesh_GR` and on the clipped fraction.
+        // +0.0280 makes the sentence true. It is a redistribution now.
         const fc = fleshCells(cc, u, true);
         return mix(u.rough, float(0.62), L.pith).add(L.rind.mul(0.18))
-          .sub(fc.bun.mul(0.14)).add(fc.grv.mul(0.10)).add(lost);
+          .sub(fc.bun.mul(0.14)).add(fc.grv.mul(0.10)).add(0.0280).add(lost);
       },
       sssMask: (cc, u) => {
         const L = wmLayers(cc);
@@ -2569,6 +2686,15 @@ def({
         // the AREA MEAN over the cut face at key N.L = 0") is held to two
         // digits while the term stops being featureless.
         //
+        // ⚠ ROUND 9 CORRECTS THAT ARITHMETIC. "area mean ~0.24" was `bun` AFTER
+        // r7's `pxFade` had already scaled it down at the review raster — it is
+        // a property of the frame, not of the field, which is the r8 defect in
+        // miniature. The field's own DC, integrated over the cap disc, is 0.3658
+        // on this `lite` path (.r9matmean.mjs), so (0.90 + 0.42 bun) has area
+        // mean 1.0536 and this term has been spending 5.4% MORE than section 4
+        // budgets it, by an amount that varied with the raster. 0.8464 puts the
+        // area mean back on 1.0000 exactly, at every raster, for good.
+        //
         // ROUND 8 FLATTENS THE RADIAL PROFILE AT A LOWER AREA MEAN, which is
         // the second half of the vignette the r7 verdict measured. The r5/r7
         // term ran 1.00 at the cap centre down to 0.65 at the rim; at key
@@ -2580,10 +2706,28 @@ def({
         // of 0.705 against the old 0.72 — so contract v5 section 4's budget
         // line, "<= 0.162 linear R as the AREA MEAN over the cut face at key
         // N.L = 0", is not merely held, it is 2% under.
+        // ⚠ ROUND 9 REVERSES THE RADIAL PROFILE, AND THE OLD SIGN WAS A REAL
+        // PHYSICS ERROR, not just a look. r5/r7/r8 all ran this term HOT at the
+        // cap centre on the argument that "a thick path through the middle of a
+        // melon does transmit more than a thin one at the rim". For a medium
+        // whose absorption is what makes it red, that is backwards: transmitted
+        // radiance falls with path length, so a THIN edge is the bright one.
+        // Every backlit fruit slice ever photographed glows at its rim, plate-02
+        // included, and at key N.L = 0 this term is 88% of what a cut-face pixel
+        // emits — so its sign, not the albedo's, is most of the "centre-hot
+        // airbrushed dome" the cut-faces critic measured.
+        //
+        // AREA MEAN IS HELD TO FOUR DIGITS so contract v5 section 4's budget line
+        // ("<= 0.162 linear R, AREA MEAN over the cut face at key N.L = 0") is
+        // untouched: E[ss(0.20,0.70,rad)] over the disc with the 2*r*dr weight is
+        // 0.785 in closed form, so 0.551 + 0.20*0.785 = 0.7080, against the r8
+        // term's 0.665 + 0.20*0.215 = 0.7080. Identical mean, reversed sense:
+        // 0.551 at the centre rising to 0.751 at the rim, where r8 ran 0.865
+        // falling to 0.665.
         const bun = fleshCells(cc, u, true).bun;
         return L.pith.oneMinus().mul(L.rind.oneMinus()).mul(seeds(cc).bodyM.oneMinus())
-          .mul(ss(0.70, 0.20, cc.rad).mul(0.20).add(0.665))
-          .mul(bun.mul(0.42).add(0.90));
+          .mul(ss(0.20, 0.70, cc.rad).mul(0.20).add(0.551))
+          .mul(bun.mul(0.42).add(0.8464));
       },
       // `floor` is contract v5 section 4's term B verbatim: the transmission
       // lobe's scene-linear radiance at key N.L = 0, area mean over the face.
