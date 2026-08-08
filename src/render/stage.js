@@ -708,18 +708,32 @@ export function createStage() {
     // ── round 8: THE APERTURE LOBE ─────────────────────────────────────────
     // The half of a flare that is NOT a scene object. See streakNode.
     // fApA  amplitude, relative to the scene lobes' normalised sum
-    // fApW  glare-core half-width in DEVICE PIXELS — a property of the lens,
-    //       so it is the same number at both ends of the streak and it is NOT
-    //       a function of the source's circle of confusion. This is the whole
-    //       structural difference from the scene lobes.
+    // fApW  glare-core half-width as a FRACTION OF U.bokeh. It is the same
+    //       number at both ends of the streak and it is NOT a function of the
+    //       source's circle of confusion — that is the whole structural
+    //       difference from the scene lobes.
+    //       ⚠ IT IS A FRACTION OF bokeh AND NOT A PIXEL COUNT, AND THAT IS A
+    //       PORTRAIT BUG I WROTE AND CAUGHT BEFORE SHIPPING. I first authored
+    //       this as an absolute 4.2 device px, reasoning that a lens's own PSF
+    //       is fixed in image space. It is — on a fixed sensor. Our drawing
+    //       buffer is not fixed: `bokeh` is 22.0 on the 1280x720 hero and 5.97
+    //       on the 215x466 iphone capture (both measured), because r6 tied it
+    //       to the SHORT SIDE. A constant 4.2 px is therefore 0.19 bokeh in
+    //       landscape and 0.70 bokeh in portrait — 3.7x too wide relative to
+    //       everything it sits inside. Measured, that is exactly why the first
+    //       sweep moved `filament flattop_p50` on the hero (0.484 -> 0.265) and
+    //       did not move it at all in portrait (0.522 -> 0.550): in portrait
+    //       the "core" was as wide as the pedestal, so there was no core.
+    //       Every other width in this file is bokeh- or pix-relative for the
+    //       same reason. This one has to be too.
     // fApP  chord exponent; 0.5 is the disc chord exactly, higher rounds the rim.
     // fApS  fraction of the lobe carried by the power-law skirt rather than by
     //       the chord. 0 = a hard-rimmed bar, 1 = pure veiling glare.
     // fApT  tint, 0 = the amber sheath colour, 1 = the white core colour.
     fApA: uniform(0.085),
-    fApW: uniform(4.2),
+    fApW: uniform(0.115),
     fApP: uniform(0.5),
-    fApS: uniform(0.30),
+    fApS: uniform(0.16),
     fApT: uniform(0.72),
     // SCENE-LINEAR CEILING on the streak's own radiance. See streakNode's
     // soft-clip block: this, not the exposure and not fI, is what decides how
@@ -1835,7 +1849,7 @@ export function createStage() {
       // local y = 0.5 is r0 px before growth (see layoutStreak's _sY), so the
       // multiplier is halfPx / r0.
       const halfPx = r0.mul(L.x).mul(STREAK_HALO)
-        .max(U.fApW.mul(STREAK_AP_REACH)).toVar();
+        .max(U.fApW.mul(U.bokeh).mul(STREAK_AP_REACH)).toVar();
       vLens.assign(vec4(halfPx, L.y, r0, dist));
       return vec3(p.x, p.y.mul(halfPx.div(r0)), p.z);
     });
@@ -1956,7 +1970,7 @@ export function createStage() {
       // dividing this lobe by R is exactly the mistake the whole block exists
       // to undo. This is the only term in the streak written in absolute
       // pixels, and that is the physics, not a convenience.
-      const ya = yPx.div(U.fApW.max(0.05)).toVar();
+      const ya = yPx.div(U.fApW.mul(U.bokeh).max(0.05)).toVar();
       const yaS = ya.mul(ya).toVar();
       const apC = yaS.oneMinus().max(0.0).add(1e-6).pow(U.fApP).toVar();
       const apT = yaS.mul(0.16).add(1.0).pow(float(-1.15)).toVar();
