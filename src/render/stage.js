@@ -696,7 +696,7 @@ export function createStage() {
     // flux law along the length; 1.0 = strict conservation. See streakNode.
     fKappa: uniform(0.65),
     // amplitude of the veiling-glare skirt around the filament. See streakNode.
-    fHalo: uniform(0.20),
+    fHalo: uniform(0.18),
     fHaloW: uniform(0.5),
     // reciprocal width of the white hot spot along the span. See streakNode.
     fHotW: uniform(2.40),
@@ -704,7 +704,7 @@ export function createStage() {
     // streakNode's `ends`. 0.45 fades from 45% of the half-span outward, which
     // put the two extreme `lens` stations at 6% of full radiance and is most of
     // why the r7 streak measured peak_max/peak_min 4.29 against plate-01's 1.49.
-    fEndK: uniform(0.45),
+    fEndK: uniform(0.60),
     // ── round 8: THE APERTURE LOBE ─────────────────────────────────────────
     // The half of a flare that is NOT a scene object. See streakNode.
     // fApA  amplitude, relative to the scene lobes' normalised sum
@@ -730,10 +730,19 @@ export function createStage() {
     // fApS  fraction of the lobe carried by the power-law skirt rather than by
     //       the chord. 0 = a hard-rimmed bar, 1 = pure veiling glare.
     // fApT  tint, 0 = the amber sheath colour, 1 = the white core colour.
-    fApA: uniform(0.085),
-    fApW: uniform(0.115),
+    // fApM  FLOOR on the glare half-width, in device px. A PSF narrower than
+    //       the sampling grid is not a PSF, it is aliasing: at the shipped
+    //       215x466 iphone capture `bokeh` is 5.97, so fApW*bokeh is 0.69 px
+    //       and the "core" is a single hot pixel on a 9 px band — which is
+    //       precisely why the first bokeh-relative sweep read flattop_p50 0.19
+    //       in portrait against 0.32 on the hero at identical settings. The
+    //       floor binds only below ~430x932; at the real device buffer
+    //       fApW*bokeh is 1.37 px and this does nothing.
+    fApA: uniform(0.46),
+    fApW: uniform(0.105),
+    fApM: uniform(1.25),
     fApP: uniform(0.5),
-    fApS: uniform(0.16),
+    fApS: uniform(0.13),
     fApT: uniform(0.72),
     // SCENE-LINEAR CEILING on the streak's own radiance. See streakNode's
     // soft-clip block: this, not the exposure and not fI, is what decides how
@@ -1849,7 +1858,7 @@ export function createStage() {
       // local y = 0.5 is r0 px before growth (see layoutStreak's _sY), so the
       // multiplier is halfPx / r0.
       const halfPx = r0.mul(L.x).mul(STREAK_HALO)
-        .max(U.fApW.mul(U.bokeh).mul(STREAK_AP_REACH)).toVar();
+        .max(U.fApW.mul(U.bokeh).max(U.fApM).mul(STREAK_AP_REACH)).toVar();
       vLens.assign(vec4(halfPx, L.y, r0, dist));
       return vec3(p.x, p.y.mul(halfPx.div(r0)), p.z);
     });
@@ -1970,7 +1979,7 @@ export function createStage() {
       // dividing this lobe by R is exactly the mistake the whole block exists
       // to undo. This is the only term in the streak written in absolute
       // pixels, and that is the physics, not a convenience.
-      const ya = yPx.div(U.fApW.mul(U.bokeh).max(0.05)).toVar();
+      const ya = yPx.div(U.fApW.mul(U.bokeh).max(U.fApM)).toVar();
       const yaS = ya.mul(ya).toVar();
       const apC = yaS.oneMinus().max(0.0).add(1e-6).pow(U.fApP).toVar();
       const apT = yaS.mul(0.16).add(1.0).pow(float(-1.15)).toVar();
