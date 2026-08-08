@@ -693,6 +693,14 @@ export function createStage() {
     // large q is a gaussian filament. The blur morphs one into the other.
     fQCore: uniform(11.0),
     fQWarm: uniform(2.2),
+    // fQKnee — the value of b/(r0+b) at which q has fully reached the chord.
+    // Round 8 hard-coded 0.45, i.e. q was already the pure disc chord once the
+    // CoC reached 0.8 of the filament's own radius. That is too early to be the
+    // physics: a disc of radius r0 convolved with a disc of radius b is only a
+    // chord in the limit b >> r0, and at b = r0 it is still visibly rounded.
+    // Made a uniform so the near half can hold a rounder cross-section for
+    // longer without touching anything else.
+    fQKnee: uniform(0.45),
     // flux law along the length; 1.0 = strict conservation. See streakNode.
     fKappa: uniform(0.65),
     // amplitude of the veiling-glare skirt around the filament. See streakNode.
@@ -754,6 +762,11 @@ export function createStage() {
     // of the phone; see the fApM note above for what happens to terms in this
     // file that are not.
     fRimK: uniform(1.35),
+    // ── round 9: fApG — how much of the glare core follows the defocus ─────
+    // 0 = round 8 (a fixed-pixel needle at every station), 1 = no separate
+    // core at all. See streakNode. Dimensionless, and the term that makes the
+    // core-to-band ratio the same number in landscape and in portrait.
+    fApG: uniform(0.45),
     // SCENE-LINEAR CEILING on the streak's own radiance. See streakNode's
     // soft-clip block: this, not the exposure and not fI, is what decides how
     // many pixels of the frame the flare is allowed to blow.
@@ -1903,7 +1916,15 @@ export function createStage() {
       // aperture reach would simply move the crease rather than remove it.
       // (a^6 + b^6)^(1/6) is within 1.2% of max(a,b) and has no corner.
       const wS = r0.mul(L.x).mul(STREAK_HALO).toVar();
-      const wA = U.fApW.mul(U.bokeh).max(U.fApM).mul(STREAK_AP_REACH).toVar();
+      // ⚠ THIS MUST BE THE SAME EXPRESSION AS streakNode's `wA`, evaluated from
+      // the same r0 and the same soft-capped b, or the quad and the lobe it
+      // carries disagree and the fragment gets clipped at the quad edge — which
+      // would be a brand-new cliff of exactly the kind round 9 exists to
+      // remove. R here is r0 + bSoft, which is streakNode's R by construction.
+      const wG = U.fApW.mul(U.bokeh).max(U.fApM).toVar();
+      const Rv = r0.add(bSoft).toVar();
+      const wA = Rv.div(wG).max(1.0).pow(U.fApG).mul(wG)
+        .mul(STREAK_AP_REACH).toVar();
       const halfPx = wS.pow(6.0).add(wA.pow(6.0)).pow(1.0 / 6.0).toVar();
       vLens.assign(vec4(halfPx, L.y, r0, dist));
       return vec3(p.x, p.y.mul(halfPx.div(r0)), p.z);
@@ -2000,7 +2021,17 @@ export function createStage() {
       // left IS the glare PSF). Nothing crosses over, nothing is summed, and
       // there is no amplitude at which one lobe takes the frame from another.
       const wG = U.fApW.mul(U.bokeh).max(U.fApM).toVar();
-      const dlt = U.fRimK.mul(2.0).mul(wG).div(R).clamp(0.02, 4.0).toVar();
+      // ⚠ THE UPPER CLAMP IS NOT COSMETIC AND I MEASURED WHAT HAPPENS WITHOUT
+      // IT. dlt = 2*wG/R diverges as R -> wG, i.e. at the SHARP stations, and
+      // the softplus is only a model of a rounded rim, not of the PSF itself:
+      // at dlt = 2 the profile's value AT the old optical rim is 0.70 of its
+      // peak instead of 0, so the sharp end grows a shoulder it has no business
+      // having. Measured, unclamped: the hero's hot-spot station went peak
+      // 170 -> 253 (blown) and the three SHARPEST stations' `lens` edge_1090
+      // went 3.28/3.80/3.59 -> 4.47/5.65/6.67. 0.60 keeps the rim rounding
+      // under a third of the half-width, which is where the approximation is
+      // still an approximation of something.
+      const dlt = U.fRimK.mul(2.0).mul(wG).div(R).clamp(0.02, 0.60).toVar();
       // stable softplus: max(d,0) + dlt*ln(1 + exp(-|d|/dlt)). The naive form
       // overflows at d/dlt > 88 in fp32 — d reaches 1 and dlt reaches 0.02, so
       // the naive form WOULD overflow here, on the widest station of the hero.
@@ -2010,7 +2041,7 @@ export function createStage() {
       // flux law and every weight below keep the meaning they had in round 8.
       const s0 = sp(float(1.0)).toVar();
       const s = sp(float(1.0).sub(u.mul(u))).div(s0).max(1e-7).toVar();
-      const mB = smoothstep(0.0, 0.45, b.div(R)).toVar();
+      const mB = smoothstep(0.0, U.fQKnee, b.div(R)).toVar();
       const qc = mix(U.fQCore, float(0.5), mB).toVar();
       const qw = mix(U.fQWarm, float(0.5), mB).toVar();
       const core = s.pow(qc).toVar();
@@ -2082,11 +2113,46 @@ export function createStage() {
       // power-law skirt so the rim is a step INSIDE the flare rather than a
       // silhouette against the void at the sharp stations.
       //
-      // ⚠ yPx, NOT u. u is normalised to R = r0 + b, i.e. to the defocus, and
-      // dividing this lobe by R is exactly the mistake the whole block exists
-      // to undo. This is the only term in the streak written in absolute
-      // pixels, and that is the physics, not a convenience.
-      const ya = yPx.div(U.fApW.mul(U.bokeh).max(U.fApM)).toVar();
+      // ── ROUND 9: fApG — THE HANDOVER IS A WIDTH, NOT AN AMPLITUDE ────────
+      // ⚠ THE PARAGRAPH ABOVE IS HALF WRONG AND THE HALF THAT IS WRONG IS WHAT
+      // THE r8 CRITIC SAW. "Its CoC is zero by construction" is true of light
+      // scattered AT THE STOP and of nothing else. A real veiling-glare PSF is
+      // the sum of scatter at EVERY surface, and scatter at the surfaces near
+      // the IMAGE — the rear element, the filter, the sensor cover glass — is
+      // downstream of the defocus and therefore IS convolved with the source's
+      // circle of confusion. So the observed glare core is a mixture of a
+      // zero-CoC component and a full-CoC one, and its width lies BETWEEN wG
+      // and R rather than being pinned to wG.
+      //
+      // That single correction is what makes the handover continuous. Round 8
+      // pinned this lobe at wG at every station, so on the near half it was a
+      // 2.1 px needle inside a 20 px band — 10% — and the two lobes could only
+      // exchange by AMPLITUDE, which is a crossover with a visible width jump
+      // in it (my own r8 report named it at x = 380-470, FWHM 6 -> 42 over
+      // 100 px, and called it an amplitude crossover; it was). The mixture is a
+      // one-parameter interpolation in width:
+      //
+      //     wA = wG^(1-fApG) * R^fApG        (floored at wG, so never narrower
+      //                                       than the lens can resolve)
+      //
+      //   fApG = 0  round 8: a fixed needle, no handover, two populations.
+      //   fApG = 1  no separate lobe at all — the core IS the band.
+      //   0 < fApG < 1  the core widens WITH the band, so at every station the
+      //                 profile is one shape with one core-to-band ratio, and
+      //                 the near half no longer has a needle on a plateau.
+      //
+      // ⚠ AND IT IS THE TERM THAT MAKES THE TWO ORIENTATIONS AGREE, which is
+      // the reason it is written this way and not as a wider constant. `wA/R`
+      // is what the shape probes actually measure, and under round 8's fixed
+      // width that ratio was 2.09/20 = 0.10 on the hero and 1.60/8 = 0.20 on
+      // the portrait capture — a 2x shape difference between the two
+      // orientations of the SAME lens, which is exactly the r6/r7/r8 failure
+      // pattern. Under fApG = 0.45 it is 0.28 and 0.27. Measured, not assumed:
+      // at fApM 0.75 / fApW 0.14 with fApG 0 the frozen `filament flattop_p50`
+      // read 0.385 landscape against 0.174 portrait — the same uniforms giving
+      // OPPOSITE failures on the two rasters. That is the bug this term kills.
+      const wA = R.div(wG).max(1.0).pow(U.fApG).mul(wG).toVar();
+      const ya = yPx.div(wA).toVar();
       const yaS = ya.mul(ya).toVar();
       const apC = yaS.oneMinus().max(0.0).add(1e-6).pow(U.fApP).toVar();
       const apT = yaS.mul(0.16).add(1.0).pow(float(-1.15)).toVar();
