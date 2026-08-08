@@ -962,6 +962,149 @@ function fibreBundles(cc, u, lite) {
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  ROUND 8 — THE MESH IS A CELL FIELD, AND THE FACE IS NOT DARK, IT IS BIMODAL
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * `fibreBundles` above is round 7's answer and the r7 verdict is right about
+ * it: "1-2 px, evenly angularly spaced and all the same length, so they read as
+ * a drawn starburst rather than as tissue", `speck_median_area` 2.0 px against
+ * a scale-matched plate-01's 4.0, `speck_area_p95_over_median` 16.4 against
+ * 8.55. A ridge of `1 - |noise|` has NO characteristic size — its crest widths
+ * are distributed from zero upward, which is exactly a bimodal p95/median. A
+ * jittered cell has one, by construction, and that is the statistic that has
+ * refused to move for three rounds. It is kept below for the record and is no
+ * longer on the watermelon path.
+ *
+ * ── BUT FIRST: WHAT I MEASURED BEFORE WRITING ANY OF THIS ──────────────────
+ *
+ * I calibrated the shipped chain instead of modelling it. A private build
+ * replaced the whole watermelon flesh albedo with a flat, uniform,
+ * KNOWN scene albedo at plate-01's flesh chroma and swept it over eight values
+ * from ONE page load (uniform only, no recompile), then read the display-R
+ * distribution of the frozen `foam` region out of each frame:
+ *
+ *   flat albedo (after capBudget)  0.020  0.050  0.100  0.180  0.277  0.325  0.351
+ *   display R  p50                  95    110    130    158    186    200    202
+ *   display R  p75                 115    129    147    173    203    218    225
+ *   display R  p95                 225    236    245    255    255    255    255
+ *   % over the clip point         3.65   3.95   4.35   5.66   8.58   9.61  11.32
+ *
+ * Three facts fall straight out of that table and they redirect the whole job:
+ *
+ *  1. OUR FACE'S MEDIAN ALBEDO IS ABOUT 0.14. r7 shipped p50 = 145 display.
+ *     The ramp's own constants are deep 0.070 / ripe 0.278 / pale 0.415, so the
+ *     face is spending most of its area near the BOTTOM of its own ramp. The
+ *     r7 verdict's "we are missing the top quartile" is true of the plate's
+ *     description and false of the mechanism: adding a brighter top did move
+ *     8.3% of the gap because the median never moved.
+ *
+ *  2. THE DIFFUSE CHANNEL SATURATES AT DISPLAY ~204, AND capBudget IS WHY.
+ *     Contract v5 section 6's ceiling for this material is 0.418 x k with
+ *     k = 0.872, i.e. 0.3647, and the knee starts at 0.2626 — so a flat 0.42
+ *     and a flat 0.90 land three display counts apart. plate-01's face has 25%
+ *     of its own area ABOVE display 225, which no albedo permitted by the
+ *     contract can reach. That quarter is not albedo. It is the wet sheen R1
+ *     names ("visibly wet — specular sheen across the whole face"), and the
+ *     right way to buy it is to SPREAD the specular, not to raise the ramp.
+ *
+ *  3. 3.65% OF THE FACE IS OVER THE CLIP POINT AT A FLAT ALBEDO OF 0.02, i.e.
+ *     with the diffuse term switched off in all but name. The residual clip is
+ *     purely specular and it is the one number that cannot be bought back with
+ *     albedo work.
+ *
+ * So this round: raise the MEDIAN by lifting the ramp's floor and by deleting a
+ * darkening term that was never in the reference, and hold the ceiling exactly
+ * where contract v5 section 6 and r7-stage section 8.4 put it. Section 8's
+ * prohibition ("does not license raising `ripe`, it moves p50 and p99.7
+ * together") is respected in the only way that means anything: p99.7 is pinned
+ * by `capBudget` at the clip point whatever the ramp does, and it is measured.
+ *
+ * ── THE FIELD ──────────────────────────────────────────────────────────────
+ *
+ * A jittered cell grid in (angle, radius). The coordinate walks `Nc` cells
+ * around the ring and `Nr` from centre to rim, so at cap radius r one cell is
+ * (2*PI*r/Nc) x (1/Nr) in normalised cap units — the aspect is a free parameter
+ * and at Nc/Nr = 8 a cell at r = 0.6 is 2:1 elongated RADIALLY, which is what
+ * makes a chunk read as a bundle rather than as a dot. `wrap = Nc` makes the
+ * angular index periodic, so there is no seam at +-PI (the round-5 note on
+ * `cellPt` is explicit that this is mandatory for any grid indexed by angle).
+ *
+ * TWO OCTAVES, INNER AND OUTER, because a single Nc has a cell 5x wider at the
+ * rim than at rad 0.2 and the r7 verdict is explicit about what has to happen
+ * at portrait scale: "gate the whole field through blobFade at the CELL radius
+ * ... so that at portrait scale the cells COARSEN rather than vanish". Each
+ * octave carries its own `blobFade` at its own chunk radius, so the fine one
+ * removes itself first and the coarse one is still there — which is the
+ * difference between a face that loses its texture on a phone and one that
+ * doesn't.
+ *
+ * Sizes at the 640x360 review frame (watermelon cap 104 px across, 52 px
+ * radius, so one cap unit = 52 px):
+ *
+ *   octave  Nc  Nr  owns rad     cell at mid-band      chunk (2 x 0.30 cell)
+ *   inner   16   2  0.06 .. 0.52   6.9 x 26 px          4.1 x 15.6 px
+ *   outer   30   4  0.40 .. 1.00   8.2 x 13 px          4.9 x  7.8 px
+ *
+ * A 4-8 px chunk is a RESOLVED OBJECT — `blobFade` passes it at 2..4 px and
+ * these are past that — and its area under the frozen `foam` probe's 7x7 median
+ * subtraction is 12-30 px, against a scale-matched plate-01 median of 4 px with
+ * a p95/median of 8.55. The tight distribution is the point: every chunk in one
+ * octave is within a factor of 1.6 of every other, where a ridge field's crest
+ * widths run from 0 upward.
+ *
+ * Returns the same { bun, grv } pair `fibreBundles` did, so the four call sites
+ * are unchanged in shape:
+ *   bun  the pale chunk — plate-01's top quartile, a RESOLVED object.
+ *   grv  the wet groove between chunks, where plate-01's dark quartile and its
+ *        standing juice live. Deliberately much shallower than r7's: r7's
+ *        groove was 0.86 of the whole ramp and it is the single term that put
+ *        our p25 at display 86 against the plate's 171.
+ */
+function fleshCells(cc, u, lite) {
+  const { aN, rad } = cc;
+
+  // One octave. `gate` is the radial band it owns; `dens` is a second hash
+  // stream off the cell id (the same trick `wetField` uses) so DENSITY and SIZE
+  // are independent knobs — round 5's foam could not separate them and that is
+  // what made it a uniform carpet.
+  const oct = (Nc, Nr, seed, gate, dens) => {
+    const p = vec2(aN.mul(Nc), rad.mul(Nr)).toVar();
+    const c = cellPt(p, seed, 1.0, Nc, 0.32);
+    // chunk radius varies 0.21..0.32 of a cell, inside the 0.32 margin so no
+    // chunk is ever truncated flat against a cell wall (the "grid of hard-edged
+    // square dots" the r4 verdict named on the orange).
+    const r = c.id.mul(0.11).add(0.21).toVar();
+    const g = fract(c.id.mul(29.13).add(0.47)).toVar();
+    const w = gate.mul(blobFade(p, r)).mul(step(dens, g).mul(0.55).add(0.45)).toVar();
+    return {
+      // the chunk: a plateau with a soft rim, not a spike with a skirt
+      k: blob(c.d, r.mul(0.52), r).mul(w).toVar(),
+      // "is there a chunk anywhere near" — its complement is the groove
+      n: blob(c.d, r.mul(0.90), r.mul(1.85)).mul(w).toVar(),
+      w,
+    };
+  };
+
+  const oIn = oct(16.0, 2.0, 11.0, ss(0.06, 0.20, rad).mul(ss(0.52, 0.34, rad)), 0.30);
+  const oOut = lite ? null : oct(30.0, 4.0, 23.0, ss(0.34, 0.46, rad), 0.24);
+
+  let k = oIn.k;
+  let n = oIn.n;
+  let w = oIn.w;
+  if (oOut) { k = max(k, oOut.k); n = max(n, oOut.n); w = max(w, oOut.w); }
+
+  // groups of chunks run brighter than their neighbours — without this every
+  // bundle is the same value and the face reads as a regular quilt. One
+  // angle-periodic tap, shared by both octaves.
+  const grp = lite ? null : ss(-0.40, 0.34, ringN(cc.ang, 2.7, rad.mul(1.7).add(11.0)));
+  if (grp) k = k.mul(grp.mul(0.52).add(0.48));
+
+  return {
+    bun: k.mul(u.detail.mul(0.26).add(0.74)).clamp(0.0, 1.0),
+    grv: n.oneMinus().mul(w),
+  };
+}
 
 /**
  * Derivative bump. `h` must be in WORLD units so the perturbation is resolution
@@ -1543,6 +1686,91 @@ function fleshMaterial(sp, body, o = {}) {
   return m;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  ROUND 8 — THE APPENDAGE CONTRACT, IMPLEMENTED AT LAST
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * geometry.js has encoded appendages in uv.y since round 3 and has asserted in
+ * its own comments, for three rounds, that "species.js keys
+ * `wood = step(1.72, uv.y)` off exactly this". THIS FILE HAS NEVER CONTAINED
+ * THAT CODE. Every pineapple crown blade, strawberry sepal, apple stem, orange
+ * navel pucker and watermelon stem spur has been shading as plain body skin —
+ * a gold feather-duster instead of a grey-green crown.
+ *
+ * ── THE RANGES, READ OUT OF geometry.js TODAY, NOT OUT OF ITS COMMENT ───────
+ *
+ * I did not trust the brief and I did not trust the comment block at
+ * geometry.js:550. These are the four `UV[vi*2+1]` write sites as the file
+ * stands right now:
+ *
+ *   geometry.js:1638  body      `0.02 + 0.96 * ring.v`          -> [0.02, 0.98]
+ *   geometry.js:1618  stem ring `1.75 + 0.20 * ring.v`          -> [1.75, 1.95]
+ *   geometry.js:1630  crown blade, woody:false
+ *                     `1.00 + 0.70 * clamp01(h / crownMax)`     -> (1.00, 1.70]
+ *   geometry.js:1630  crown blade, woody:true
+ *                     `1.75 + 0.20 * clamp01(h / crownMax)`     -> [1.75, 1.95]
+ *   geometry.js:1520  +Y pole vertex  1.95 with a stem, else 0.98
+ *
+ * and the consumers on the other side:
+ *
+ *   cutter.js:998/1062  cap + collar write uv.y = 0..1, EXACTLY 1.0 on every
+ *                       collar vertex (RV[6..8] = 1.0). So a leaf ramp that
+ *                       starts strictly ABOVE 1.0 cannot fire on a collar.
+ *   cutter.js:1103      the retained skin of a half copies the ORIGINAL uv, so
+ *                       a sliced fruit keeps its appendage mask.
+ *
+ * Verified, not assumed: `crown.woody` is set by the watermelon (geometry.js
+ * :759) and the apple (:896); the pineapple crown and the strawberry calyx do
+ * not set it, so `leaf` covers exactly the foliage and `wood` exactly the
+ * lignified appendages, with no species test — which is what the geometry
+ * author designed the two bands for.
+ *
+ * ── THE ONE TRAP, AND WHY THE RAMPS ARE NOT THE ONES THE COMMENT SUGGESTS ───
+ *
+ * geometry.js's recipe is `leaf = smoothstep(1.0, 1.14, uv.y)` and
+ * `wood = step(1.72, uv.y)`. For a NON-woody crown that is exactly right: the
+ * blade mark is 1.0 where the blade height goes to zero, so it is CONTINUOUS
+ * with the body skin and there is no seam anywhere.
+ *
+ * For a WOODY crown it is not, and the failure is invisible in either file
+ * alone. A woody blade's mark is 1.75 at h -> 0+, while the neighbouring column
+ * outside the blade footprint is still body skin at ~0.90. The attribute
+ * therefore steps 0.90 -> 1.75 across ONE quad, and the rasteriser interpolates
+ * that step THROUGH THE WHOLE LEAF BAND. With `smoothstep(1.0, 1.14, y)` the
+ * fringe quad is at full leaf over 73% of its width: on the watermelon's
+ * 48-column crown band that is a ~5 px GREEN RING around a brown stem spur, on
+ * a 13 px spur. Same at the base of every stem, where the first stem ring
+ * (1.91) meets the last body ring (~0.80).
+ *
+ * The fix is not a discriminator — I tried `fwidth(uv.y)` first and it is
+ * wrong, because a real blade's own lateral EDGE has a gradient just as steep
+ * as the fringe does (h falls from crownMax to 0 across two or three columns),
+ * so the guard erases the edges of the leaves it is supposed to protect.
+ *
+ * The fix is to put the green LATE in the band. `leafy` (is this an appendage
+ * at all) turns on at 1.02, but `green` — the blend from a brown blade ROOT to
+ * foliage — does not complete until 1.60, and a real crown blade spends most of
+ * its projected area above that while the fringe quad crosses it in the last
+ * 11% of its width. That is sub-pixel on the spur, and it is also simply true:
+ * a pineapple crown leaf IS brown-green where it emerges from the fruit.
+ */
+function appendage() {
+  const y = uv().y.toVar();
+  // `wood` is geometry.js's documented step at 1.72, softened over 0.075 so it
+  // antialiases; it is deliberately ZERO at 1.70, the top of the leaf band, so
+  // the longest non-woody blade tip is not turned brown by the guard itself.
+  const wood = ss(1.680, 1.755, y).toVar();
+  const leafy = ss(1.020, 1.120, y).mul(wood.oneMinus()).toVar();
+  // how far up the blade / stem we are — geometry.js's "ramping with blade
+  // height" is the only per-appendage coordinate that exists, and it is the
+  // right one: it is 0 at the root and 1 at the tip on every appendage in the
+  // game, whatever its shape or species.
+  const green = ss(1.260, 1.600, y).toVar();
+  const bh = y.sub(1.0).mul(1 / 0.70).clamp(0.0, 1.0).toVar();
+  const sh = y.sub(1.75).mul(1 / 0.20).clamp(0.0, 1.0).toVar();
+  return { y, wood, leafy, green, bh, sh };
+}
+
 /**
  * SKIN (rind / peel), and the raised collar cutter.js puts around every cut face.
  *
@@ -1584,9 +1812,84 @@ function skinMaterial(sp, body, o = {}) {
   // citrus half at R = 255 after a 29-point improvement. The knee takes that
   // shoulder to 0.371 and leaves the mottle's 0.72 MEAN — the number the round-4
   // author actually solved for — untouched.
-  m.colorNode = Fn(() => capBudget(body.albedo(frame(), u)))();
-  if (body.rough) m.roughnessNode = Fn(() => body.rough(frame(), u).clamp(0.04, 1.0))();
-  m.normalNode = Fn(() => zsBump(normalView, positionView, body.relief(frame(), u).mul(u.bump)))();
+  // ── ROUND 8: leaf and wood, over EVERY skin, with no species test ────────
+  //
+  // All three colours are written through `fromKeyLit`, i.e. they are published
+  // as the scene-linear radiance the surface emits with the key on it, exactly
+  // as every other anchored constant in this file is. Against contract v5
+  // section 6's per-channel ceiling of (0.418, 0.482, 0.584) the largest of
+  // them is 0.096 R — a fifteenth of the ceiling — so no appendage can ever
+  // clip, at any orientation, and `capBudget` never binds on this path.
+  //
+  //   root   the brown-green collar where a blade emerges from the fruit. It is
+  //          also what the woody-transition fringe reads as (see `appendage`),
+  //          which is the whole reason the artefact is invisible.
+  //   fol    foliage. plate-01's crown is a GREY-green, not a pure green: G/R
+  //          1.67 and B/R 0.87 here, where a saturated leaf would be 3.0 / 0.3.
+  //          The r5 geometry verdict's phrase for the old crown was "a gold
+  //          feather-duster fan"; the failure mode on the other side is a
+  //          plastic-green one, so the blue channel is deliberately alive.
+  //   tip    dry straw. Real crown blades die back from the tip and it is the
+  //          single cheapest thing that stops 30 identical blades reading as a
+  //          moulded plastic cap.
+  //   wud    stem / dried calyx / navel pucker, with a pale broken end at the
+  //          tip of a cut stem (`sh` -> 1).
+  const A_ROOT = fromKeyLit(0.0760, 0.0700, 0.0430);
+  const A_FOL = fromKeyLit(0.0580, 0.0970, 0.0505);
+  const A_TIP = fromKeyLit(0.1080, 0.0870, 0.0440);
+  const A_WUD = fromKeyLit(0.0980, 0.0730, 0.0450);
+  const A_WTIP = fromKeyLit(0.1520, 0.1240, 0.0830);
+
+  m.colorNode = Fn(() => {
+    const f = frame();
+    const alb = capBudget(body.albedo(f, u)).toVar();
+    const a = appendage();
+    // per-blade value spread. `lon` is the across-blade coordinate (blades are
+    // radial about +Y, so a blade occupies a narrow arc of longitude); the
+    // second argument drifts with height so one blade is not a constant stripe.
+    // ringN is angle-periodic, so there is no seam at +-PI on the crown either.
+    const vary = ringN(f.lon, 11.0, a.y.mul(2.2)).toVar();
+    const leafC = mix(A_ROOT, A_FOL, a.green)
+      .mul(vary.mul(0.26).add(1.0))
+      .add(A_TIP.sub(A_FOL).mul(ss(0.80, 1.00, a.bh).mul(ss(-0.15, 0.55, vary))))
+      .toVar();
+    const woodC = mix(A_WUD, A_WTIP, a.sh.mul(a.sh))
+      .mul(ringN(f.lon, 17.0, a.y.mul(9.0)).mul(0.22).add(1.0))
+      .toVar();
+    alb.assign(mix(alb, leafC, a.leafy));
+    alb.assign(mix(alb, woodC, a.wood));
+    return alb;
+  })();
+  if (body.rough) {
+    m.roughnessNode = Fn(() => {
+      const a = appendage();
+      // foliage is matte with a waxy sheen; dried wood is the roughest surface
+      // on the fruit. Both are well clear of whatever the peel authored.
+      return mix(mix(body.rough(frame(), u), float(0.60), a.leafy), float(0.86), a.wood)
+        .clamp(0.04, 1.0);
+    })();
+  }
+  m.normalNode = Fn(() => {
+    const f = frame();
+    const a = appendage();
+    // Ribs along the blade / grain along the stem. Both are functions of
+    // longitude at a frequency well above the blade count, so they run ALONG
+    // the appendage, which is the direction real leaf veins and wood fibre run.
+    const app = max(a.leafy, a.wood).toVar();
+    const rib = mix(ringN(f.lon, 26.0, a.y.mul(5.0)), ringN(f.lon, 15.0, a.y.mul(11.0)), a.wood);
+    const h = mix(body.relief(f, u), rib.mul(1.35).sub(a.bh.mul(0.30)), app);
+    return zsBump(normalView, positionView, h.mul(u.bump));
+  })();
+  // A leaf and a dead stem have no fruit wax on them. Every skin that carries a
+  // clearcoat (the melon's 0.14, the apple's) loses it over its appendages,
+  // which is the difference between "a green thing" and "a leaf".
+  if ((o.mat && o.mat.clearcoat) > 0) {
+    const cc0 = o.mat.clearcoat;
+    m.clearcoatNode = Fn(() => {
+      const a = appendage();
+      return float(cc0).mul(max(a.leafy, a.wood).mul(0.88).oneMinus());
+    })();
+  }
 
   m.userData.zsu = u;
   _mats.push(m);
@@ -1743,13 +2046,12 @@ def({
         // verdict measured as "a 1-2 px dither" and as `speck_median_area` 2 px
         // against plate-01's 6.
         //
-        // `fibreBundles` replaces it: ONE resolved anisotropic ridge field,
-        // 15.1 px pitch and ~5 px wide at the rim, 5.6:1 anisotropy, guarded by
-        // `pxFade` so it removes ITSELF from the centre of the cap and from any
-        // frame where it would alias. See its block above `fibreMaterial`'s
-        // helpers for the arithmetic and for the plate-01 quartile measurement
-        // that sets the third albedo below.
-        const fb = fibreBundles(cc, u);
+        // ROUND 8 replaces the ridge with `fleshCells`, a two-octave jittered
+        // cell field, for the reason in its own header: a `1 - |noise|` ridge
+        // has no characteristic feature size, which is the whole of the
+        // `speck_area_p95_over_median` 16.4 (scale-matched plate-01: 8.55) that
+        // has not moved in three rounds. A cell has one by construction.
+        const fb = fleshCells(cc, u);
         const bun = fb.bun.toVar();
         // the GROOVE is the same field read from its other end — the gap
         // between two bundles, which is where plate-01's juice stands and where
@@ -1890,17 +2192,66 @@ def({
         // 0.655 clip point — inside it by construction, with the ground at
         // 0.184 and the area mean at 0.41, which is contract s8.3's measured
         // plate mean of 0.405 and s8.4's p50 target of 0.43.
-        const deep = vec3(0.0700, 0.0099, 0.0086);
-        const ripe = vec3(0.2780, 0.0384, 0.0310);
-        const pale = vec3(0.4150, 0.0800, 0.0672);
-        const t = gran.mul(0.30).add(cellv.sub(0.5).mul(0.14))
-          .add(0.90).sub(grv.mul(0.86)).clamp(0.0, 1.0);
+        // ── ROUND 8: THE MEDIAN, MEASURED, NOT MODELLED ────────────────────
+        //
+        // r7's story above is correct about the plate and wrong about us, and
+        // the calibration sweep in `fleshCells`'s header is what settles it.
+        // r7 shipped `deep` 0.070 / `ripe` 0.278 / `pale` 0.415 and the FACE
+        // rendered at a median display R of 145, which that table puts at an
+        // effective albedo of ~0.14 — i.e. the median pixel was sitting at a
+        // third of the way up its own ramp, not at `ripe`. Adding a brighter
+        // third population on top of that could only ever move the top decile,
+        // which is exactly what the verdict measured (8.3% of the gap).
+        //
+        // So the three populations are re-anchored on the plate's own
+        // percentiles run BACK THROUGH THE MEASURED TRANSFER rather than
+        // through an inversion of the chain:
+        //
+        //   plate-01 (scale-matched)   p5    p25    p50    p75    p95
+        //   display R                   91    171    203    225    244
+        //   albedo that renders it    0.019  0.215  0.335   ---    ---
+        //                                                  ^ off the top of the
+        //   contract v5 s6 ceiling for this material: 0.3647.  diffuse channel
+        //
+        // `deep` is therefore raised from plate-01's inverted GROUND albedo to
+        // the albedo that actually renders plate-01's dark quartile in THIS
+        // chain, and `ripe` — which is what most of the face's area sits at —
+        // is raised to render its MEDIAN. `pale` is authored past the ceiling
+        // on purpose so `capBudget`'s knee lands it just under, exactly as r7
+        // did; its effective value is 0.334, and the diffuse term therefore
+        // CANNOT clip at any orientation, which is the guarantee r7-stage
+        // section 8.4 line 2 asks for and is measured below.
+        //
+        //   authored        after capBudget(k = 0.872)     renders (display R)
+        //   deep  0.1250          0.1250                     ~140
+        //   ripe  0.3450          0.3125                     ~197
+        //   pale  0.4800          0.3357                     ~201
+        //
+        // Chroma is r7's, scaled: G/R 0.142 / 0.138 / 0.193 as before, because
+        // the measured `flesh_GR` error (0.409 against 0.353) is not in these
+        // constants — it is R clipping while G keeps climbing. Fixing the clip
+        // fraction is what fixes the hue, and both are measured in the report.
+        const deep = vec3(0.1250, 0.0177, 0.0154);
+        const ripe = vec3(0.3450, 0.0477, 0.0385);
+        const pale = vec3(0.4800, 0.0925, 0.0777);
+        // The groove's depth is the other half of the median. r7 subtracted
+        // 0.86 of the ENTIRE ramp wherever the field said "between two
+        // bundles", which put a quarter of the face at an effective albedo
+        // under 0.03 — our p25 was display 86 against the plate's 171. It is a
+        // wet crevice between chunks of tissue, not a hole: 0.40.
+        const t = gran.mul(0.26).add(cellv.sub(0.5).mul(0.12))
+          .add(0.92).sub(grv.mul(0.40)).clamp(0.0, 1.0);
         const alb = mix(deep, ripe, t).toVar();
-        // the bundles themselves — the whole of the missing top quartile.
+        // the chunks themselves — plate-01's pale top quartile, now a resolved
+        // object with a characteristic size rather than a ridge crest.
         alb.assign(mix(alb, pale, bun));
 
-        // pale heart where the fibres meet  (x0.24 with the ramp)
-        alb.assign(mix(alb, vec3(0.1188, 0.0688, 0.0575), ss(0.20, 0.02, rad).mul(0.62)));
+        // pale heart where the bundles meet. ROUND 8: this was (0.1188, 0.0688,
+        // 0.0575), which is DARKER in R than the new `ripe` — with r7's ramp it
+        // was a pale spot and with this one it would be a grey hole in the
+        // middle of the face. Re-authored to stay what it is for: desaturated
+        // (G/R 0.41 against the pulp's 0.14) and slightly brighter, not darker.
+        alb.assign(mix(alb, vec3(0.3550, 0.1450, 0.1180), ss(0.20, 0.02, rad).mul(0.55)));
 
         // seeds — near black, with a pale juice pocket around them. plate-01's
         // darkest 5% is lum 15.4, 5.48x under its flesh median: a real seed is an
@@ -1944,8 +2295,23 @@ def({
         // at this resolution, so the occlusion is baked. Round 2 did the opposite
         // — it put a *bright* stroke here — which is a large part of why the rim
         // read as a decal ring.
-        const groove = ss(0.690, 0.812, rad).mul(ss(0.812, 0.884, rad).oneMinus()).toVar();
-        alb.mulAssign(groove.mul(0.58).oneMinus());
+        //
+        // ⚠ ROUND 8 — THIS TERM IS THE "CENTRE-HOT VIGNETTE" THE r7 VERDICT
+        // MEASURED, AND IT IS THE LARGEST SINGLE DARKENING ON THE FACE.
+        // r7's tent ran 0.690 -> 0.884 with a depth of 0.58, i.e. a wash 0.19
+        // of the cap radius wide covering 28% OF THE FLESH DISC'S AREA and
+        // taking it to 0.42x albedo. That is what the verdict measured from the
+        // other side: "the 0.40-0.80 annulus is ours 119.7 against the plate's
+        // 195.5, 39% too dark over 75% of the face area, while the plate's face
+        // gets BRIGHTER outward". A contact shadow at cutter.js's v = 0.815
+        // groove is real, but the groove is 2-3 px wide, not 10, and the r7
+        // width was never derived from anything — cutter.js's own ring
+        // schedule puts the groove at v 0.815 between the flesh dome (0.620)
+        // and the pith crest (0.892), so the occluded band is at most
+        // 0.78..0.85. Narrowed to that, and shallowed 0.58 -> 0.34, which is
+        // the deepest a baked AO on a 2 px crease can honestly be.
+        const groove = ss(0.778, 0.815, rad).mul(ss(0.815, 0.856, rad).oneMinus()).toVar();
+        alb.mulAssign(groove.mul(0.34).oneMinus());
         // ...with a thin wet line on the INNER wall only, where juice runs off
         // the flesh dome into the groove. Modulated by the key like everything
         // else in the layered zone: a specular run-off is not a constant.
@@ -2061,7 +2427,7 @@ def({
         // other — which is what makes a bundle shade like a bundle. It stands
         // PROUD (plate-01 has juice standing in the grooves between bundles,
         // which is only possible if the bundles are the ridges).
-        const fb7 = fibreBundles(cc, u);
+        const fb7 = fleshCells(cc, u);
         const cG = q.mul(6.2).add(vec2(19.0, 4.0));
         const cGf = q.mul(13.4).add(vec2(2.0, 27.0));
         const gran = noise2(cG).mul(0.50)
@@ -2092,7 +2458,7 @@ def({
         //    is conserved instead of the detail simply being deleted.
         const cGf = cc.q.mul(13.4).add(vec2(2.0, 27.0));
         const lost = pxFade(cGf, 5.0).oneMinus().mul(0.055);
-        const bun = fibreBundles(cc, u, true).bun;
+        const bun = fleshCells(cc, u, true).bun;
         return mix(u.rough, float(0.62), L.pith).add(L.rind.mul(0.18))
           .add(bun.mul(0.20)).add(lost);
       },
@@ -2118,9 +2484,21 @@ def({
         // contract v5 section 4's budget line ("<= 0.162 linear R, measured as
         // the AREA MEAN over the cut face at key N.L = 0") is held to two
         // digits while the term stops being featureless.
-        const bun = fibreBundles(cc, u, true).bun;
+        //
+        // ROUND 8 FLATTENS THE RADIAL PROFILE AT A LOWER AREA MEAN, which is
+        // the second half of the vignette the r7 verdict measured. The r5/r7
+        // term ran 1.00 at the cap centre down to 0.65 at the rim; at key
+        // N.L = 0 the floor is 88% of what a pixel emits, so that profile IS a
+        // centre-hot face on the whole shadow-side half, independently of every
+        // albedo change above. 0.865 -> 0.665 keeps the same sense (a thick
+        // path through the middle of a melon does transmit more than a thin one
+        // at the rim) at a third of the swing, and it does so at an area mean
+        // of 0.705 against the old 0.72 — so contract v5 section 4's budget
+        // line, "<= 0.162 linear R as the AREA MEAN over the cut face at key
+        // N.L = 0", is not merely held, it is 2% under.
+        const bun = fleshCells(cc, u, true).bun;
         return L.pith.oneMinus().mul(L.rind.oneMinus()).mul(seeds(cc).bodyM.oneMinus())
-          .mul(ss(0.70, 0.20, cc.rad).mul(0.35).add(0.65))
+          .mul(ss(0.70, 0.20, cc.rad).mul(0.20).add(0.665))
           .mul(bun.mul(0.42).add(0.90));
       },
       // `floor` is contract v5 section 4's term B verbatim: the transmission

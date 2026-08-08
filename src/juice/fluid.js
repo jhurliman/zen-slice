@@ -826,6 +826,20 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
 
       Discard(qn.greaterThan(1.0));
 
+      // r6: `qn` is min(primary, satellite), and in a doublet's WAIST that
+      // overstates how close the texel is to the outline — the nearest real
+      // boundary there is the concave crease, not either lobe's rim. Left
+      // uncorrected the bridge fades out and the drop renders as two round
+      // dots. The cubic pins qs(0) = 0 and qs(1) = 1 exactly (so the silhouette
+      // and the rim are untouched) and pulls the middle down, which puts the
+      // bridge back inside the plateau. `dblv` is 0 for every other particle,
+      // and there this is bit-identical to r5.
+      // r8: HOISTED. It used to be computed next to `soft`, at the bottom; the
+      // optical interior below is a RADIAL model and needs the same corrected
+      // radius the alpha ramp uses. Same expression, same value, evaluated once
+      // instead of twice — this move costs nothing and saves ~3 ALU.
+      const qs = mix(qn, qn.mul(qn).mul(qn).mul(0.35).add(qn.mul(0.65)), dblv).toVar();
+
       // Dome height and its slope. thick = 0.5 / slope = 1.0 reproduces r4's
       // sphere exactly. The slope is DELIBERATELY not 2*thick: the honest
       // gradient of a pointed dome drives n.z down over the whole disc, which
@@ -870,17 +884,132 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         .add(pow(max(dot(n, H2), 0.0), mix(18.0, 78.0, big).mul(float(0.55).add(q4)))
           .mul(mix(1.5, 2.5, big)).mul(float(0.35).add(gain.mul(0.65))));
 
-      // INTERNAL REFRACTION. A fat drop is a ball lens: light entering from the
-      // key converges to a bright spot on the FAR side of the drop from it. One
-      // exp, gated on size, faded out when the sprite is a bokeh disc.
+      // ══════════════════════════════════════════════════════════════════════
+      //  r8 — THE OPTICAL INTERIOR. A DROPLET IS A LENS, NOT A DECAL.
+      // ══════════════════════════════════════════════════════════════════════
+      // The r7 verdict separated two properties that had been conflated, and it
+      // is the right cut: SHAPE (the silhouette) and INTERIOR (what happens
+      // inside the outline). r5-r7 spent three rounds on shape. The interior
+      // had never been touched at all: it was one flat fill, `mix(1.12, ...)`,
+      // constant across the whole disc, plus a stamped pip. That is why our
+      // drops read as painted dots and plate-02's read as glass beads.
+      //
+      // Everything below is ONE fragment-shader block. ZERO draw calls, zero
+      // attributes, zero uniforms, zero programs; ~22 ALU on top of the ~40 the
+      // r5 morphology already spends. See the perf note in rounds/reports/
+      // r8-juice.md — the draw-call delta this round is +0.
+      //
+      // FIVE terms, each a named piece of geometric optics:
+      //
+      //  1. FRESNEL / TIR. `ct` = cos of the view angle at the impostor
+      //     surface; Schlick with water's F0 = 0.02 (n = 1.34) gives the
+      //     external reflectance Fex, which runs 0.02 on the axis to 1.0 at the
+      //     grazing rim. Transmission through TWO surfaces is (1 - Fex)^2 and
+      //     therefore COLLAPSES in the last ~12% of the disc. That collapse is
+      //     total internal reflection and it is the thin DARK ring plate-01
+      //     shows just inside every drop's bright edge. r7 had no such term:
+      //     its body was equally bright out to the silhouette.
+      //
+      //  2. OFF-AXIS GATHER, and this is the term that makes the core dark.
+      //     A clear drop's interior is not a glow — it is the refracted image
+      //     of whatever is behind it. On the axis the ray passes through
+      //     undeviated and carries the background, which over the void is
+      //     BLACK. Away from the axis the deviation grows and the drop gathers
+      //     from an ever wider solid angle, so the interior brightens outward
+      //     until (1) kills it. Dark core, bright annulus, thin dark grazing
+      //     ring, hot edge: that is the plate, in that order, from the centre
+      //     out. r7's B2 note said "plate-01's red droplets are bright objects
+      //     with dark centres and hot rims" and then rendered them with a FLAT
+      //     interior; this is that sentence, implemented.
+      //
+      //  3. THE RIM SURVIVES DEFOCUS. r7's rim was `fres`, an ANGULAR term,
+      //     and §B4.3(c) correctly flattens angular terms with the lens — so
+      //     every defocused drop rendered as a uniform disc where a real one
+      //     bokehs to a bright ANNULUS. The two facts are not in conflict: the
+      //     defocused image of a rim-bright drop is that rim CONVOLVED with the
+      //     aperture, i.e. a band of width ~2b about the same radius, dimmer
+      //     but still a ring. So the angular `fres` still flattens (contract
+      //     honoured, untouched) and a GEOMETRIC ring takes over, whose width
+      //     is read from the lens's own `flat`. NO second CoC, no new uniform,
+      //     no clamp of my own — §B4.5 in full.
+      //     VERIFIED, not assumed, against src/render/stage.js `spriteDefocus`
+      //     (r185 tree, today): it returns flat = b/(r+b) and grows the sprite
+      //     to rEff = r + 1.30b, so a 2b-wide band is 2b/(r+1.3b) ~= 2*flat in
+      //     units of the grown quad. Hence `rw = 0.14 + 1.30*flat`.
+      //
+      //  4. THE CAUSTIC IS NO LONGER INVISIBLE. It was gated on big^2 times
+      //     (0.10 + gain*0.45), i.e. 0.012..0.067 of key at big = 0.35 — below
+      //     the probes' 0.06 luma floor on everything but the largest handful
+      //     of drops, exactly as the r7 verdict's fix note says. It is gated on
+      //     `opt` now (so mist still gets none) and it carries the TRANSMITTED
+      //     colour, because a caustic is by definition light that went through
+      //     the juice. That also keeps it from desaturating the fat beads the
+      //     way a key-white area term does.
+      //
+      //  5. TRANSPARENCY IS RADIAL. See the alpha block below.
+      //
+      // WHAT IS DELIBERATELY NOT HERE: a framebuffer sample. Refracting the
+      // real background needs `viewportSharedTexture`, which is a full-frame
+      // copy per frame on both backends and would blow the fill budget this
+      // round is supposed to be defending. Term 5 transmits the background
+      // honestly (undistorted, which is exactly right for the axial ray and
+      // an approximation elsewhere) for zero bandwidth.
+      //
+      // SIXTH, and it is the reason this is not just "a ring": every term below
+      // carries a PER-PARTICLE constant (core darkness `g0`, rim width `rw`,
+      // rim gain, caustic gain), off the `rk()` randoms the drop already has.
+      // A field of 90 identical annuli would be the r4 pip defect again with a
+      // new shape, and the r7 verdict is explicit that congruence is the tell.
+      //
+      // shading position in VIEW space; the caustic already needed it and the
+      // anisotropy below needs it too, so it is hoisted here and computed once.
       const gvx = dy.mul(gx).add(dx.mul(gy)).toVar();
       const gvy = dx.negate().mul(gx).add(dy.mul(gy)).toVar();
+      const ct = clamp(n.z, 0.0, 1.0).toVar();
+      const om = float(1.0).sub(ct).toVar();
+      const om2 = om.mul(om).toVar();
+      const Fex = float(0.02).add(om2.mul(om2).mul(om).mul(0.98)).toVar();
+      const Tr = float(1.0).sub(Fex).toVar();
+      // How much of the geometric-optics model applies. A sub-pixel mist grain
+      // is a Mie scatterer, not a lens: plate-02's aerosol is a field of flat
+      // silver specks and REFERENCE_BAR is explicit that it must stay that way.
+      // `opt` is 0 below big = 0.16 and 1 above 0.52, so the whole achromatic
+      // population is bit-identical to r7 and `tintlaw.sat_small` cannot move.
+      const opt = smoothstep(0.16, 0.52, big).toVar();
+      const u2 = qs.mul(qs).toVar();
+      // `g0` is how dark the axial core goes, 0.14..0.32 per particle.
+      // `gN` restores the area mean of Tr^2 * gather over the unit disc for
+      // WHATEVER g0 the particle drew — mean(u^4) = 1/3 and mean(Tr^2) = 0.87,
+      // so gN = 3.448 / (1 + 2*g0). Switching a drop from flat fill to an
+      // optical interior therefore REDISTRIBUTES its light instead of deleting
+      // it; r7's own B2 note is the lesson, darkening a droplet's body took
+      // whole droplets under the probes' 0.06 luma floor.
+      const g0 = float(0.14).add(q2.mul(0.18)).toVar();
+      const gN = float(3.448).div(float(1.0).add(g0.mul(2.0))).toVar();
+      // The gather is NOT isotropic. The drop images the key's hemisphere, so
+      // the limb facing the light gathers more of it — the bright annulus is
+      // hotter on one side and the interior is not radially symmetric, which
+      // is both correct and what stops the ring reading as a stamped outline.
+      // mean(gdl) over the disc is 0 by parity, so this costs no energy.
+      const gdl = gvx.mul(U.L1.x).add(gvy.mul(U.L1.y)).toVar();
+      const inner = mix(float(1.0),
+        Tr.mul(Tr).mul(g0.add(float(1.0).sub(g0).mul(u2).mul(u2))).mul(gN)
+          .mul(float(1.0).add(gdl.mul(0.34))), opt).toVar();
+      // the geometric rim ring (term 3). The `flat` part of `rw` and the
+      // 1/(1+2.4*flat) amplitude are the convolution's width and its energy
+      // spread and come from the lens and nothing else; the 0.11..0.22 base is
+      // per particle, because a drop's rim width is set by its own curvature.
+      const rw = float(0.11).add(q3.mul(0.11)).add(flatv.mul(1.30)).toVar();
+      const rd = float(1.0).sub(qs).div(rw).toVar();
+      const ring = exp(rd.mul(rd).negate()).div(float(1.0).add(flatv.mul(2.4))).toVar();
+
+      // INTERNAL REFRACTION. A fat drop is a ball lens: light entering from the
+      // key converges to a bright spot on the FAR side of the drop from it.
       const cdx = gvx.add(U.L1.x.mul(0.52)).toVar();
       const cdy = gvy.add(U.L1.y.mul(0.52)).toVar();
-      // Gated on big^2 and kept small: it covers ~15% of the disc, so it is an
-      // AREA term, and an area term of key-white on a red drop desaturates it.
       const caust = exp(cdx.mul(cdx).add(cdy.mul(cdy)).mul(-7.0))
-        .mul(big).mul(big).mul(float(0.10).add(gain.mul(0.45))).mul(sharp).toVar();
+        .mul(opt).mul(float(0.16).add(gain.mul(0.55)))
+        .div(float(1.0).add(flatv.mul(2.2))).toVar();
 
       const ndl = max(dot(n, U.L1), 0.0).toVar();
       const thru = max(dot(n.negate(), U.L1), 0.0).toVar();
@@ -922,11 +1051,29 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // red droplets are bright objects with dark centres and hot rims, not
       // dark objects. The new tint is ~3x deeper in green at big = 1, so this
       // roughly conserves the fat bead's luma while making its skirt survive.
-      const body = tint.mul(mix(1.12, float(0.26).add(ndl.mul(ndl).mul(0.62)), big))
+      // r8: `.mul(inner)` is the whole of terms 1+2. At opt = 0 (every mist
+      // grain, every sub-`small` spray grain) `inner` is exactly 1.0 and this
+      // line is bit-identical to r7.
+      const body = tint.mul(mix(1.12, float(0.26).add(ndl.mul(ndl).mul(0.62)), big)).mul(inner)
         .add(tint.mul(thru).mul(big.mul(0.5)));
+      // COLOUR OF THE TWO NEW TERMS, and they are not the same colour.
+      // A CAUSTIC is by definition light that went THROUGH the juice, so it
+      // carries `tint` almost neat. The RIM is the opposite: Fex -> 1 at
+      // grazing, so what leaves the silhouette is dominated by EXTERNAL
+      // reflection, which is achromatic. Giving both the tint (as I did first)
+      // renders every drop's surviving rim arc as a saturated red fragment and
+      // pushed `tintlaw.sat_small` on the hero from 0.668 to 0.744 — the one
+      // number that moved the wrong way, caught by the frozen probe. Splitting
+      // them is both more correct and what fixes it. Neither is key-white
+      // outright: a fully achromatic area term on a red drop is the mistake the
+      // r7 caustic comment names.
+      const rimCol = mix(tint, white, 0.52).toVar();
+      const cauCol = mix(tint, white, 0.18).toVar();
       const col = body.mul(U.key)
         .add(U.key.mul(spec))
-        .add(U.key.mul(caust))
+        .add(cauCol.mul(U.key).mul(caust))
+        .add(rimCol.mul(U.key).mul(ring)
+          .mul(mix(0.10, 0.66, big)).mul(float(0.60).add(q1.mul(0.80))))
         .add(U.key.mul(fres).mul(mix(0.32, 1.45, big)).mul(float(0.64).add(q4.mul(0.70))));
 
       const life = max(aP.y, 1e-4);
@@ -937,16 +1084,23 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // §B4.3(a): the alpha ramp IS the bokeh profile now. In focus vPlateau is
       // 0.68 and this is bit-identical to r4's fixed rim; defocused it is the
       // convolution of the droplet's disc with the aperture's.
-      // r6: `qn` is min(primary, satellite), and in a doublet's WAIST that
-      // overstates how close the texel is to the outline — the nearest real
-      // boundary there is the concave crease, not either lobe's rim. Left
-      // uncorrected the bridge fades out and the drop renders as two round
-      // dots. The cubic pins qs(0) = 0 and qs(1) = 1 exactly (so the silhouette
-      // and the rim are untouched) and pulls the middle down, which puts the
-      // bridge back inside the plateau. `dblv` is 0 for every other particle,
-      // and there this is bit-identical to r5.
-      const qs = mix(qn, qn.mul(qn).mul(qn).mul(0.35).add(qn.mul(0.65)), dblv).toVar();
+      // `qs` is hoisted to just under the Discard — see the note there.
       const soft = smoothstep(vPlateau, 1.0, qs).oneMinus().toVar();
+      // ── r8, TERM 5: A DROP IS TRANSPARENT WHERE IT DOES NOT BEND ──────────
+      // The r7 verdict's first clause was "an individual droplet is still an
+      // OPAQUE, flat-filled smooth lozenge" and "no drop shows the background
+      // through it". Both are one fact: alpha was constant across the disc.
+      // It should not be. The undeviated ray is the AXIAL one, so a drop is
+      // most transparent at its centre and most opaque at the TIR rim, and
+      // this profile is what actually transmits — over the void it reads as
+      // the dark refractive core, and over a cut face it reads as the face
+      // seen through the drop. It is the only honest way to show a background
+      // through a droplet without a framebuffer copy (see the block above).
+      // 1.15 keeps the area mean of the profile at ~0.95 so the population's
+      // total composited light is conserved to within 5%.
+      const aRad = mix(float(1.0),
+        float(0.42).add(u2.mul(0.58)).add(ring.mul(0.50)).mul(1.15),
+        opt.mul(0.86)).toVar();
       // r7 (B3): 0.62 -> 0.84 at big = 0. The pale/white band is now a large
       // RESOLVABLE population rather than a handful of sub-pixel grains (see
       // the tint block), so it has to be opaque enough to survive the composite
@@ -954,6 +1108,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const a = float(0.30).add(fres.mul(0.44)).add(ndl.mul(0.34))
         .mul(mix(0.84, 1.08, big))
         .mul(float(0.66).add(q2.mul(0.72)))     // per-particle opacity, mean 1.02
+        .mul(aRad)
         .mul(fade).mul(vAlpha).mul(soft);
 
       return vec4(col, clamp(a, 0.0, 1.0));
