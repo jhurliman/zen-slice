@@ -46,7 +46,7 @@ import sys, json, math
 import numpy as np
 from PIL import Image
 
-PROBE_VERSION = 9
+PROBE_VERSION = 10
 # ── v8 -> v9 (round 8 critic, stage) ─────────────────────────────────────────
 # LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 8 -> 9.
 #
@@ -1621,8 +1621,70 @@ def probe_species(**kw):
             "separation": round(float(ratio), 2),
             "star_multivalued_dirs": sb,
         }
+    # ── v10: IDENTITY, and why `separation` must not be steered by ───────────
+    #
+    # `separation` is between-species distance divided by WITHIN-species pose
+    # variance. That denominator makes it maximised by a smooth, mirror-
+    # symmetric body, and it is actively PAID FOR by deleting appendages: a
+    # calyx or a crown raises pose variance faster than it raises between-
+    # species distance, so removing it RAISES the score. Round 8 measured the
+    # consequence — a builder tucked the strawberry calyx inside the waist to
+    # clear the gate ("so the tips sit inside the waist instead of 9% outside
+    # it") and the critic then found five of six fruit silhouetting as
+    # featureless ovals it could not name.
+    #
+    # That is a validity failure, not a noise problem, and it is worse than an
+    # irreproducible number: it turns a capable builder into an adversary of the
+    # thing it is meant to build, while every number improves.
+    #
+    # `identity` measures the actual goal — CAN YOU NAME THE FRUIT FROM ITS
+    # OUTLINE — as leave-one-out 1-nearest-neighbour classification across all
+    # poses of all species. It cannot be gamed by smoothing, because making a
+    # body more generic moves it TOWARD other species and accuracy falls. It has
+    # no within-species denominator, so a distinctive appendage that also adds
+    # pose variance is rewarded rather than punished, which is the correct
+    # incentive: real fruit ARE pose-variable, and that is not a defect.
+    #
+    # `separation` is retained UNCHANGED for continuity with rounds 5-8. Steer
+    # by `identity_accuracy`.
+    all_sig, all_lab = [], []
+    for k in ids:
+        for sig in S[k]:
+            all_sig.append(sig); all_lab.append(k)
+    n_all = len(all_sig)
+    correct, confusion, per_species = 0, {}, {k: [0, 0] for k in ids}
+    for i in range(n_all):
+        others = [j for j in range(n_all) if j != i]
+        dists = [_sig_dist(all_sig[i], np.array([all_sig[j]]), rays) for j in others]
+        nn = others[int(np.argmin(dists))]
+        hit = all_lab[nn] == all_lab[i]
+        correct += hit
+        per_species[all_lab[i]][1] += 1
+        if hit:
+            per_species[all_lab[i]][0] += 1
+        else:
+            key = all_lab[i] + "->" + all_lab[nn]
+            confusion[key] = confusion.get(key, 0) + 1
+    chance = 1.0 / max(len(ids), 1)
+    out["identity_accuracy"] = round(correct / max(n_all, 1), 4)
+    out["identity_chance"] = round(chance, 4)
+    out["identity_lift_over_chance"] = round((correct / max(n_all, 1)) / chance, 2) if chance else None
+    out["identity_recall"] = {k: round(v[0] / v[1], 3) if v[1] else None
+                              for k, v in per_species.items()}
+    out["identity_top_confusions"] = dict(sorted(confusion.items(), key=lambda kv: -kv[1])[:5])
+    out["identity_n_poses"] = n_all
+    for k in ids:
+        out["species"][k]["identity_recall"] = out["identity_recall"][k]
+        out["species"][k]["_separation_note"] = (
+            "separation is retained for continuity but is INVALID as a target: "
+            "its within-species denominator rewards deleting appendages. "
+            "Steer by identity_recall / identity_accuracy.")
+
     out["separation_worst"] = round(float(min(ratios)), 2)
     out["separation_median"] = round(float(np.median(ratios)), 2)
+    out["separation_VALIDITY_WARNING"] = (
+        "DO NOT OPTIMISE. Maximised by a smooth mirror-symmetric body; deleting "
+        "an appendage raises it. Use identity_accuracy.")
     out["tris_all_species"] = tris
     out["star_multivalued_total"] = starbad   # MUST be 0; non-zero breaks cutter.js
     return out
