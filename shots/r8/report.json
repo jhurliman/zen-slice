@@ -1,0 +1,319 @@
+{
+  "device": "desktop",
+  "viewport": {
+    "width": 1280,
+    "height": 720,
+    "tier": 3
+  },
+  "renderSize": {
+    "width": 640,
+    "height": 360,
+    "scale": 0.5
+  },
+  "beats": [
+    {
+      "label": "goto",
+      "ms": 10364,
+      "ok": true
+    },
+    {
+      "label": "boot",
+      "ms": 458,
+      "ok": true
+    },
+    {
+      "label": "backend",
+      "ms": 21,
+      "ok": true
+    },
+    {
+      "label": "setTier",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "label": "run:reset",
+      "ms": 1963,
+      "ok": true
+    },
+    {
+      "label": "run:spawn-melon",
+      "ms": 50,
+      "ok": true
+    },
+    {
+      "label": "adv:0.3",
+      "ms": 5700,
+      "ok": true
+    },
+    {
+      "label": "shot:01-whole-watermelon",
+      "ms": 1191,
+      "ok": true
+    },
+    {
+      "label": "run:cut-melon",
+      "ms": 122,
+      "ok": true
+    },
+    {
+      "label": "adv:0.033",
+      "ms": 64,
+      "ok": true
+    },
+    {
+      "label": "shot:02-cut+33ms",
+      "ms": 1446,
+      "ok": true
+    },
+    {
+      "label": "adv:0.067",
+      "ms": 11,
+      "ok": true
+    },
+    {
+      "label": "shot:03-cut+100ms",
+      "ms": 1352,
+      "ok": true
+    },
+    {
+      "label": "adv:0.15",
+      "ms": 8,
+      "ok": true
+    },
+    {
+      "label": "shot:04-cut+250ms",
+      "ms": 2297,
+      "ok": true
+    },
+    {
+      "label": "adv:0.25",
+      "ms": 10,
+      "ok": true
+    },
+    {
+      "label": "shot:05-cut+500ms",
+      "ms": 3466,
+      "ok": true
+    },
+    {
+      "label": "adv:0.5",
+      "ms": 478,
+      "ok": true
+    },
+    {
+      "label": "shot:06-cut+1000ms",
+      "ms": 6760,
+      "ok": true
+    },
+    {
+      "label": "run:stage-citrus",
+      "ms": 47,
+      "ok": true
+    },
+    {
+      "label": "adv:0.3",
+      "ms": 372,
+      "ok": true
+    },
+    {
+      "label": "run:cut-citrus",
+      "ms": 47,
+      "ok": true
+    },
+    {
+      "label": "adv:0.12",
+      "ms": 27,
+      "ok": true
+    },
+    {
+      "label": "shot:07-citrus-cut",
+      "ms": 6677,
+      "ok": true
+    },
+    {
+      "label": "adv:0.35",
+      "ms": 13,
+      "ok": true
+    },
+    {
+      "label": "shot:08-citrus-caps",
+      "ms": 4650,
+      "ok": true
+    },
+    {
+      "label": "run:stage-fast",
+      "ms": 10,
+      "ok": true
+    },
+    {
+      "label": "adv:0.2",
+      "ms": 10,
+      "ok": true
+    },
+    {
+      "label": "run:flick",
+      "ms": 58,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 19,
+      "ok": true
+    },
+    {
+      "label": "shot:15-fast-flick+50ms",
+      "ms": 3984,
+      "ok": true
+    },
+    {
+      "label": "run:stage-slow",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "label": "adv:0.2",
+      "ms": 12,
+      "ok": true
+    },
+    {
+      "label": "run:slowcut",
+      "ms": 31,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 36,
+      "ok": true
+    },
+    {
+      "label": "shot:16-slow-cleave+50ms",
+      "ms": 4219,
+      "ok": true
+    },
+    {
+      "label": "run:stage-combo",
+      "ms": 50,
+      "ok": true
+    },
+    {
+      "label": "adv:0.35",
+      "ms": 2255,
+      "ok": true
+    },
+    {
+      "label": "run:cut-combo",
+      "ms": 64,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 8,
+      "ok": true
+    },
+    {
+      "label": "shot:09-combo+50ms",
+      "ms": 6804,
+      "ok": true
+    },
+    {
+      "label": "adv:0.15",
+      "ms": 22,
+      "ok": true
+    },
+    {
+      "label": "shot:10-combo+200ms",
+      "ms": 2482,
+      "ok": true
+    },
+    {
+      "label": "adv:0.35",
+      "ms": 15,
+      "ok": true
+    },
+    {
+      "label": "shot:11-combo+550ms",
+      "ms": 4778,
+      "ok": true
+    },
+    {
+      "label": "run:stage-idle",
+      "ms": 54,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 24,
+      "ok": true
+    },
+    {
+      "label": "shot:12-idle-blade",
+      "ms": 1330,
+      "ok": true
+    },
+    {
+      "label": "cpu",
+      "ms": 237,
+      "ok": true
+    },
+    {
+      "label": "perf",
+      "ms": 182,
+      "ok": true
+    },
+    {
+      "label": "shot:13-load",
+      "ms": 48629,
+      "ok": true
+    },
+    {
+      "label": "hero:resize",
+      "ms": 31,
+      "ok": true
+    },
+    {
+      "label": "run:hero:stage",
+      "ms": 242,
+      "ok": true
+    },
+    {
+      "label": "hero:adv",
+      "ms": 26,
+      "ok": true
+    },
+    {
+      "label": "hero:shot",
+      "ms": 19843,
+      "ok": true
+    },
+    {
+      "label": "hud",
+      "ms": 13145,
+      "ok": true
+    }
+  ],
+  "perf": {
+    "peakDrawCalls": 113,
+    "peakTriangles": 202659,
+    "programs": 0,
+    "geometries": 34,
+    "textures": 18,
+    "liveBodies": 50,
+    "score": 462
+  },
+  "cpu": {
+    "median": 0.1,
+    "p95": 0.6,
+    "max": 2.4,
+    "frames": 400
+  },
+  "errors": [],
+  "timedOut": false,
+  "complete": true,
+  "backend": "webgl2",
+  "slowestBeats": [
+    "shot:13-load 48.6s",
+    "hero:shot 19.8s",
+    "hud 13.1s"
+  ]
+}
