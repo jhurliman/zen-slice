@@ -702,9 +702,9 @@ export function createStage() {
     // longer without touching anything else.
     fQKnee: uniform(0.45),
     // flux law along the length; 1.0 = strict conservation. See streakNode.
-    fKappa: uniform(0.65),
+    fKappa: uniform(0.25),
     // amplitude of the veiling-glare skirt around the filament. See streakNode.
-    fHalo: uniform(0.18),
+    fHalo: uniform(0.11),
     fHaloW: uniform(0.5),
     // reciprocal width of the white hot spot along the span. See streakNode.
     fHotW: uniform(2.40),
@@ -746,11 +746,11 @@ export function createStage() {
     //       in portrait against 0.32 on the hero at identical settings. The
     //       floor binds only below ~430x932; at the real device buffer
     //       fApW*bokeh is 1.37 px and this does nothing.
-    fApA: uniform(0.56),
+    fApA: uniform(0.45),
     fApW: uniform(0.095),
-    fApM: uniform(1.60),
-    fApP: uniform(0.5),
-    fApS: uniform(0.13),
+    fApM: uniform(0.60),
+    fApP: uniform(1.6),
+    fApS: uniform(0.0),
     fApT: uniform(0.72),
     // ── round 9: fRimK — THE RIM IS CONVOLVED, NOT CLIPPED ─────────────────
     // Multiplier on the rim-softening length of the SCENE lobes, in units of
@@ -761,12 +761,12 @@ export function createStage() {
     // device-pixel lengths — which is the only form that survives a rotation
     // of the phone; see the fApM note above for what happens to terms in this
     // file that are not.
-    fRimK: uniform(1.35),
+    fRimK: uniform(0.80),
     // ── round 9: fApG — how much of the glare core follows the defocus ─────
     // 0 = round 8 (a fixed-pixel needle at every station), 1 = no separate
     // core at all. See streakNode. Dimensionless, and the term that makes the
     // core-to-band ratio the same number in landscape and in portrait.
-    fApG: uniform(0.45),
+    fApG: uniform(0.62),
     // SCENE-LINEAR CEILING on the streak's own radiance. See streakNode's
     // soft-clip block: this, not the exposure and not fI, is what decides how
     // many pixels of the frame the flare is allowed to blow.
@@ -959,10 +959,21 @@ export function createStage() {
   // and that lobe's width is an absolute pixel count that does NOT shrink with
   // the scene lobes — at the sharp station the optical rim is ~1.1 px and
   // r0*grow*STREAK_HALO is under 3 px, which would slice the glare core off at
-  // 20% of its height and leave a hard horizontal cut across the frame. 9 half-
-  // widths puts the skirt at (1 + 0.16*81)^-1.15 = 5.3% of its own height, and
-  // the skirt is only `fApS` of the lobe, before the quad ends.
-  const STREAK_AP_REACH = 9.0;
+  // 20% of its height and leave a hard horizontal cut across the frame.
+  // ROUND 9 CUT IT 9 -> 4 AND THAT IS A FILL SAVING, NOT A RISK, because the
+  // two things it has to cover both got smaller: `fApS` (the power-law skirt,
+  // the only unbounded term) is now 0, so the glare lobe is a chord that is
+  // dead past 1.5 wA; and the scene lobes' new softplus tail is dead past
+  // ~2 R, which STREAK_HALO = 2.6 already covers. Sized against the shipped
+  // numbers: at the SHARP station (R ~ 3 px) wA is 2.6 px, so the floor is
+  // 10.4 px against round 8's 18.8; at the WIDEST (R ~ 25 px) wA is 9.8 px, so
+  // the floor is 39 px and `wS` = 78 px wins outright and the floor never
+  // binds. ⚠ The failure mode of cutting this too far is a NEW hard cut at the
+  // quad edge, i.e. exactly the defect round 9 exists to remove, so it was
+  // verified in the pixels and not in the head: every perpendicular profile in
+  // the shipped hero and the shipped portrait beat reaches the void floor
+  // (luma 2-7) inside the quad, with no terminal step.
+  const STREAK_AP_REACH = 4.0;
   const _sA = new THREE.Vector3(), _sB = new THREE.Vector3();
   const _sX = new THREE.Vector3(), _sY = new THREE.Vector3(), _sZ = new THREE.Vector3();
   const _sM = new THREE.Vector3(), _sV = new THREE.Vector3();
@@ -2021,26 +2032,39 @@ export function createStage() {
       // left IS the glare PSF). Nothing crosses over, nothing is summed, and
       // there is no amplitude at which one lobe takes the frame from another.
       const wG = U.fApW.mul(U.bokeh).max(U.fApM).toVar();
+      // ONE RULE FOR EVERY RIM IN THIS OBJECT: a chord of half-width `w` has
+      // its rim rounded by exactly ONE lens PSF, which in that chord's own
+      // normalised argument d = 1 - (y/w)^2 is a length of 2*wG/w. It is
+      // applied below to the scene lobes (w = R) and to the glare core
+      // (w = wA), because both are chords and both are imaged through the same
+      // glass. Round 8 clamped both to zero support and then hid the first
+      // cliff behind the second one.
+      //
       // ⚠ THE UPPER CLAMP IS NOT COSMETIC AND I MEASURED WHAT HAPPENS WITHOUT
-      // IT. dlt = 2*wG/R diverges as R -> wG, i.e. at the SHARP stations, and
-      // the softplus is only a model of a rounded rim, not of the PSF itself:
-      // at dlt = 2 the profile's value AT the old optical rim is 0.70 of its
-      // peak instead of 0, so the sharp end grows a shoulder it has no business
+      // IT. 2*wG/w diverges as w -> wG, i.e. at the SHARP stations, and the
+      // softplus is a model of a ROUNDED RIM, not of the PSF itself: at
+      // dlt = 2 the profile's value AT the old optical rim is 0.70 of its peak
+      // instead of 0, so the sharp end grows a shoulder it has no business
       // having. Measured, unclamped: the hero's hot-spot station went peak
       // 170 -> 253 (blown) and the three SHARPEST stations' `lens` edge_1090
       // went 3.28/3.80/3.59 -> 4.47/5.65/6.67. 0.60 keeps the rim rounding
       // under a third of the half-width, which is where the approximation is
       // still an approximation of something.
-      const dlt = U.fRimK.mul(2.0).mul(wG).div(R).clamp(0.02, 0.60).toVar();
-      // stable softplus: max(d,0) + dlt*ln(1 + exp(-|d|/dlt)). The naive form
-      // overflows at d/dlt > 88 in fp32 — d reaches 1 and dlt reaches 0.02, so
-      // the naive form WOULD overflow here, on the widest station of the hero.
-      const sp = (x) => x.max(0.0)
+      //
+      // The softplus is evaluated in the STABLE form,
+      //   max(d,0) + dlt*ln(1 + exp(-|d|/dlt)),
+      // not the naive one: d reaches 1 and dlt reaches 0.02, so exp(d/dlt)
+      // would be exp(50) — and at the narrowest clamp the naive form overflows
+      // fp32 outright on the widest station of the hero.
+      const rimOf = (w) => U.fRimK.mul(2.0).mul(wG).div(w).clamp(0.02, 0.60);
+      const sp = (x, dlt) => x.max(0.0)
         .add(dlt.mul(log(x.abs().div(dlt).negate().exp().add(1.0))));
-      // peak of the profile, at u = 0 i.e. d = 1. Divided out so `fCeil`, the
-      // flux law and every weight below keep the meaning they had in round 8.
-      const s0 = sp(float(1.0)).toVar();
-      const s = sp(float(1.0).sub(u.mul(u))).div(s0).max(1e-7).toVar();
+      // The profile's peak is at u = 0, i.e. d = 1; sp(1) is divided out so
+      // `fCeil`, the flux law and every weight below keep the meaning they had
+      // in round 8.
+      const spN = (d, dlt) => sp(d, dlt).div(sp(float(1.0), dlt));
+      const dlt = rimOf(R).toVar();
+      const s = spN(float(1.0).sub(u.mul(u)), dlt).max(1e-7).toVar();
       const mB = smoothstep(0.0, U.fQKnee, b.div(R)).toVar();
       const qc = mix(U.fQCore, float(0.5), mB).toVar();
       const qw = mix(U.fQWarm, float(0.5), mB).toVar();
@@ -2147,14 +2171,26 @@ export function createStage() {
       // width that ratio was 2.09/20 = 0.10 on the hero and 1.60/8 = 0.20 on
       // the portrait capture — a 2x shape difference between the two
       // orientations of the SAME lens, which is exactly the r6/r7/r8 failure
-      // pattern. Under fApG = 0.45 it is 0.28 and 0.27. Measured, not assumed:
-      // at fApM 0.75 / fApW 0.14 with fApG 0 the frozen `filament flattop_p50`
+      // pattern. At the SHIPPED fApG = 0.62 it is 8.29/20 = 0.41 on the hero
+      // and 2.98/8 = 0.37 on the portrait capture. Measured, not assumed: at
+      // fApW 0.14 / fApM 0.75 with fApG = 0 the frozen `filament flattop_p50`
       // read 0.385 landscape against 0.174 portrait — the same uniforms giving
-      // OPPOSITE failures on the two rasters. That is the bug this term kills.
+      // OPPOSITE failures on the two rasters. That is the bug this term kills,
+      // and the shipped build now reads 0.333 / 0.293 / 0.316 on 1280x720,
+      // 215x466 and 430x932 respectively, all three against plate-01's 0.300.
+      // ⚠ AND ITS RIM GETS THE SAME TREATMENT AS THE SCENE LOBES', because the
+      // round-8 clamp was here too and moving the cliff inward is not fixing
+      // it. Measured on the hero at fApG 0.45 with only the SCENE rim softened,
+      // the near station's perpendicular profile read
+      //   ... 67 68 69 71 | 106 116 121 124 125 124 121 115 104 | 70 69 70 ...
+      // — the 71 -> 106 and 104 -> 70 steps are this lobe's own vertical
+      // tangent, a 1.5x one-pixel wall at |y| = wA instead of at |y| = R. Same
+      // defect, smaller radius. `rimOf(wA)` rounds it by one lens PSF, which is
+      // the only length in the system that has any business being there.
       const wA = R.div(wG).max(1.0).pow(U.fApG).mul(wG).toVar();
       const ya = yPx.div(wA).toVar();
       const yaS = ya.mul(ya).toVar();
-      const apC = yaS.oneMinus().max(0.0).add(1e-6).pow(U.fApP).toVar();
+      const apC = spN(yaS.oneMinus(), rimOf(wA)).max(1e-7).pow(U.fApP).toVar();
       const apT = yaS.mul(0.16).add(1.0).pow(float(-1.15)).toVar();
       const ap = mix(apC, apT, U.fApS).toVar();
       // ── BLUR REDISTRIBUTES FLUX BETWEEN THE LOBES ────────────────────────
@@ -2245,22 +2281,43 @@ export function createStage() {
       // gives the plate's own streak fwhm_max_over_min 9.333 against
       // peak_max/peak_min 249.8/167.1 = 1.49. Nine times the width at the same
       // brightness is not a conserved quantity; a flare's radiance is set by
-      // its source, not by the aperture it is smeared through. kappa = 0.65
-      // splits the difference (grow 5 -> 0.36x rather than 0.20x) and is the
-      // one term here chosen against the plate rather than against physics.
+      // its source, not by the aperture it is smeared through.
+      // ROUND 9: 0.65 -> 0.25, AND THE PLATE STATES THE EXPONENT DIRECTLY
+      // rather than leaving it to be "split". If peak ~ width^-kappa then
+      // kappa = ln(peak_max/peak_min) / ln(fwhm_max/fwhm_min), and on
+      // `lens reference/plate-01.png` that is ln(1.49)/ln(9.333) = 0.179. This
+      // is not a free tuning knob and round 8's 0.65 was 3.6x the plate's own
+      // figure — which is most of why the near half needed a separate un-fluxed
+      // lobe propping its peak up at all. 0.25 is the plate's number rounded
+      // AWAY from zero, i.e. still slightly more conservative than the
+      // reference, and with it the hero's `lens` peak_max_over_min is 1.42
+      // against the plate's 1.49 with NO help from the glare lobe.
       const flux = vLens.y.max(1e-4).pow(U.fKappa).toVar();
 
       const c = U.fCore.mul(core.mul(aC).add(warm.mul(aG))).mul(wCore)
         .add(U.fWarm.mul(warm.mul(aW).add(halo.mul(U.fHalo))).mul(wWarm));
-      // ⚠ THE APERTURE LOBE DOES NOT TAKE `flux`, AND THAT IS THE POINT.
-      // `flux` is grow^-kappa: the scene lobe loses radiance because its light
-      // is being spread over a wider band. The aperture lobe is not being
-      // spread by anything — it is already at the lens's own resolution — so
-      // its radiance tracks the SOURCE, which is what keeps a hot core alive
-      // in the near half where the scene lobe has faded to a dull amber slab.
-      // It is scaled by the same (W_CORE + W_GLOW + W_WARM) that `norm` holds
-      // the scene lobes to, so `fApA` reads as a straight fraction of the
-      // scene's in-focus peak height.
+      // THE APERTURE LOBE DOES NOT TAKE `flux`: it is at the lens's own
+      // resolution rather than being spread by the defocus, so its radiance
+      // tracks the SOURCE. It is scaled by the same (W_CORE + W_GLOW + W_WARM)
+      // that `norm` holds the scene lobes to, so `fApA` reads as a straight
+      // fraction of the scene's in-focus peak height.
+      // ⚠ ROUND 9 DELETED THE SENTENCE THAT USED TO END THIS PARAGRAPH — "which
+      // is what keeps a hot core alive in the near half where the scene lobe
+      // has faded to a dull amber slab" — because the r8 critic was right that
+      // it was the quiet part said out loud: this lobe was propping up a defect
+      // instead of being a lobe. The prop is gone. The near half now holds its
+      // own peak because `fKappa` is the plate's own exponent (see `flux`), and
+      // this lobe's amplitude fell 0.56 -> 0.45 while its WIDTH stopped being a
+      // needle (see fApG).
+      // ⚠ IT IS STILL LOAD-BEARING AND I MEASURED THAT RATHER THAN ASSUMING THE
+      // FLATTERING ANSWER. Forcing fApA to 0 at otherwise shipped settings:
+      // `lens` peak_max_over_min 1.42 -> 1.99 landscape and 1.78 -> 2.82 on the
+      // portrait capture, and `filament flattop_p50` 0.333/0.293 -> 0.500/0.528
+      // — i.e. with no glare core at all the cross-section is a bare chord and
+      // the along-length level falls apart, in portrait worst. So this lobe
+      // stays. What was wrong with it in round 8 was its WIDTH and the cliff it
+      // was hiding, not its existence, and the r8 critic's instruction (b) —
+      // "remove or heavily reduce fApA" — is declined on this evidence.
       const apA = ap.mul(U.fApA).mul(W_CORE + W_GLOW + W_WARM)
         .mul(ends).mul(hot.mul(0.35).add(0.65)).toVar();
       const cA = mix(U.fWarm, U.fCore, U.fApT).mul(apA).toVar();
