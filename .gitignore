@@ -224,4 +224,9 @@ shots/r8-iphone/
 # shots/r10/ and shots/r10-iphone/, produced by the integrator.
 shots/r10-perf*/
 shots/r10-referent*/
+shots/r10-geo*/
+shots/r10-mat*/
+shots/r10-cutter*/
+shots/r10-juice*/
 tmp/
+__pycache__/
