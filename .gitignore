@@ -223,4 +223,5 @@ shots/r8-iphone/
 # used to characterise capture nondeterminism. The shipped r10 frames are
 # shots/r10/ and shots/r10-iphone/, produced by the integrator.
 shots/r10-perf*/
+shots/r10-referent*/
 tmp/
