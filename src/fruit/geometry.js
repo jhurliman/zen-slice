@@ -725,6 +725,128 @@
  * both ramps, and cutter.js:1113 blits the retained skin's original uv, so a
  * sliced half keeps its appendage mask. Nothing that already existed changes.
  *
+ * ── Round 10: 76/100 (+3). "Every outline event this piece owns is authored ON
+ *    THE POLAR AXIS, so a fruit is nameable only in the poses that happen to
+ *    show a pole; the equatorial profile between the poles is still an exact
+ *    solid of revolution and reads as a lathe in a still." ───────────────────
+ *
+ * The verdict is right and its prescription — r(theta,y) = r(y)*(1 + a_k*cos(k*theta
+ * + phase(y))) — is the right family. But the STRENGTH of that family lives
+ * almost entirely in `phase(y)`, and the verdict asked for 0.15 rad of drift.
+ * Measured, that is nothing. This note is the measurement, because the untwisted
+ * version of exactly this term has shipped since round 4 and has never done
+ * anything.
+ *
+ * ── 10A. WHY AN UNTWISTED AZIMUTHAL LOBE CANNOT REACH A SIDE-ON SILHOUETTE ──
+ *
+ * Take a body of revolution seen with its polar axis in the image plane — which
+ * is director.js's pose, |tilt| <= 0.49 rad. At screen height y the outline
+ * half-width is max over azimuth of r(phi,y)*cos(phi). If the lobe's phase and
+ * amplitude do not depend on y, that maximum factorises: half-width(y) =
+ * rho(y) * M(roll), with M a CONSTANT of the pose. The outline is therefore the
+ * meridian profile multiplied by one number — the same curve, very slightly
+ * scaled. There is no new event anywhere on it, and `_limb_stats`'s k<=3
+ * Fourier baseline absorbs the residue completely. Only when the phase or the
+ * amplitude varies with y does the max-envelope pick a different azimuth at
+ * different heights, and the outline actually waves.
+ *
+ * MEASURED, on the apple's BODY with the stalk and the calyx ablated so that
+ * nothing polar can contribute, 24 director poses, rasterised at the delivered
+ * fruit's own pixel size (mask_px 5.8-6.3k against the shipped landscape
+ * apple's 6255) and traced by the FROZEN `outline` probe:
+ *
+ *   body, no lobes at all                 hull_concave_frac 0.00  depth  1.94
+ *   + the lobe THAT HAS SHIPPED SINCE r4
+ *     (k=5, a=0.075, no twist)                              0.39         2.01
+ *   + `asym` (direction-domain fbm) 0.026 -> 0.11 at f2.4   24.61         7.48
+ *   + `bend2` (quadratic banana) 0 -> 0.20                   0.00         1.87
+ *   + k=3, a=0.11, TWIST 6.0 rad                            17.58        13.43
+ *   + k=3, a=0.14, TWIST 8.0 rad                            22.27        20.96
+ *
+ * Three things in that table. (1) The lobe this file has carried for six rounds
+ * contributes 0.07 pp of hull depth: it is a shading feature and always was.
+ * (2) `bend2` is EXACTLY zero to three digits — a quadratic bend is still a
+ * fibre-wise translation of each cross-section, so the max over depth is
+ * unchanged, and the r9 critic's ruling that a shear cannot fix this extends to
+ * the banana term. I tried it before I trusted the argument. (3) `asym` does
+ * reach the outline (its wavelength is ~200 deg, far outside the sqrt(2a)
+ * envelope kernel), but only at amplitudes where the fruit reads as diseased,
+ * which is the r5 corollary again. The twisted lobe is the only cheap one.
+ *
+ * ── 10B. WHAT SHIPPED, AND WHAT DID NOT ────────────────────────────────────
+ *
+ * `lobeTwist` and `lobeBias` (see the field table). `lobeBias: 1` carves the
+ * wave entirely INWARD, so the body's max radius — and therefore its on-screen
+ * height, and therefore the gap between the mesh's 1.05R and slicer.js's
+ * 0.975R cut gate — is EXACTLY what it was before. Every species that took a
+ * lobe this round took it at bias 1 for that reason: a fruit must never be
+ * visibly wider than the radius a swipe has to cross to cut it (R3, hit
+ * generosity). Furrows are also what an apple's lobes and a melon's ribs
+ * physically are.
+ *
+ * Per-species, `outline` on the frozen rig at TWO delivered rasters (mask ~5.9k
+ * and ~2.3k, i.e. the landscape and portrait fruit sizes), 24 director poses,
+ * reporting the MINIMUM over poses because the verdict's whole point is that a
+ * median hides the pose lottery:
+ *
+ *                 hull_concave_depth_pct, WORST of 24 poses
+ *                 mask ~5.9k        mask ~2.3k
+ *   apple        30.90 -> 35.47    31.78 -> 35.42
+ *   orange        8.34 -> 13.25    10.91 -> 14.15
+ *   kiwi          2.32 -> 14.73     5.21 -> 17.59
+ *   strawberry   21.81 -> 22.46    25.12 -> 26.58   (r9's win, held)
+ *   watermelon    1.42 -> 1.42      2.66 ->  2.66   (bit-identical, see below)
+ *
+ * THE WATERMELON IS DELIBERATELY UNTOUCHED AND ITS MESH IS BIT-IDENTICAL. I
+ * built the melon lobe, shot it and measured it: it is worth +0.7 pp of hull
+ * depth and it takes `silhouette boundary_cv` on 01-whole-watermelon from
+ * 0.0922 to 0.1208 landscape and 0.0995 to 0.1272 portrait, which are the
+ * ceilings the round-9 CUTTER verdict set as a "nothing spent from what is now
+ * right" guard. Moving another piece's guard-rail 30% for +0.7 pp on the hero
+ * frame is not a trade worth making, so the lobe came back out.
+ *
+ * THE ORANGE'S NAVEL IS THE OTHER HALF, AND THE r9 NUMBER THERE WAS PARTLY AN
+ * ARTEFACT. The r9 verdict called that appendage "a ragged tuft of disconnected
+ * islands that reads as breakage". The cause is the uv contract at the head of
+ * this file: the navel was marked `woody: true`, so species.js painted five
+ * blunt peel nubs dark brown, and on a black background dark brown falls BELOW
+ * `subject_mask`'s luma floor — the nubs were scoring hull concavity by being
+ * HOLES IN THE MASK. `crown.skin` is the third option beside woody and leafy:
+ * leave the blade's uv.y in the body band so it shades as peel, which is what a
+ * navel is. The nubs then join the mask as real protrusions instead of gaps,
+ * and are lengthened 0.185 -> 0.270 to pay for the concavity that the holes
+ * were counterfeiting: delivered `outline` on 11-combo+550ms goes 13.77 ->
+ * 15.36 landscape, and the species is 74 triangles CHEAPER.
+ *
+ * ── 10C. COST ──────────────────────────────────────────────────────────────
+ * ZERO triangles and zero draw calls by construction — `lobeTwist`/`lobeBias`
+ * are two extra multiplies inside the existing lathe loop and change no vertex
+ * COUNT. One of every species at ULTRA 21122 -> 21048 (-74, all of it the
+ * orange's crown band). star_multivalued_total 0 at 2048 Fibonacci directions,
+ * so cutter.js's star-shaped precondition holds; `identity` (the CONTROL, not a
+ * target) 0.9792 -> 0.9896 under uniform SO(3).
+ *
+ * ── 10D. AND THE HALF OF THE r9 FINDING THAT WAS NOT POSE ───────────────────
+ * The r9 verdict proved the apple's mesh gain does not reach the shipped
+ * landscape pixels and correctly ruled out "the calyx is dim" by sweeping the
+ * subject floor. There is a second mechanism it could not see, because no probe
+ * could: DEPTH OF FIELD. `defocus` (PROBE_VERSION 15, added this round) reports
+ * the limb's 10-90 luma transition in pixels, and on shots/r9/11-combo+550ms —
+ * ONE frame, so no cross-raster question arises —
+ *      apple  mask 6260  edge_1090 3.656 px
+ *      orange mask 7955  edge_1090 1.225 px
+ *      straw  mask 2239  edge_1090 1.202 px
+ * The apple's limb is 3.0x softer than the two fruit either side of it in mask
+ * size, so it is not a size effect: in that frame the apple is the out-of-focus
+ * object. The same fruit in shots/r9-iphone reads 1.947 px, 1.9x sharper — and
+ * portrait is exactly the orientation where the r9 apple's outline scored
+ * (hull_concave_depth 20.85 against landscape's 5.88). Shallow DOF is REQUIRED
+ * by REFERENCE_BAR R1b and is not a defect; it does mean that an outline
+ * statistic on a defocused fruit is measured through a 4-px kernel on a 99-px
+ * subject, and that half of "the mesh gain did not transfer" is stage's focal
+ * plane rather than this file's geometry. Quoted as a within-frame RATIO only —
+ * edge_1090 has a pixel-sized kernel and rule 2 binds it hard.
+ *
  * ── STALE NOTE, CORRECTED IN ROUND 6: "crown islands" ────────────────────────
  * Rounds 3-5 carried a warning here that a plane clipping a pineapple blade far
  * from its root produces a second disjoint loop "which cutter.js does not cap,
@@ -800,6 +922,16 @@ function smin(a, b, k) {
 //  shoulder      extra girth in a band at shoulderY, width shoulderW
 //  lobeN/Amp     azimuthal lobes (the apple's five-lobed waist), faded between
 //                lobeY0 (none) and lobeY1 (full)
+//  lobeTwist     ROUND 10. Lobe phase drift, in radians, per unit of profile u
+//                (u runs -1 at the bottom pole to +1 at the top). 0 reproduces
+//                every earlier round exactly. This is the field that makes an
+//                azimuthal lobe a SILHOUETTE event instead of a shading one —
+//                see the round-10 note "10A" at the head of the file.
+//  lobeBias      ROUND 10. 0 = the symmetric cosine every earlier round used
+//                (which raises the body's MAX radius by lobeAmp); 1 = the same
+//                wave carved entirely INWARD as furrows, so the max radius, the
+//                on-screen size and the cutter's dead band are all unchanged.
+//                Blends linearly.
 //  wellTop/W     depth & radial width of the concave stem well at +Y
 //  wellBot/W     ditto at -Y (blossom end / navel)
 //  stem          {r, len, taper, tip} — a real tapered cylinder rising out of
@@ -850,7 +982,7 @@ const BASE = {
   taper: 0, taperK: 2,
   shoulder: 0, shoulderY: 0.35, shoulderW: 0.45,
   lobeN: 0, lobeAmp: 0, lobePhase: 0, lobeY0: 0.5, lobeY1: -0.85,
-  lobeYc: null, lobeYw: 0.6,
+  lobeYc: null, lobeYw: 0.6, lobeTwist: 0, lobeBias: 0,
   rib: 0, ribN: 7, ribPhase: 0,
   wellTop: 0, wellTopW: 0.3,
   wellBot: 0, wellBotW: 0.3,
@@ -967,6 +1099,13 @@ const SHAPE = {
     // meridian and therefore reads in profile under the r5 pose.
     rx: 1.0, ry: 1.0, rz: 1.0, pTop: 2.04, pBot: 2.04,
     asym: 0.016, asymFreq: 1.70,
+    // ROUND 10 — deliberately the smallest lobe in the table. The r5 corollary
+    // (a real orange's peel bumps are ~3 deg of arc and T^2/8 caps them at 0.14%
+    // of radius) is about RELIEF and does not bind a 120-deg wave, but plate-01's
+    // orange really is a smooth ball and this species is the control for it. The
+    // orange's round-10 gain is its NAVEL, not its waist — see the crown below.
+    lobeN: 3, lobeAmp: 0.055, lobePhase: 0.9, lobeYc: 0.0, lobeYw: 1.40,
+    lobeTwist: 3.0, lobeBias: 1.0,
     wellTop: 0.060, wellTopW: 0.22, wellBot: 0.090, wellBotW: 0.26,
     stem: { r: 0.088, len: 0.050, taper: 0.45, tip: 0.90 },
     // ROUND 9 — THE NAVEL, RESTORED, AND ONLY THE NAVEL.
@@ -995,9 +1134,19 @@ const SHAPE = {
     // is flat-topped, so 25 crown columns at ULTRA (5 per nub) sample it
     // exactly; 42 cost 220 triangles for nothing (hullF 13.67 against 16.41).
     crown: {
-      cols: 30, woody: true,
+      // ROUND 10 — `skin`, NOT `woody`, AND THE r9 NUMBER HERE WAS PART
+      // ARTEFACT. See note 10B: marked woody, five blunt peel nubs shaded dark
+      // brown, and dark brown on a black background sits UNDER `subject_mask`'s
+      // luma floor — so they were scoring hull concavity as holes in the mask,
+      // which is exactly the "ragged tuft of disconnected islands that reads as
+      // breakage" the r9 verdict named. In the body band they shade as peel and
+      // join the mask as protrusions. len 0.185 -> 0.270 and wArc/wp up 10% to
+      // pay back the concavity the holes were counterfeiting; a 2.66 -> 2.72
+      // (nearer the pole) keeps the ring off the equator. Delivered `outline` on
+      // 11-combo+550ms 13.77 -> 15.36 landscape, and 74 triangles CHEAPER.
+      cols: 30, skin: true,
       whorls: [
-        { n: 5, a: 2.72, len: 0.185, wArc: 0.150, wp: 0.180, pPol: 1.60, pAz: 1.20, round: true, phase: 0.15, jit: 0.10, jitA: 0.030 },
+        { n: 5, a: 2.66, len: 0.270, wArc: 0.165, wp: 0.195, pPol: 1.60, pAz: 1.20, round: true, phase: 0.15, jit: 0.10, jitA: 0.030 },
       ],
     },
     lumps: 0.007, lumpFreq: 2.2, pebble: 0.010, pebbleFreq: 9.0, bend: 0.0,
@@ -1038,6 +1187,14 @@ const SHAPE = {
     rx: 1.0, ry: 1.440, rz: 1.0, pTop: 6.60, pBot: 5.40,
     taper: 0.090, taperK: 1.4,
     asym: 0.020, asymFreq: 1.55,
+    // ROUND 10 — the kiwi is the species this round moves furthest, and the
+    // number that matters is the WORST pose, not the median: `outline` on the
+    // frozen rig, 24 director poses at delivered pixel size, hull_concave_depth
+    // MINIMUM over poses 2.32 -> 14.73 at mask ~4.9k and 5.21 -> 17.59 at mask
+    // ~1.8k. r9 gave this body a stem spur and left it convex in the poses that
+    // hide the spur; a twisted equatorial wave has no pose that hides it.
+    lobeN: 3, lobeAmp: 0.100, lobePhase: 1.1, lobeYc: 0.0, lobeYw: 1.40,
+    lobeTwist: 5.0, lobeBias: 1.0,
     wellTop: 0.055, wellTopW: 0.20, wellBot: 0.045, wellBotW: 0.20,
     stem: { r: 0.075, len: 0.10, taper: 0.40, tip: 0.85 },
     crown: {
@@ -1120,7 +1277,22 @@ const SHAPE = {
     // five-lobed rosette (k=5 in the boundary FFT) instead of a disc — which is
     // also the correct shape for its cut face. Plus a dried calyx of five sepals
     // in the blossom basin and a longer stem, both as in plate-01.
-    lobeN: 5, lobeAmp: 0.075, lobePhase: 0.7, lobeYc: -0.10, lobeYw: 0.70,
+    // ROUND 10 — THE LOBES BECOME A SILHOUETTE EVENT. See note 10A. The r4-r9
+    // lobe (k=5, a=0.075, no twist) is worth 0.07 pp of hull depth on the
+    // ablated body: an untwisted azimuthal wave factorises out of the side-on
+    // outline exactly. k=5 -> 3 because the depth-max envelope fills the trough
+    // between two ridges 72 deg apart (cos 36 = 0.809) and barely touches one
+    // 120 deg apart, so at equal amplitude k=3 delivers ~2x the outline swing;
+    // measured on the ablated body at delivered scale, k=3/4/5/6/7 at a=0.14
+    // tw=6 give hull depth 17.73 / 11.88 / 13.01 / 9.89 / 6.38. a 0.075 -> 0.120
+    // at bias 1, i.e. 24% peak-to-peak carved INWARD, so the max radius, the
+    // on-screen height and slicer.js's cut gate are all where they were.
+    // I stopped at 0.120: 0.170 measures better (hull depth 12.56 -> 20.48 on
+    // the body) and SHOOTS worse — at 34% p-p the portrait apple in
+    // 11-combo+550ms reads as a faceted green gem, not an apple. The eye vetoed
+    // the statistic and the statistic lost.
+    lobeN: 3, lobeAmp: 0.120, lobePhase: 0.7, lobeYc: -0.10, lobeYw: 1.30,
+    lobeTwist: 6.0, lobeBias: 1.0,
     asym: 0.026, asymFreq: 1.75,
     wellTop: 0.580, wellTopW: 0.40, wellBot: 0.460, wellBotW: 0.34,
     // A STALK, not a hair — see the round-7 note at the top of this entry. It is
@@ -1241,6 +1413,14 @@ const SHAPE = {
     // strawberry's stalk is green; every other stalk in this table is woody.
     rx: 1.0, ry: 1.580, rz: 1.0, pTop: 3.60, pBot: 1.10,
     shoulder: 0.055, shoulderY: 0.42, shoulderW: 0.40,
+    // ROUND 10 — SMALL, AND ON THE SHOULDER BAND ONLY (lobeYc 0.25). This is
+    // the one species the r9 critic could name from its outline, so the job here
+    // was to not break it: `outline` on the r8 verdict's own frozen crop of
+    // 09-combo+50ms (win 280:275:345:340, mask 2268 vs 2285 — matched) reads
+    // hull_concave_frac 60.16 -> 67.97, hull_concave_depth 32.38 -> 31.36,
+    // protr_height_max 26.82 -> 27.56. Held.
+    lobeN: 3, lobeAmp: 0.060, lobePhase: 2.0, lobeYc: 0.25, lobeYw: 0.85,
+    lobeTwist: 2.5, lobeBias: 1.0,
     wellTop: 0.100, wellTopW: 0.26,
     stem: { r: 0.062, len: 0.40, taper: 0.25, tip: 0.6 },
     stemLeaf: true,
@@ -1872,6 +2052,11 @@ export function makeFruitGeometry(species, detail = 3) {
   let crownMax = 1e-6;
   if (S.crown) for (const w of S.crown.whorls) crownMax = Math.max(crownMax, w.len);
   const woodyCrown = !!(S.crown && S.crown.woody);
+  // ROUND 10 — `crown.skin`. A third option beside woody/leafy: leave the
+  // blade's uv.y in the BODY band so species.js paints it as peel. See note 10B
+  // at the head of the file — the orange's navel pucker is peel, not lignified
+  // wood, and marking it woody is what made it read as three black chips.
+  const skinCrown = !!(S.crown && S.crown.skin);
 
   // facet planes, normalised once
   let fct = null;
@@ -1926,7 +2111,13 @@ export function makeFruitGeometry(species, detail = 3) {
       const phi = (TAU * j) / nCols;
       const cp = Math.cos(phi), sp = Math.sin(phi);
       let rho = ring.r;
-      if (lobeW > 0) rho *= 1 + S.lobeAmp * Math.cos(S.lobeN * phi + S.lobePhase) * lobeW;
+      // ROUND 10 — `lobeTwist` and `lobeBias`. See note 10A at the head of the
+      // file. With both at 0 this line is arithmetically identical to rounds
+      // 4-9 and every earlier mesh reproduces bit for bit.
+      if (lobeW > 0) {
+        const th = S.lobeN * phi + S.lobePhase + S.lobeTwist * ring.u;
+        rho *= 1 + S.lobeAmp * (Math.cos(th) - S.lobeBias) * lobeW;
+      }
       // Longitudinal ribbing, full strength over the whole flank and faded out
       // near the poles where azimuth degenerates. This is the one feature that
       // survives on the outline when the fruit is seen END-ON, which is the view
@@ -2039,9 +2230,11 @@ export function makeFruitGeometry(species, detail = 3) {
           // from this side alone and stays safe if species.js later moves that
           // foot UP. `bh` still reaches 0.943 and `green` still completes at
           // h/crownMax = 0.909, so nothing else in the ramp set changes usefully.
-          mark = woodyCrown
-            ? 1.75 + 0.20 * clamp01(h / crownMax)
-            : 1.0 + 0.66 * clamp01(h / crownMax);
+          if (!skinCrown) {
+            mark = woodyCrown
+              ? 1.75 + 0.20 * clamp01(h / crownMax)
+              : 1.0 + 0.66 * clamp01(h / crownMax);
+          }
         }
       }
 

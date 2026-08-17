@@ -69,7 +69,56 @@ import sys, json, math
 import numpy as np
 from PIL import Image
 
-PROBE_VERSION = 14
+PROBE_VERSION = 15
+# ── v14 -> v15 (round 10 builder, fruit-geo) ─────────────────────────────────
+# LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 14 -> 15.
+#
+# ADDED one probe, `defocus`, and appended one SUITE row
+# (defocus:11-combo+550ms.png). NO EXISTING PROBE'S EXECUTABLE CODE CHANGED BY
+# ONE CHARACTER — clip, void, ring, silhouette, droplets, particles, tintlaw,
+# lens, foam, collar, filament, glare, bleach, spokes, outline, referent,
+# species and limb are byte-identical to v14, as are all shared helpers,
+# including `subject_mask`, `largest_component`, `_edge_1090` and
+# `_radial_edges`, which `defocus` CALLS rather than reimplements. PROBES gains
+# one key; the pre-existing SUITE rows are unchanged and in order.
+# CANARY under v15, verified before AND after the edit:
+#   `clip shots/r5/05-cut+500ms.png` -> mask_px 9490 / pct_R_ge_255 5.227.
+# VERIFIED RATHER THAN ASSERTED: the full suite was captured on shots/r5,
+# shots/r9, shots/r9-iphone, shots/r10-geo-base and shots/r10-geo-base-iphone
+# under v14, the edit made, the suite re-run and diffed key-by-key on all five.
+# Every pre-existing row is identical on all five; only the new
+# `defocus:11-combo+550ms.png` key appears, and only where that frame exists.
+#
+# ⚠ WHY IT EXISTS, AND IT IS THE ROUND-9 GEOMETRY FINDING'S MISSING HALF.
+# The r9 fruit-geo verdict established that a mesh gain need not reach the
+# delivered pixels, and correctly ruled out the obvious alternative explanation
+# by sweeping the subject floor 8/4/2/1 (r9 equal or worse than r8 at every
+# floor, so the calyx is absent, not dim). What no probe in v14 can see is the
+# OTHER thing that attenuates an outline event between the mesh and the mask:
+# the frame's depth of field. REFERENCE_BAR requires shallow DOF (R1b), stage
+# ships it, and it is not a defect — but it means the SAME authored relief
+# reaches the mask at different strengths on different objects in ONE frame, and
+# `outline`, `silhouette` and `limb` all report the attenuated number with no
+# way to say how much attenuation there was.
+#
+# WHAT IT MEASURES, and it is geometric and colour-blind by construction:
+# `subject_mask` (luma > floor, a property of the frame) inside an explicit
+# window, then `largest_component` — the identical construction `outline` uses —
+# then `_radial_edges` on LUMA, which walks `nray` rays out from the mask
+# centroid to `out` px past that ray's own mask radius and takes the 10-90 rise
+# width of each. Nothing keys on hue, on the object's identity or on its
+# brightness: `_edge_1090` is 0.8*amplitude/max|gradient|, a pure shape ratio.
+#   edge_1090_px_med / _p25 / _p75   the limb's 10-90 transition, in PIXELS
+#   n_rays                            how many rays formed an edge
+#   mask_px, bbox                     so the match is checkable
+#
+# ⚠ SCALE. edge_1090_px has a pixel-sized kernel, so RULE 2 binds it HARD: a
+# Lanczos resample moves it almost proportionally and it is meaningless across
+# rasters. It is therefore only ever to be quoted as a RATIO BETWEEN TWO
+# SUBJECTS IN THE SAME FRAME at comparable mask_px — which is a within-raster
+# comparison and immune to the resample problem that reversed the sign of the r8
+# collar finding. Both subjects' mask_px must be printed beside it. Do not quote
+# it against a plate, and do not gate a round on its absolute value.
 # ── v13 -> v14 (round 10 builder, referent) ──────────────────────────────────
 # LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 13 -> 14.
 #
@@ -2004,6 +2053,41 @@ def probe_outline(img, ref=None, win=None, floor=8.0, rays=128, thr=0.02, **kw):
     }
 
 
+def probe_defocus(img, ref=None, win=None, floor=8.0, nray=24, out=6.0, **kw):
+    """How sharp is this subject's limb, in pixels, in THIS frame.
+
+    See the v14 -> v15 notice at the top. Same mask construction as `outline`
+    (geometric: luma floor + largest component inside an explicit window), then
+    the frozen `_radial_edges` / `_edge_1090` pair on luma. Quote it ONLY as a
+    ratio between two subjects of comparable mask_px in the SAME frame."""
+    H, W = img.shape[0], img.shape[1]
+    x0, y0, x1, y1 = 0, 0, W, H
+    if win:
+        x0, y0, x1, y1 = [int(v) for v in str(win).split(":")]
+        x0 = max(0, x0); y0 = max(0, y0); x1 = min(W, x1); y1 = min(H, y1)
+    sub = img[y0:y1, x0:x1]
+    m = largest_component(subject_mask(sub, float(floor)))
+    ys, xs = np.nonzero(m)
+    if len(ys) < 64:
+        return {"error": "no subject", "mask_px": int(m.sum()),
+                "win": [x0, y0, x1, y1]}
+    L = luma(sub)
+    w = _radial_edges(L, ys, xs, nray=int(nray), out=float(out))
+    if not w:
+        return {"error": "no edge formed", "mask_px": int(m.sum()),
+                "win": [x0, y0, x1, y1]}
+    a = np.asarray(w, float)
+    return {
+        "mask_px": int(m.sum()),
+        "win": [x0, y0, x1, y1],
+        "bbox": [int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)],
+        "floor": float(floor), "nray": int(nray), "n_rays": int(a.size),
+        "edge_1090_px_med": round(float(np.median(a)), 3),
+        "edge_1090_px_p25": round(float(np.percentile(a, 25)), 3),
+        "edge_1090_px_p75": round(float(np.percentile(a, 75)), 3),
+    }
+
+
 # ── v14: the EXTERNAL REFERENT. Hand-traced, frozen, and NOT auto-segmented ──
 #
 # Coordinates are NATIVE pixels of reference/plate-01.png (1672 x 941). Each
@@ -2414,6 +2498,7 @@ PROBES = {
     "collar": probe_collar, "filament": probe_filament,
     "glare": probe_glare, "spokes": probe_spokes, "outline": probe_outline,
     "bleach": probe_bleach, "referent": probe_referent,
+    "defocus": probe_defocus,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2848,6 +2933,9 @@ SUITE = [
     # to THIS frame's mask_px. `controls` in the output is the null: a
     # circle scores referent_gain 0.000 by construction.
     ("referent", "01-whole-watermelon.png"),
+    # v15: how sharp is the limb of the object in the frozen fruit-geo apple
+    # window. See the v15 notice: a WITHIN-FRAME ratio only, never absolute.
+    ("defocus", "11-combo+550ms.png"),
 ]
 
 def main():

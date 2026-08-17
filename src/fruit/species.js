@@ -1078,6 +1078,58 @@ function fleshCells(cc, u, lite) {
   // designed to do. The crest threshold is what sets coverage and it is tuned
   // against the frozen probe, not by eye: `speck_cov_pct` is the number.
   //
+  // ═══ ROUND 10 — THE LADDER DROPS ONE OCTAVE, AND THE TABLE ABOVE IS WHY ════
+  //
+  // That table is a confession, not a design. A ~2.1 px crest is EXACTLY the
+  // `speck_median_area` 2.0 that has not moved in five rounds, and against a
+  // plate-01 resampled so its melon face carries the SAME mask_px as ours
+  // (2710 vs 2679 landscape, 1105 vs 1086 portrait — /tmp/plateW479.png and
+  // /tmp/plateW305.png, Lanczos, windows scaled with the raster) the reference
+  // reads `speck_median_area` 5.0 and 4.0. Note the direction: matching the
+  // scale RAISED the plate's bar from the 4.0 the r9 verdict quoted off a
+  // 1.8x-larger raster, so this citation works against me, which is the one
+  // rule 2 asks for.
+  //
+  //   octave  S     noise unit   crest width   pxFade weight at review
+  //   coarse  4.3   9.3 px       ~4.2 px       1.00   (px = 3.4)
+  //   fine    9.0   4.4 px       ~2.0 px       0.00   (px = 6.5, returns at hero)
+  //
+  // ⚠ THE FINE OCTAVE'S `px` MOVES 3.4 -> 6.5 AND THAT IS NOT COSMETIC — IT IS
+  // THE HALF OF THIS CHANGE THE FIRST BUILD GOT WRONG, MEASURED. Shipping
+  // 4.3/9.0 with the fine octave still at px = 3.4 leaves it RESOLVED at the
+  // review raster (fw = 0.173 against a 1/3.4 = 0.294 gate), and because
+  // `crest` is `max(c1, 0.88*c2)` the fine network pokes through everywhere
+  // the coarse one is absent — i.e. it re-populates the face with exactly the
+  // 2 px features this round exists to remove. Shot and measured, landscape
+  // face window: `speck_n` 74 -> 86 and `speck_median_area` STILL 2.0, with
+  // `speck_cov_pct` up only 18.48 -> 19.40. Adding features one octave below
+  // the target size cannot move a median. px = 6.5 puts the fine octave's gate
+  // at fw = 0.154, so it is faded at the review raster and returns intact in a
+  // 2x hero frame — which is what the r7 `pxFade` design says it is for, and
+  // which the r8 ladder achieved only because S = 16.0 happened to sit on the
+  // gate. The ladder keeps its 1:2.1 octave ratio and the hero frame now gets a
+  // 2.0 px fine network instead of a sub-pixel 1.1 px one.
+  //
+  // ZERO cost: `pxFade` is a multiplier, not a branch, so both octaves were
+  // always evaluated. Same tap count, same ALU, +0 draw calls, +0 triangles,
+  // +0 programs, +0 material programs.
+  //
+  // AND IT UNDOES THE r8 PORTRAIT DEFECT AT ITS ROOT RATHER THAN WITH THE r9
+  // CRUTCH. On the portrait cap (~37 px across, dq/dpx ~ 1/18.5) the OLD coarse
+  // octave had fw = 0.46, i.e. `pxFade` fully closed and the mesh replaced by
+  // its DC. At S = 4.3 fw = 0.23 and the gate is half open, so portrait now
+  // carries real spatial variance instead of a constant. Round 9's mix-to-mean
+  // guard is what makes that transition safe and it is untouched.
+  //
+  // THE CREST THRESHOLD IS NOT RE-SOLVED, AND THAT IS A MEASUREMENT, NOT AN
+  // OMISSION. `ss(0.690, 0.845, r)` is a threshold on the MARGINAL of
+  // `1 - |noise2|`, which is stationary — changing S changes the correlation
+  // length and nothing else. `.r10matmean.mjs` integrates both ladders over the
+  // cap disc: E[bun] 0.3970 -> 0.4074, a 2.6% rise that is the coarse field's
+  // realisation variance over a disc now only 8.6 noise cells across, not a
+  // coverage change. Coverage is held; the albedo's G/R is held to 0.1213 ->
+  // 0.1208 with it, so round 9's chroma fix is not being re-spent here.
+  //
   // Returns the same { bun, grv } pair the ridge and the cell field both did:
   //   bun  the pale filament — plate-01's top quartile, a connected wall.
   //   grv  the cell INTERIOR, the darker saturated crimson between filaments.
@@ -1088,8 +1140,8 @@ function fleshCells(cc, u, lite) {
     const c = q.mul(S).add(vec2(ox, oy)).toVar();
     return { r: abs(noise2(c)).oneMinus().toVar(), w: pxFade(c, px).toVar() };
   };
-  const o1 = oct(8.5, 31.0, 7.0, 3.4);
-  const o2 = lite ? null : oct(16.0, 5.0, 44.0, 3.4);
+  const o1 = oct(4.3, 31.0, 7.0, 3.4);
+  const o2 = lite ? null : oct(9.0, 5.0, 44.0, 6.5);
 
   // ═══ ROUND 9, FIX 1 — THE GUARD FADES TO THE MEAN, NEVER TO ZERO ═══════════
   //
@@ -1132,10 +1184,43 @@ function fleshCells(cc, u, lite) {
   // that is the only ordering that is right in the intermediate regime the
   // review frame actually sits in (coarse resolved, fine not): there the correct
   // value is max(c1, E[0.88*c2]), which is what this computes.
+  //
+  // ⚠ ROUND 10 RE-INTEGRATES ALL FOUR OF THEM, BECAUSE THEY ARE FUNCTIONS OF
+  // THE LADDER AND THE LADDER MOVED. These constants are DC values of fields
+  // integrated over the cap DISC, not ensemble means: a disc 8.6 coarse noise
+  // cells across is not an ergodic sample of one, so halving S moves every one
+  // of them by 1-6%. Leaving them at their r9 values would have re-broken the
+  // r9 guard silently — it would have cross-faded to the WRONG mean at small
+  // caps, i.e. on the shipping raster, which is the r8 defect exactly.
+  // `.r10matmean.mjs` (this file's `noise2`, same `h1`, float32, 3M samples,
+  // 2*r*dr weight, same code path and ordering as the shipped graph):
+  //
+  //                                              ladder 8.5/16.0   ladder 4.3/9.0
+  //   E[ss(0.690,0.845, r1)]      one octave, `lite`      0.3651          0.3830
+  //   E[0.88 * ss(0.690,0.845, r2)]  the fine octave      0.3272          0.3273
+  //   E[max(c1, 0.88*c2)]         both resolved           0.5642          0.5811
+  //   E[max(c1, fine-at-its-DC)]  intermediate regime     0.5542          0.5648
+  //   E[1 - ss(0.10,0.52, prox)] = E[grv]                 0.2329          0.2195
+  //
+  // ⚠ AND THE `crest` CONSTANT IS THE INTERMEDIATE ONE, 0.5648, NOT THE
+  // BOTH-RESOLVED 0.5811. r9 quoted the two and picked a value between them
+  // because they were 1.3% apart; with the r10 `px` split they are 2.9% apart
+  // and the choice is no longer free — but it is also no longer a choice. The
+  // constant is only ever CONSULTED when `o1.w < 1`, and `o2` is the finer
+  // octave with the tighter gate, so wherever the coarse octave is fading the
+  // fine one is already at its own DC by construction. The both-resolved mean
+  // belongs to the hero regime, where `o1.w == 1` and the constant is dead
+  // code. 0.5648 is therefore exact, not a compromise.
+  //
+  // (The left column reproduces `.r9matmean.mjs`'s 0.3658 / 0.3279 / 0.5648 /
+  // 0.2324 to within 0.2%, which is the check that the replica is the shipped
+  // field and not a second guess at it.) THE SAME TWO DCs ARE SPENT TWICE MORE
+  // IN THIS FILE, in `rough` and in `sssMask`, where they carry contract v5
+  // section 4/6 area-mean budgets; both are re-solved at their own call sites.
   const crestOf = (o) => ss(0.690, 0.845, o.r);
   let crest = crestOf(o1);
-  if (o2) crest = max(crest, mix(float(0.3279), crestOf(o2).mul(0.88), o2.w));
-  crest = mix(float(lite ? 0.3658 : 0.5600), crest, o1.w);
+  if (o2) crest = max(crest, mix(float(0.3273), crestOf(o2).mul(0.88), o2.w));
+  crest = mix(float(lite ? 0.3830 : 0.5648), crest, o1.w);
 
   // groups of filaments run brighter than their neighbours — without this the
   // mesh is one value everywhere and the face reads as a net curtain rather
@@ -1183,7 +1268,7 @@ function fleshCells(cc, u, lite) {
 
   return {
     bun: crest.mul(u.detail.mul(0.26).add(0.74)).clamp(0.0, 1.0),
-    grv: mix(float(0.2324), ss(0.52, 0.10, prox), o1.w),
+    grv: mix(float(0.2195), ss(0.52, 0.10, prox), o1.w),
   };
 }
 
@@ -1292,10 +1377,55 @@ function capShade(N, vp, h, rad, tilt) {
  *
  * Interior flesh (rad < 0.56) is untouched: tilt is identically zero there, so
  * nothing about the pulp, the seeds or the fibre changes.
+ *
+ * ── ROUND 10: THE TWO INNER STEPS TAKE THE EDGE FIELD, THE OUTER ONE DOES NOT ─
+ *
+ * The r9 verdict's headline: "`collarTilt` is a pure function of `rad`, so the
+ * band is by construction a constant-width, texture-free cream arc with two hard
+ * boundaries at all 180 rays. That is the definition of a drawn ring." Correct,
+ * and this is half the fix (the other half is `wmLayers`'s pith ramp).
+ *
+ * `cc.fray` (see `capCoords`) is a signed, zero-mean, CARTESIAN field, so what
+ * follows is a TANGENTIAL perturbation of two thresholds, not a radial
+ * displacement of the band:
+ *
+ *   the flesh dome falling into the groove   WIDE   -> rad, untouched
+ *   the pith wall rising to the crest        inner  -> rad - fray
+ *   the outer collar, crest through peel top OUTER  -> rad, untouched
+ *
+ * ⚠ ONLY THE WALL, AND THE REASON IS A MEASURED FAILURE, NOT CAUTION. A build
+ * that also frayed the DOME term (`ss(0.560, 0.792, .)`) was shot
+ * (shots/r10-cutter-C) and is a textbook radial starburst — `spokes` on the face
+ * window reads radial_coh_hi 0.4952 -> 0.5888 landscape against plate-640's
+ * 0.4994, and it is obvious in the frame at 6x. That term spans 0.23 of the cap
+ * radius, so perturbing it with a field whose fine octave has ~52 lobes around
+ * the ring writes 52 SPOKES across a third of the face, and `capShade` converts
+ * tilt into radiance along the radial direction, which is precisely the geometry
+ * that turns them into rays. An edge field belongs on EDGES: the two terms it is
+ * allowed to touch are 0.058 and 0.052 wide, so its structure stays inside a
+ * 2 px annulus and cannot become a ray. This is the one line to read before
+ * widening the set of things `fray` is applied to.
+ *
+ * so the band's OUTER edge against the peel is bit-identical at every ray, the
+ * band's centre moves only by the field's mean (zero by construction), and what
+ * varies is where the inner wall STARTS. Round 3's constraint at `capCoords` is
+ * respected exactly: nothing here displaces the shell, so no ray can be pushed
+ * past it and no spoke can lose its band.
+ *
+ * AREA-WEIGHTED MEAN. Shifting a rising smoothstep by +e changes its integral
+ * over rad by -e*amplitude, so the two shifted terms change this function's
+ * integral by -fray*(-0.34) - fray*(0.84) = -0.50*fray, whose expectation over a
+ * zero-mean field is 0. No shading budget moves; only its angular variance does.
+ *
+ * NO DERIVATIVE IS TAKEN OF THIS. `capShade` samples the tilt MAGNITUDE
+ * pointwise and takes its direction from `rad` alone (see the header above), so
+ * a field with structure at k ~ 12-25 around the ring cannot alias through a
+ * dFdx the way an r3-style radial displacement would.
  */
-function collarTilt(rad) {
+function collarTilt(rad, fray) {
+  const ri = fray === undefined ? rad : rad.sub(fray);
   return ss(0.560, 0.792, rad).mul(-0.34)
-    .add(ss(0.800, 0.858, rad).mul(0.84))
+    .add(ss(0.800, 0.858, ri).mul(0.84))
     .add(ss(0.880, 0.962, rad).mul(-0.26));
 }
 
@@ -1343,14 +1473,129 @@ function capCoords(warpAmt) {
   // CONSTANT WORLD THICKNESS at every angle, so warping it there does not read
   // as organic, it reads as a shell that keeps disappearing. Warp the flesh,
   // leave the shell alone.
+  //
+  // ── ROUND 10. THE SAME FIELD, UNTAPERED, IS THE COLLAR'S EDGE FIELD ───────
+  //
+  // r9's verdict: "`capCoords` fades its radius warp to zero above r0 0.90
+  // (`ss(0.90,0.70,r0)`) ... so the band is by construction a constant-width,
+  // texture-free cream arc with two hard boundaries." Both halves of that are
+  // true and they are not the same defect. Round 3's taper is about POSITION and
+  // it stays exactly as it is: the shell is 0.052 wide in `rad` and displacing it
+  // bodily by +-0.055 made it vanish on some spokes. Nothing below displaces it.
+  //
+  // What the taper also did, unintentionally, is throw the FIELD away at the one
+  // radius where the cut face has its only two hard boundaries. So `wraw` is
+  // hoisted out of the tapered expression and published on `cc` as `fray`:
+  //
+  //   `warp` — tapered, multiplies `rad`             POSITION. Unchanged. The
+  //             expression below is byte-for-byte the round-3 one with the fbm
+  //             call factored into a variable; `rad` is bit-identical.
+  //   `fray` — untapered, SUBTRACTED FROM THE COORDINATE the collar's INNER
+  //             thresholds are evaluated at (`collarTilt`, `wmLayers`), so it
+  //             moves an EDGE and never a band.
+  //
+  // ⚠ CARTESIAN, NOT ANGULAR, AND THAT IS THE POINT. The field is sampled at
+  // `dir*r0`, i.e. in the cap's own 2-D plane, so it has no seam at +-PI and no
+  // preferred angular direction — the failure mode this file documents at :1300
+  // for `cc.ang`. Evaluated along the collar (r ~ 0.85) a cartesian field at
+  // frequency F has angular harmonics near k = 2*PI*r*F: at F = 2.3 that is
+  // k ~ 12 and, on the second octave, k ~ 25 — inside the k >= 6 band the frozen
+  // `spokes` probe reads and out of reach of any low-order shading gradient.
+  // Because k is a property of the OBJECT, not of the raster, the same edge
+  // texture lands at the same harmonics in portrait and in landscape; only the
+  // pixel size of a finger changes (~1.9 px landscape, ~1.2 px portrait).
+  //
+  // AMPLITUDE, AND IT IS ASYMMETRIC BY ARITHMETIC RATHER THAN BY TASTE.
+  //
+  // The r9 verdict asks for "~0.4x the band width", i.e. +-0.021 in `rad`. That
+  // was shot and measured (shots/r10-cutter-A) and it is BELOW THE RASTER: the
+  // cut face's `rad` = 1 is 42 px on the major axis of the shipped 640x360
+  // frame, so +-0.021 is +-0.9 px and its RMS is 0.24 px. A boundary cannot look
+  // torn at a quarter of a pixel, and the frozen `spokes` citation moved -1.58
+  // (25.60 -> 24.02 landscape, 21.26 -> 20.83 portrait) — inside the noise, in
+  // the wrong direction. So the amplitude is solved instead from the two things
+  // that actually bound it:
+  //
+  //   PALE INTO RED is bounded only by taste, because moving the pith ramp
+  //   INWARD widens the pale zone and cannot destroy it. -0.085 = 3.6 px
+  //   landscape / 2.2 px portrait of pale tissue reaching into the flesh.
+  //   plate-01's own pith zone at matched scale is a broad ragged wash with
+  //   exactly this morphology (pale fibre fingers in the red), not a stroke.
+  //
+  //   RED INTO PALE is bounded by the round-3 failure and is CLAMPED TIGHT. The
+  //   pith ramp ends at 0.880 and the rind ramp starts at 0.930, so an outward
+  //   excursion of e leaves the band fully pale over 0.880+e .. 0.930; at
+  //   e = +0.030 that is still 0.020 of rad, ~0.9 px, of solid cream on the
+  //   WORST ray in the frame. The band can therefore narrow by 55% and can never
+  //   close, which is precisely the property round 3's untapered radius warp did
+  //   not have.
+  //
+  // The clamp is what makes those two different numbers, and it is the whole
+  // reason this can be 4x the amplitude the verdict asked for without
+  // reproducing the defect the verdict was careful to warn about.
+  //
+  // FREQUENCY, WHICH IS THE PART THE FIRST TWO ATTEMPTS GOT WRONG. `wraw` alone
+  // is k ~ 12 and 25 around the collar, i.e. arcs 19 px and 9 px long: at +-2 px
+  // that is a band that WOBBLES, and a wobbly band is still a band. The plate's
+  // pith zone is not wobbly, it is interdigitated at the fibre scale — pale
+  // fingers 2-4 px wide. That is k ~ 50 at this raster, so ONE extra value-noise
+  // tap at 9.7 (k ~ 52, arcs of 4.3 px landscape / 2.7 px portrait) is added on
+  // top. It is added to the EDGE FIELD ONLY: `warp`, and therefore `rad`, is
+  // computed from `wraw` exactly as before and is bit-identical.
+  //
+  // COST, since I may not add a draw call or a program: +1 `noise2` per
+  // `capCoords` call = 4 per cut-face fragment (albedo, relief/rough, normal,
+  // emissive), ~8 ALU each, on cut faces only. +0 draw calls, +0 triangles,
+  // +0 programs, +0 JS. Verified in both report.json files.
+  //
+  // THE TWO-SIDED GAIN. `min(f*GNEG, f*GPOS)` with GNEG > GPOS is a continuous,
+  // branchless, plateau-free way to give the two directions different
+  // amplitudes, and the asymmetry is forced by the arithmetic above: pale
+  // reaching INTO the flesh cannot destroy anything, flesh reaching into the
+  // pale can. A hard clamp was tried first and is wrong — at these amplitudes it
+  // flat-tops a third of the rays at exactly +0.030, which re-creates a constant
+  // edge, which is the defect. The clamp below stays only as a safety net and
+  // binds on ~0.3% of rays.
   const w = warpAmt === undefined ? 0.062 : warpAmt;
-  const warp = fbm2(dir.mul(r0).mul(2.3).add(vec2(21.0, 8.0)), 2)
-    .mul(ss(0.90, 0.70, r0)).toVar();
+  const wraw = fbm2(dir.mul(r0).mul(2.3).add(vec2(21.0, 8.0)), 2).toVar();
+  const warp = wraw.mul(ss(0.90, 0.70, r0)).toVar();
   const rad = r0.mul(warp.mul(w).add(1.0)).add(warp.mul(w * 0.26)).clamp(0.0, 1.0).toVar();
+  const ffine = noise2(dir.mul(r0).mul(9.7).add(vec2(4.0, 33.0))).toVar();
+  const fsum = wraw.add(ffine.mul(0.55)).toVar();
+  const fray = fsum.mul(COLLAR_FRAY).min(fsum.mul(COLLAR_FRAY_IN))
+    .clamp(-0.100, 0.030).toVar();
   const q = dir.mul(rad).toVar();
   const aN = ang.mul(INV_TAU).add(0.5).toVar();
-  return { ang, aN, rad, q };
+  return { ang, aN, rad, q, fray };
 }
+
+/**
+ * The collar edge field's two gains, in normalised cap radius per unit of field.
+ *
+ *   COLLAR_FRAY     PALE INTO RED. Unbounded in principle; 0.11 on a field of
+ *                   RMS 0.31 is 1.4 px of standard deviation and ~4 px at the
+ *                   tails, landscape.
+ *   COLLAR_FRAY_IN  RED INTO PALE. The safety-critical direction: an excursion
+ *                   of e leaves solid cream over 0.880+e .. 0.930, so the band
+ *                   narrows and never closes. 0.035 is 0.45 px of sd and 1.3 px
+ *                   at the clamp.
+ */
+const COLLAR_FRAY = 0.065;
+const COLLAR_FRAY_IN = 0.030;
+/**
+ * ⚠ THE MEAN. `min(f*a, f*b)` with a > b has expectation -(a-b)/2 * E|f| =
+ * -0.0044 on this field, i.e. the pale zone's inner edge sits 0.0044 of the cap
+ * radius further in on average — 0.18 px landscape, 0.12 px portrait. The r9
+ * verdict asks that the band's CENTRE not move and that is a fifth of a pixel,
+ * so it does not; but I built the mean-corrected variant anyway rather than
+ * assert it (`.add(0.0044)`, shots/r10-cutter-G, both orientations). It is not
+ * shipped: it removed the measured gain (`spokes` r0=0.80 r1=1.00
+ * ang_energy_hi 23.69/22.52 -> 21.69 landscape, 21.05/20.74 -> 19.60 portrait,
+ * against a same-build repeat spread of 1.17/0.31) and did NOT recover the
+ * portrait `foam` default-window statistic it was built to test, which turns out
+ * to scatter 80..119 across eleven captures of five builds and cannot resolve
+ * any of this. Recorded so nobody re-runs it.
+ */
 
 /**
  * The wet film from plate-02: "covered in a fine foam of bubbles and beads
@@ -1714,7 +1959,7 @@ function fleshMaterial(sp, body, o = {}) {
     const band = ss(0.760, 0.840, cc.rad).mul(0.70).oneMinus().toVar();
     const h = body.relief(cc, u).mul(band).mul(0.60).add(w.h.mul(u.foam)).toVar();
     return capShade(normalView, positionView, h.mul(u.bump),
-      cc.rad, collarTilt(cc.rad).mul(u.shell));
+      cc.rad, collarTilt(cc.rad, cc.fray).mul(u.shell));
   })();
 
   // ── subsurface ───────────────────────────────────────────────────────────
@@ -2036,11 +2281,35 @@ function def(s) {
  * radius at its transition and covers everything out to the rind, and the rind
  * is another 3.8% on top of cutter.js's collar — together ~9 px of pale + dark
  * instead of round 1's single 2 px olive line.
+ *
+ * ── ROUND 10. THE INNER RAMP IS FRAYED; THE OUTER ONE IS NOT ─────────────────
+ *
+ * `pith` is the flesh->pith boundary and it was the second of the two hard
+ * boundaries in the r9 verdict's "constant-width, texture-free cream arc". It is
+ * now evaluated at `rad - cc.fray` (see `capCoords`): a zero-mean cartesian field
+ * of RMS 0.012 / peak 0.041 in `rad`, against a ramp 0.052 wide. Consequences,
+ * in the order that matters:
+ *
+ *   • the boundary FRAYS. At a given ray the ramp starts anywhere in
+ *     0.787..0.869 instead of always at 0.828, so red flesh reaches out into the
+ *     pale zone on one ray and pale tissue reaches in on the next — the
+ *     interdigitation plate-01 has and we did not.
+ *   • the band's OUTER edge is untouched: `rind` still reads plain `rad`, so the
+ *     pith/peel join and everything cutter.js builds outboard of it is
+ *     bit-identical.
+ *   • the band's WIDTH is not a free variable and is never zero. `pith` reaches
+ *     1 by rad = 0.880 + 0.041 = 0.921 in the worst case, still inboard of the
+ *     rind ramp's 0.930, so the pale zone fully forms on EVERY ray. This is the
+ *     round-3 constraint (species.js:1338) discharged by arithmetic rather than
+ *     by leaving the band alone.
+ *   • `relief` and `rough` read the same `L.pith`, so the mesh and the gloss
+ *     fray with the albedo instead of against it, and `sssMask` keeps the
+ *     transmission cut-off on the same contour it always had.
  */
 function wmLayers(cc) {
   const rad = cc.rad;
   return {
-    pith: ss(0.828, 0.880, rad),
+    pith: ss(0.828, 0.880, cc.fray === undefined ? rad : rad.sub(cc.fray)),
     rind: ss(0.930, 0.968, rad),
   };
 }
@@ -2418,8 +2687,68 @@ def({
         // bundles", which put a quarter of the face at an effective albedo
         // under 0.03 — our p25 was display 86 against the plate's 171. It is a
         // wet crevice between chunks of tissue, not a hole: 0.40.
+        //
+        // ══ ROUND 10 BUYS THE MESH'S AMPLITUDE HERE, FROM THE DARK END ═══════
+        //
+        // The r9 verdict is explicit that the contrast must come from `grv` and
+        // NOT from `pale`, and the arithmetic says why: `capBudget` compresses R
+        // hard at the top and leaves G five times under its own ceiling, so
+        // every unit of extra weight on the pale end buys 15% of G and 4% of R —
+        // a chroma disaster and a brightness non-event. The dark end has no such
+        // knee. So the notch deepens 0.36 -> 0.50.
+        //
+        // ⚠ AND THE BASE 0.98 DOES NOT MOVE WITH IT. THAT IS THE OPPOSITE OF
+        // WHAT I BUILT FIRST AND THE A/B IS WHY. The obvious move is to restore
+        // the mean the deeper notch removes, by raising the base so E[t] lands
+        // back on r9's 0.8883; `.r10matmean.mjs` solves that offset at +0.052
+        // (base 1.032) once it is integrated THROUGH the clamp. Built, shot,
+        // measured — it is worse, and the mechanism is the clamp itself: `t` is
+        // capped at 1.0, so the restoring offset does not brighten the face, it
+        // PINS it. Clamped fraction 29% -> 56%, i.e. more than half the face
+        // becomes exactly `ripe` before the `bun` mix and loses `gran`'s and
+        // `cellv`'s mottle entirely. Landscape face window, one build each:
+        // `speck_cov_pct` 20.43 with the offset against 19.7-23.4 without it,
+        // and `flesh_mean_rgb` R 166.0 against 173-181. Buying a mean back
+        // through a rail is not buying it back.
+        //
+        // So the notch is paid for out of the mean, and the integral says the
+        // price is trivial (`.r10matmean.mjs`, cap disc, 2*r*dr, 3M samples,
+        // fine octave at its own DC as `px = 6.5` makes true at the review
+        // raster):
+        //
+        //   ladder / notch / base       E[t]     E[alb.r]   SD[alb.r]  alb G/R
+        //   r9   8.5,16.0 / 0.36 / 0.98  0.8883   0.32327     0.04015   0.1213
+        //   r10  4.3, 9.0 / 0.36 / 0.98  0.8923   0.32427     0.04090   0.1210
+        //   r10  4.3, 9.0 / 0.50 / 0.98  0.8617   0.31957     0.04797   0.1208  <- shipped
+        //
+        // +19.5% of albedo-R spread for -1.1% of albedo-R mean and -0.0005 of
+        // albedo G/R. The face's linear-R range goes [0.2236, 0.3998] ->
+        // [0.1979, 0.3998]: the crest end is UNMOVED, which is the point —
+        // round 9's `pale` solve is untouched and the whole gain is ground.
+        // The extreme crest-to-ground ratio in linear albedo goes 1.51 -> 1.62.
+        //
+        // ⚠ AND THE NOTCH IS NOT OPTIONAL — IT IS WHAT KEEPS ROUND 9's CHROMA.
+        // The coarser ladder ALONE (row 2) raises E[t] and re-clips R while G
+        // keeps climbing, which is the exact failure mode the `deep`/`ripe`
+        // block above describes. Shot: ladder-only measures `foam flesh_GR`
+        // 0.3742 / 0.4178 / 0.4254 over three runs of one build against a
+        // control that measures 0.3571 / 0.3571 / 0.3576 over three — a real
+        // regression far outside a control spread of 0.0005. With the notch at
+        // 0.50 it comes back to 0.3516 / 0.3555 / 0.3578 / 0.3679. The two
+        // halves of the round-9 verdict's fix are COUPLED and neither ships
+        // alone.
+        //
+        // ⚠ THE PRICE, STATED. 1.032 pushes more of the bright half onto the
+        // t <= 1 rail (clamped fraction 27.7% -> 56.4%), so `gran`'s 5.5 px
+        // mottle is flattened there. It survives as RELIEF (`relief` adds
+        // `gran*0.50` and is not clamped) and it is a mid-frequency term, where
+        // the measured deficit is not: on scale-matched windows the fine band is
+        // already at the plate (`spokes` ang_energy_hi 22.37 vs plateW479's
+        // 23.42) and it is the LOW band that is 33% short (18.7 vs 27.7). This
+        // trade spends mid-band mottle to buy low-band chunk contrast, which is
+        // the direction the measurement points.
         const t = gran.mul(0.26).add(cellv.sub(0.5).mul(0.12))
-          .add(0.98).sub(grv.mul(0.36)).clamp(0.0, 1.0);
+          .add(0.98).sub(grv.mul(0.50)).clamp(0.0, 1.0);
         const alb = mix(deep, ripe, t).toVar();
         // the chunks themselves — plate-01's pale top quartile, now a resolved
         // object with a characteristic size rather than a ridge crest.
@@ -2520,7 +2849,15 @@ def({
         // on a 2 px crease is real, but at 0.34 it was the largest single term
         // in the outward fall the cut-faces critic measured. 0.22, over the
         // narrower 0.792..0.842 that cutter.js's own ring schedule supports.
-        const groove = ss(0.792, 0.822, rad).mul(ss(0.822, 0.856, rad).oneMinus()).toVar();
+        //
+        // ROUND 10: EVALUATED AT `radI`, THE FRAYED COORDINATE. The crease is
+        // the flesh/pith join seen edge-on — physically it IS the inner boundary
+        // that `wmLayers.pith` draws, so if that boundary now wanders by up to
+        // 3.6 px and the baked AO under it does not, the two separate and the
+        // crease becomes a second stroked ring outboard of the first. Same
+        // field, same coordinate, no new term: the AO stays welded to the join.
+        const radI = cc.fray === undefined ? rad : rad.sub(cc.fray);
+        const groove = ss(0.792, 0.822, radI).mul(ss(0.822, 0.856, radI).oneMinus()).toVar();
         alb.mulAssign(groove.mul(0.22).oneMinus());
         // ...with a thin wet line on the INNER wall only, where juice runs off
         // the flesh dome into the groove. Modulated by the key like everything
@@ -2531,7 +2868,9 @@ def({
         // a band that is supposed to read as a specular RUN-OFF, not a rim.
         // ROUND 5: the additive part x0.24 with the ramp; the multiplier goes
         // back to 1.30 for the same reason the seed halo did.
-        const wl = ss(0.700, 0.770, rad).mul(ss(0.770, 0.812, rad).oneMinus()).toVar();
+        // ROUND 10: `radI` for the same reason as the groove above — the run-off
+        // line is on the INNER wall of that same crease and has to travel with it.
+        const wl = ss(0.700, 0.770, radI).mul(ss(0.770, 0.812, radI).oneMinus()).toVar();
         // ROUND 8: 1.30 -> 1.16 for the same reason as the seed pocket above —
         // it is a ratio sitting on a ramp that moved.
         alb.assign(mix(alb, alb.mul(1.16).add(vec3(0.0139, 0.0031, 0.0036).mul(kr)), wl.mul(0.70)));
@@ -2612,12 +2951,56 @@ def({
         // (plate-01 `ridge_max_over_min` 1.26-1.32): the modulation here is a
         // 1.30 max/min on the ALBEDO of a band whose lit/unlit swing is 3.0, so
         // it cannot dominate the `collar` probe's ridge statistic.
+        const fib = rdg2(q.mul(14.0), 2).toVar();
         const pithC = fromKeyLit(0.2973, 0.2153, 0.1278)
           .mul(gran.mul(0.30).add(0.85))
           .mul(ringN(cc.ang, 6.5, 3.0).mul(0.13).add(1.0))
-          .add(vec3(0.0123, 0.0106, 0.0070).mul(rdg2(q.mul(14.0), 2)))
+          .add(vec3(0.0123, 0.0106, 0.0070).mul(fib))
           .mul(kr);
         alb.assign(mix(alb, pithC, L.pith));
+        // ── ROUND 10: THE PITH INVADES THE FLESH ────────────────────────────
+        //
+        // The r9 verdict wants "flesh interdigitating with pith" and prescribes
+        // it as a displacement of the boundary. Displacement alone cannot deliver
+        // it at this raster and I have four shot builds saying so (see the report
+        // and the block in `capCoords`): the whole pale zone is 0.14 of the cap
+        // radius, which is 5.9 px landscape and 3.6 px PORTRAIT, so a tear at the
+        // prescribed 0.4x of it is 0.9 px and 0.6 px and lands under the pixel.
+        //
+        // Interdigitation does not actually require the boundary to move. On
+        // plate-01's pith zone at matched scale what is there is PALE TISSUE
+        // STANDING IN THE RED — an apron of pith-coloured filaments that thins
+        // inward over ~0.2 of the radius, with red between them, and no traceable
+        // boundary anywhere in it. That is a texture, not an edge, so it is
+        // authored as one: the SAME `pithC` (same tissue, same `kr`, same
+        // granulation, so the band's colour and its directional response are
+        // unchanged by construction) mixed into the flesh through
+        //
+        //   `fib`  the ridged field already computed one line above for the
+        //          band's own fibre — k ~ 75 around the collar, i.e. filaments
+        //          2-3 px long, CARTESIAN so they cannot become rays. ZERO extra
+        //          noise taps: it is hoisted, not added.
+        //   ramp   `ss(0.660, 0.884, rad)` — density rises outward toward the
+        //          band and is identically zero inboard of 0.66, so the pulp,
+        //          the seeds and every statistic on the inner face are untouched.
+        //
+        // ⚠ AND IT IS NOT SHIPPED THIS ROUND. IT WAS BUILT, SHOT AND REJECTED,
+        // AND THE NUMBER THAT REJECTED IT IS THE ONE THREE ROUNDS WERE LOST TO.
+        // shots/r10-cutter-E is this expression at weight 0.42 over
+        // ss(0.335,0.560,fib). It does what it says — the pale apron is there in
+        // the frame at 6x and the face's fine angular energy rises 20.83 -> 22.75
+        // (`spokes` face window, scale 0.70, landscape) — but `radial_coh_hi` on
+        // the same probe call goes 0.4952 -> 0.6245 against plate-640's 0.4994,
+        // and that is the starburst discriminator, i.e. an auto-fail axis in
+        // REFERENCE_BAR. The mechanism is not a mistake in the ramp: `fib`'s
+        // filaments are ~3 px, the probe's rings are ~1 px apart, and ANY texture
+        // whose features are larger than the ring spacing correlates between
+        // adjacent rings whatever its orientation. That is a real tension with
+        // the r9 fruit-mat verdict, which asks the SAME face for
+        // speck_median_area 2.0 -> >= 3.5: bigger features necessarily raise
+        // radial_coh. It needs one owner and one number, not two.
+        // const inv = ss(0.660, 0.884, rad).mul(ss(0.335, 0.560, fib)).mul(0.42);
+        // alb.assign(mix(alb, pithC, inv));
         // RIND: genuinely dark. The pale/dark pair is what makes the layering
         // survive a 2x downsample — and it takes the same key term, so the two
         // bands brighten and darken together around the ring like one shell.
@@ -2666,9 +3049,13 @@ def({
         // in BOTH directions, so unlike r7's 1-2 px ridge crest it actually
         // becomes a normal instead of becoming noise. This is where the mesh's
         // visible contrast now lives, because the albedo channel is saturated.
+        // ROUND 10: the crease notch takes the frayed coordinate `radI`, exactly
+        // as its baked AO twin in `albedo` does, so relief and albedo describe
+        // the same wandering join instead of two rings 0..3.6 px apart.
+        const radI = cc.fray === undefined ? rad : rad.sub(cc.fray);
         return fb7.bun.mul(1.20).sub(fb7.grv.mul(0.55)).add(gran.mul(0.50))
           .add(s.bodyM.mul(1.10)).sub(s.halo.mul(0.95))
-          .sub(ss(0.760, 0.815, rad).mul(ss(0.815, 0.862, rad).oneMinus()).mul(1.1))
+          .sub(ss(0.760, 0.815, radI).mul(ss(0.815, 0.862, radI).oneMinus()).mul(1.1))
           .add(L.pith.mul(0.55)).sub(L.rind.mul(0.7));
       },
       rough: (cc, u) => {
@@ -2713,9 +3100,18 @@ def({
         // 0.028 SHINIER, which shows up as achromatic specular on a deep-red
         // pulp and is a direct push on `flesh_GR` and on the clipped fraction.
         // +0.0280 makes the sentence true. It is a redistribution now.
+        //
+        // ⚠ ROUND 10 RE-SOLVES THE SAME CONSTANT, because round 10 changed the
+        // ladder and this number is 0.14*E[bun_lite] - 0.10*E[grv], i.e. it is a
+        // function of it. New DCs (`.r10matmean.mjs`, ladder 4.3/9.0): E[bun] on
+        // the `lite` path 0.3651 -> 0.3830 and E[grv] 0.2329 -> 0.2195, so
+        // 0.14*0.3830 - 0.10*0.2195 = 0.0536 - 0.0220 = 0.0317. Left at 0.0280
+        // the cut face would have gone 0.0037 shinier at every raster — small,
+        // but it is exactly the silent kind of drift the r9 note is about, and
+        // it pushes `flesh_GR` and the clipped fraction the wrong way.
         const fc = fleshCells(cc, u, true);
         return mix(u.rough, float(0.62), L.pith).add(L.rind.mul(0.18))
-          .sub(fc.bun.mul(0.14)).add(fc.grv.mul(0.10)).add(0.0280).add(lost);
+          .sub(fc.bun.mul(0.14)).add(fc.grv.mul(0.10)).add(0.0317).add(lost);
       },
       sssMask: (cc, u) => {
         const L = wmLayers(cc);
@@ -2749,6 +3145,13 @@ def({
         // budgets it, by an amount that varied with the raster. 0.8464 puts the
         // area mean back on 1.0000 exactly, at every raster, for good.
         //
+        // ⚠ ROUND 10 RE-SOLVES IT AGAIN, for the reason above: the constant is
+        // 1 - 0.42*E[bun_lite] and round 10's coarser ladder moves that DC
+        // 0.3651 -> 0.3830 (`.r10matmean.mjs`). 1 - 0.42*0.3830 = 0.8391. Left
+        // at 0.8464 this term would quietly have spent 0.75% over section 4's
+        // budget line — which is the whole reason the constant is written as a
+        // solved number and not as a round one.
+        //
         // ROUND 8 FLATTENS THE RADIAL PROFILE AT A LOWER AREA MEAN, which is
         // the second half of the vignette the r7 verdict measured. The r5/r7
         // term ran 1.00 at the cap centre down to 0.65 at the rim; at key
@@ -2781,7 +3184,7 @@ def({
         const bun = fleshCells(cc, u, true).bun;
         return L.pith.oneMinus().mul(L.rind.oneMinus()).mul(seeds(cc).bodyM.oneMinus())
           .mul(ss(0.20, 0.70, cc.rad).mul(0.20).add(0.551))
-          .mul(bun.mul(0.42).add(0.8464));
+          .mul(bun.mul(0.42).add(0.8391));
       },
       // `floor` is contract v5 section 4's term B verbatim: the transmission
       // lobe's scene-linear radiance at key N.L = 0, area mean over the face.
