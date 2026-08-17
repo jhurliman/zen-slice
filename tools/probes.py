@@ -140,7 +140,15 @@ PROBE_VERSION = 14
 #         is that same call with a FEATURELESS DISC as the first argument, which
 #         is algebraically the referent's own boundary RMS; so again a circle
 #         scores exactly 0.
-#     `referent_gain` is max_j limb_gain_j and `nearest` names the argmax. MAX,
+#     ⚠ CORRECTED BY THE ROUND-10 AUDITOR — THE LINE BELOW WAS WRONG AND IT
+#     POINTED READERS AT THE GAMEABLE FIELD. The shipped code computes
+#         referent_gain = max_j min(limb_gain_j, sig_gain_j)
+#     not max_j limb_gain_j. The distinction is not cosmetic: `limb_gain` alone
+#     reads 0.444 on the SUITE frame where the headline reads 0.300, and
+#     limb_gain is bought by per-pixel rim raggedness, so an owner who believed
+#     this comment would have optimised the one field the probe's own author
+#     calls gameable. Doc-only correction; no executable line changed.
+#     `referent_gain` is max_j over referents and `nearest` names the argmax. MAX,
 #     not MIN-distance: min-distance over a heterogeneous referent set is
 #     pathological (a near-circular real fruit shrinks everyone's denominator),
 #     whereas max-gain asks "how much of SOME real fruit's outline relief does
