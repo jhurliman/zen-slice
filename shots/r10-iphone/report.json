@@ -1,0 +1,319 @@
+{
+  "device": "iphone",
+  "viewport": {
+    "width": 430,
+    "height": 932,
+    "tier": 2
+  },
+  "renderSize": {
+    "width": 215,
+    "height": 466,
+    "scale": 0.5
+  },
+  "beats": [
+    {
+      "label": "goto",
+      "ms": 7931,
+      "ok": true
+    },
+    {
+      "label": "boot",
+      "ms": 608,
+      "ok": true
+    },
+    {
+      "label": "backend",
+      "ms": 9,
+      "ok": true
+    },
+    {
+      "label": "setTier",
+      "ms": 4,
+      "ok": true
+    },
+    {
+      "label": "run:reset",
+      "ms": 1752,
+      "ok": true
+    },
+    {
+      "label": "run:spawn-melon",
+      "ms": 28,
+      "ok": true
+    },
+    {
+      "label": "adv:0.3",
+      "ms": 4543,
+      "ok": true
+    },
+    {
+      "label": "shot:01-whole-watermelon",
+      "ms": 496,
+      "ok": true
+    },
+    {
+      "label": "run:cut-melon",
+      "ms": 83,
+      "ok": true
+    },
+    {
+      "label": "adv:0.033",
+      "ms": 43,
+      "ok": true
+    },
+    {
+      "label": "shot:02-cut+33ms",
+      "ms": 919,
+      "ok": true
+    },
+    {
+      "label": "adv:0.067",
+      "ms": 15,
+      "ok": true
+    },
+    {
+      "label": "shot:03-cut+100ms",
+      "ms": 1074,
+      "ok": true
+    },
+    {
+      "label": "adv:0.15",
+      "ms": 8,
+      "ok": true
+    },
+    {
+      "label": "shot:04-cut+250ms",
+      "ms": 2220,
+      "ok": true
+    },
+    {
+      "label": "adv:0.25",
+      "ms": 10,
+      "ok": true
+    },
+    {
+      "label": "shot:05-cut+500ms",
+      "ms": 3452,
+      "ok": true
+    },
+    {
+      "label": "adv:0.5",
+      "ms": 341,
+      "ok": true
+    },
+    {
+      "label": "shot:06-cut+1000ms",
+      "ms": 7007,
+      "ok": true
+    },
+    {
+      "label": "run:stage-citrus",
+      "ms": 5,
+      "ok": true
+    },
+    {
+      "label": "adv:0.3",
+      "ms": 297,
+      "ok": true
+    },
+    {
+      "label": "run:cut-citrus",
+      "ms": 43,
+      "ok": true
+    },
+    {
+      "label": "adv:0.12",
+      "ms": 22,
+      "ok": true
+    },
+    {
+      "label": "shot:07-citrus-cut",
+      "ms": 6107,
+      "ok": true
+    },
+    {
+      "label": "adv:0.35",
+      "ms": 13,
+      "ok": true
+    },
+    {
+      "label": "shot:08-citrus-caps",
+      "ms": 4902,
+      "ok": true
+    },
+    {
+      "label": "run:stage-fast",
+      "ms": 14,
+      "ok": true
+    },
+    {
+      "label": "adv:0.2",
+      "ms": 27,
+      "ok": true
+    },
+    {
+      "label": "run:flick",
+      "ms": 40,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 22,
+      "ok": true
+    },
+    {
+      "label": "shot:15-fast-flick+50ms",
+      "ms": 3660,
+      "ok": true
+    },
+    {
+      "label": "run:stage-slow",
+      "ms": 3,
+      "ok": true
+    },
+    {
+      "label": "adv:0.2",
+      "ms": 15,
+      "ok": true
+    },
+    {
+      "label": "run:slowcut",
+      "ms": 27,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 9,
+      "ok": true
+    },
+    {
+      "label": "shot:16-slow-cleave+50ms",
+      "ms": 3278,
+      "ok": true
+    },
+    {
+      "label": "run:stage-combo",
+      "ms": 24,
+      "ok": true
+    },
+    {
+      "label": "adv:0.35",
+      "ms": 2153,
+      "ok": true
+    },
+    {
+      "label": "run:cut-combo",
+      "ms": 90,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 70,
+      "ok": true
+    },
+    {
+      "label": "shot:09-combo+50ms",
+      "ms": 6833,
+      "ok": true
+    },
+    {
+      "label": "adv:0.15",
+      "ms": 32,
+      "ok": true
+    },
+    {
+      "label": "shot:10-combo+200ms",
+      "ms": 2037,
+      "ok": true
+    },
+    {
+      "label": "adv:0.35",
+      "ms": 17,
+      "ok": true
+    },
+    {
+      "label": "shot:11-combo+550ms",
+      "ms": 4541,
+      "ok": true
+    },
+    {
+      "label": "run:stage-idle",
+      "ms": 5,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "label": "shot:12-idle-blade",
+      "ms": 889,
+      "ok": true
+    },
+    {
+      "label": "cpu",
+      "ms": 320,
+      "ok": true
+    },
+    {
+      "label": "perf",
+      "ms": 332,
+      "ok": true
+    },
+    {
+      "label": "shot:13-load",
+      "ms": 51087,
+      "ok": true
+    },
+    {
+      "label": "hero:resize",
+      "ms": 81,
+      "ok": true
+    },
+    {
+      "label": "run:hero:stage",
+      "ms": 207,
+      "ok": true
+    },
+    {
+      "label": "hero:adv",
+      "ms": 15,
+      "ok": true
+    },
+    {
+      "label": "hero:shot",
+      "ms": 8783,
+      "ok": true
+    },
+    {
+      "label": "hud",
+      "ms": 4667,
+      "ok": true
+    }
+  ],
+  "perf": {
+    "peakDrawCalls": 115,
+    "peakTriangles": 162751,
+    "programs": 0,
+    "geometries": 53,
+    "textures": 18,
+    "liveBodies": 51,
+    "score": 6686
+  },
+  "cpu": {
+    "median": 0,
+    "p95": 0.4,
+    "max": 6.2,
+    "frames": 400
+  },
+  "errors": [],
+  "timedOut": false,
+  "complete": true,
+  "backend": "webgl2",
+  "slowestBeats": [
+    "shot:13-load 51.1s",
+    "hero:shot 8.8s",
+    "goto 7.9s"
+  ]
+}

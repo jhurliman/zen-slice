@@ -1,0 +1,65 @@
+{
+ "round": 10,
+ "at": "2026-08-17 — round 10 (BUILDERS COMPLETE, UNSCORED — superseded by player feedback)",
+ "perf": {
+  "desktop": {
+   "peakDrawCalls": 83,
+   "peakTriangles": 153273,
+   "cpuMsP95": 0.5
+  },
+  "portrait": {
+   "peakDrawCalls": 115,
+   "peakTriangles": 160435,
+   "cpuMsP95": 1.2
+  }
+ },
+ "note": "Round 10 shipped eight builders and no critics, because between the builders finishing and the critique launching THE PLAYER PLAYED THE GAME FOR THE FIRST TIME. His six notes outrank every verdict in this directory and round 11 works them instead. Scores are left UNSCORED rather than carried forward, because no critic looked at this build.\n\nWHAT LANDED, ALL VERIFIED, ALL COMMITTED:\n* PERF: portrait inside every ceiling for the first time — 187 -> 115 draw calls, 267k -> 160k triangles; landscape 121 -> 83 / 217k -> 153k. The mechanism was not a cost but an unbounded population: draw calls are exactly 13 + 2*liveBodies and the only cap counted generation-0 fruit, while every cut makes two bodies. Portrait hit it first because strokes are authored in NDC and resize() contain-fits STAGE.halfExtent, so at aspect 0.461 the camera retreats to z=22.02 and one swipe sweeps 2.17x more playfield.\n* STAGE: the blade streak's core bleaches. core_sat 0.434 -> 0.017 hero and 0.466 -> 0.094 portrait against plate-01's 0.054. Two hold-conditions missed and reported up front.\n* FRUIT-GEO: proved an azimuthal lobe cannot reach a side-on silhouette unless its PHASE varies with latitude — the untwisted lobe shipped since round 4 is worth 0.07 pp of hull-concave depth.\n* FRUIT-MAT, CUTTER, JUICE: texture ladder coarsened with all six dependent constants re-integrated; the collar's inner wall frayed tangentially; the droplet population rebuilt against plate controls that reproduce the r9 critic's table to the digit.\n\nTHE FOUR MEASUREMENT FAILURES THIS ROUND FOUND, WHICH ARE THE REAL RESULT:\n(1) THE CAPTURE PATH IS NONDETERMINISTIC. Three renders of ONE build, one scene, one virtual clock, zero code difference differ by up to 3 display counts — enough to flip 43 px of the melon's mask and move outline protr_width_deg by 25%. An isolated before/after reproduced exactly the same spread as the no-change control. Every gate quoted to 3-4 significant figures on silhouette, outline or void has been steering partly on a coin flip.\n(2) cpu.max IS UNUSABLE and it was MY number. 'portrait 7.6 ms vs landscape 2.5' in r9 was two draws from a distribution that swings 8.5x on one build (1.8 and 15.3 ms); re-shooting r9's own code reversed the sign. Median and p95 were under the 2.0 ms bar all along. Corrected in r9.json.\n(3) clip ON 08-citrus-caps DOES NOT MEASURE A FIXED THING: two runs of one build put its mask at 5,046 and 10,182 px and its clipped fraction at 1.13% and 4.96%, because the ellipse is fitted from the frame's own second moments. The round-5 re-fitted-mask failure, on a beat nobody re-checked.\n(4) --portrait IS NOT A FLAG. My own round brief told five builders to shoot portrait with it; it parses as an unknown argument, is silently ignored, and shoots desktop. Two agents caught it independently. Had they not, the round would have shipped five pieces of 'portrait' measurement taken in landscape.\n\nAND THE THIRD INVALID SILHOUETTE METRIC IN THREE ROUNDS, CAUGHT BEFORE ANY BUILDER OPTIMISED AGAINST IT. `referent` — four hand-traced real fruit outlines, the external ground truth rounds 8 and 9 both lacked — was audited by an agent that was not its author and came back ACCEPT-AS-CONTROL. A featureless smooth egg with no stem, no calyx and no sepals scores +0.434 where our shipped fruit score +0.300; quoted honestly as (gain - smooth_ceiling) our reading is NEGATIVE. Separating the author of a ground truth from the party scored against it worked on its first outing, and is now standing practice.\n\nTHE PLAYER'S SIX NOTES, WHICH ARE NOW THE BAR:\n1. juice disappears too quickly — should spray off screen, never visibly fade. SELF-INFLICTED: the r3 verdict cut every lifetime 3-4x to match plate-01, a STILL PHOTOGRAPH in which juice has no need to persist. Optimising still-frame similarity taught the sim to delete juice fast.\n2. fruit-to-fruit intersections are janky — wants a real physics engine and asked whether convex hulls can be built in realtime as we slice. They can: a half produced by plane-splitting a convex body is itself convex. He chose full Rapier rigid bodies.\n3. it slows down on every slice — score.js:32 emits slowmo at scale 0.16-0.34 for 0.30-0.85 s on EVERY cut, built as a combo reward. Removing it also repairs the measurement layer: because the accumulator is fed dt*timeScale, the harness beat labelled '+50 ms' is really 17-25 ms of sim time, so rounds of juice tuning were done against a clock that lied by 3x.\n4. the fruit read as jank low-poly and spiky — DIRECTLY CAUSED BY THIS LOOP. Three rounds of critics demanded outline events, and r10's geometry builder took the orange from mathematically convex to hull_concave_frac 22.27. The metric went up; the player said 'spiky'. The metric measures deviation from a sphere, not resemblance to fruit. He asked for a side-by-side before anyone commits.\n5. specular is overdone — reads as chrome.\n6. depth of field is overdone — many fruit completely blurry. By design: halves latch focus for 1.6 s, which serves a hero still and fails a player tracking five objects.\n\nTHE LESSON, WRITTEN DOWN SO IT IS NOT RE-LEARNED: a still photograph cannot express a motion property, and nine rounds of optimising toward one produced a game whose juice deletes itself, whose fruit are spiky, and whose lens blurs the things the player is trying to aim at. Every one of those scored as an improvement.",
+ "pieces": [
+  {
+   "key": "stage",
+   "name": "Lighting, grade & DOF",
+   "score": 78,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED — the player's live feedback arrived before critique launched and supersedes it. See the round note and rounds/reports/r10-*.md.",
+   "fix": "Round 11 works the player's six notes."
+  },
+  {
+   "key": "fruit-mat",
+   "name": "Fruit materials",
+   "score": 73,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED — the player's live feedback arrived before critique launched and supersedes it. See the round note and rounds/reports/r10-*.md.",
+   "fix": "Round 11 works the player's six notes."
+  },
+  {
+   "key": "fruit-geo",
+   "name": "Fruit silhouette",
+   "score": 76,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED — the player's live feedback arrived before critique launched and supersedes it. See the round note and rounds/reports/r10-*.md.",
+   "fix": "Round 11 works the player's six notes."
+  },
+  {
+   "key": "cutter",
+   "name": "Cut faces & rind",
+   "score": 76,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED — the player's live feedback arrived before critique launched and supersedes it. See the round note and rounds/reports/r10-*.md.",
+   "fix": "Round 11 works the player's six notes."
+  },
+  {
+   "key": "juice",
+   "name": "Juice fluid",
+   "score": 74,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED — the player's live feedback arrived before critique launched and supersedes it. See the round note and rounds/reports/r10-*.md.",
+   "fix": "Round 11 works the player's six notes."
+  }
+ ],
+ "shots": [
+  "shots/r10/00-hero.png",
+  "shots/r10/09-combo+50ms.png",
+  "shots/r10/11-combo+550ms.png",
+  "shots/r10/04-cut+250ms.png"
+ ]
+}
