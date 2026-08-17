@@ -46,7 +46,93 @@ import sys, json, math
 import numpy as np
 from PIL import Image
 
-PROBE_VERSION = 10
+PROBE_VERSION = 12
+# ── v11 -> v12 (round 9 critic, fruit-geo) ───────────────────────────────────
+# LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 11 -> 12.
+#
+# ADDED one probe, `outline`, and appended one SUITE row
+# (outline:01-whole-watermelon.png). NO EXISTING PROBE'S EXECUTABLE CODE CHANGED
+# BY ONE CHARACTER — clip, void, ring, silhouette, droplets, particles, tintlaw,
+# lens, foam, collar, filament, glare, spokes, species and limb are byte-
+# identical to v11, as are all shared helpers, including `_limb_stats`,
+# `_limb_runs` and `_hull_radii`, which `outline` CALLS rather than reimplements.
+# PROBES gains one key; the pre-existing SUITE rows are unchanged and in order.
+# VERIFIED RATHER THAN ASSERTED, the way v6-v11 did it: the full suite was
+# captured on shots/r5, r8, r9, r8-iphone and r9-iphone under v11, the edit was
+# made, the suite re-run and diffed key-by-key on all five. Every pre-existing
+# row is identical on all five; only the new `outline:01-whole-watermelon.png`
+# key appears. CANARY under v12: `clip shots/r5/05-cut+500ms.png` returns
+# mask_px 9490 / pct_R_ge_255 5.227.
+#
+# WHY IT EXISTS: see the block comment above `probe_outline`. Short version —
+# `limb` measures the mesh, `silhouette` measures the frame, they share no
+# statistic, so a mesh gain and a frame loss cannot be put in the same sentence.
+# Round 9's apple did exactly that.
+#
+# ⚠ AND THE DEAD END I CHECKED, SO NOBODY REPEATS IT. The brief for this round
+# asked for an EXTERNAL referent — the observation that `identity` (v10) is a
+# 6-way CLOSED-SET 1-NN and therefore scores the system against itself, so no
+# value of it can mean "this reads as a real apple". I agree, I reproduced the
+# saturation (r8 geometry, the geometry a critic called unnameable, scores
+# identity_accuracy 0.9948; r9 scores 0.9792), and I tried to build the referent
+# out of reference/plate-01.png by segmenting real fruit outlines with the same
+# geometric machinery. IT DOES NOT WORK AND HERE IS THE MEASUREMENT.
+#   · Real apple, box (848,108)-(1132,358), subject floor 20 + largest_component:
+#     a clean, nameable mask — stem spur, shoulder notch, leaf. But the juice
+#     filaments bridge it to the splash at three box edges, so the traced
+#     signature is the splash's, not the apple's.
+#   · Break the bridges with a morphological opening and the SAME opening eats
+#     the feature: k=3 open drops the mask bbox height 243 -> 225 px, and that
+#     18 px IS the stem. Real juice filaments and a real apple stalk are both
+#     ~3 px wide in this plate. No isotropic morphology can separate them.
+#   · Real strawberry, box (1285,428)-(1515,620): its own body sits BELOW the
+#     subject floor while the juice around it sits above — at floor 20 the mask
+#     is the splash with a fruit-shaped HOLE in it. A luma floor is not a
+#     colour key, but on a dark fruit in a black void it behaves like one.
+# CONCLUSION FOR THE NEXT AGENT: the external referent must be a small set of
+# HAND-TRACED outline polygons checked into this file as frozen literals (the
+# way `shipQuat`'s constants are frozen), not an auto-segmentation of a splash
+# composite. I did not ship a traced set because I did not want to author, and
+# then score against, my own ground truth inside one round with no second pair
+# of eyes on it. It is the single highest-value thing left in this instrument.
+#
+# ── v10 -> v11 (round 9 critic, fruit-mat) ───────────────────────────────────
+# LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 10 -> 11.
+#
+# ADDED one probe, `spokes`, and appended one SUITE row (spokes:05-cut+500ms).
+# NO EXISTING PROBE'S EXECUTABLE CODE CHANGED BY ONE CHARACTER — clip, void,
+# ring, silhouette, droplets, particles, tintlaw, lens, foam, collar, filament,
+# glare, species and limb are byte-identical to v10, as are all shared helpers.
+# CANARY RE-VERIFIED under v11: `clip shots/r5/05-cut+500ms.png` returns
+# mask_px 9490 / pct_R_ge_255 5.227.
+#
+# WHY IT EXISTS. REFERENCE_BAR lists "a cut face that is ... radially symmetric"
+# as an auto-fail, and three consecutive verdicts have named a radial starburst
+# on the melon cap in prose. Prose is not a delta. Every existing probe on that
+# face is a first-order statistic over a region (`foam`, `clip`) or an angular
+# statistic on the RIND (`ring`) — none of them can see angular ORGANISATION
+# inside the face, so a builder can move every stored number in the right
+# direction while the spokes stay exactly where they are. That is what happened
+# between r8 and r9.
+#
+# WHAT IT MEASURES, and it is colour-blind and geometric by construction:
+# resample luma inside the same explicit window + second-moment-ellipse region
+# `foam` uses, onto a polar grid; remove each ring's own mean (so a radial
+# BRIGHTNESS profile — which the reference has and we want — contributes
+# nothing); then report
+#   ang_harm_k     the dominant angular harmonic
+#   ang_harm_frac  the share of the residual angular power that one harmonic
+#                  carries, 0..1. Isotropic granulation spreads power over all
+#                  harmonics and scores low; an N-fold polar lattice spikes.
+#   radial_coh     mean correlation between the angular profiles of adjacent
+#                  rings. A SPOKE persists across radius (high); a chunk of
+#                  granular tissue does not (near 0). This is the number that
+#                  separates "radially organised" from "merely anisotropic".
+# It cannot be gamed by darkening, brightening, desaturating or deleting the
+# face: the region is geometric, the ring means are removed, and the statistic
+# is a normalised power ratio, so a face made uniformly flat returns a LOW
+# ang_harm_frac only if it is flat in ANGLE too — and a deleted face fails the
+# min-pixel guard and returns an explicit error rather than a flattering number.
 # ── v8 -> v9 (round 8 critic, stage) ─────────────────────────────────────────
 # LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 8 -> 9.
 #
@@ -1424,12 +1510,219 @@ def probe_glare(img, ref=None, nline=25, halfw=40, min_amp=12.0, **kw):
     return out
 
 
+def probe_spokes(img, ref=None, win="208:300:288:392", scale=0.80, floor=8.0,
+                 nr=24, na=180, r0=0.12, r1=0.92, kmin=2, kmax=30, khi=6, **kw):
+    """
+    IS THE CUT FACE RADIALLY ORGANISED? (auto-fail in REFERENCE_BAR.)
+
+    REGION — identical rule to `foam`, so the two are directly comparable:
+      1. explicit window `win=y0:y1:x0:x1`, quoted in the output;
+      2. subject = largest_component(luma > `floor`) inside it;
+      3. its second-moment ellipse, scaled by `scale`. Used for its CENTRE and
+         AXES only — sampling is in the ellipse's own normalised polar frame,
+         so an elongated or foreshortened cap is measured in circular
+         coordinates and its foreshortening cannot masquerade as structure.
+
+    METHOD — colour-blind. Bilinear-sample luma at (nr x na) polar taps over
+    normalised elliptical radius t in [r0, r1]. Subtract each ring's own mean:
+    this deletes the radial brightness profile entirely, on purpose. A face that
+    brightens toward the rind (which plate-01 does and which we WANT) scores
+    zero here. Only structure that varies with ANGLE survives.
+
+    OUTPUTS
+      ang_harm_k      argmax over k in [kmin, kmax] of summed |FFT_a|^2
+      ang_harm_frac   that harmonic's share of total residual angular power.
+                      A pure N-spoke lattice -> ~1.0; isotropic noise on this
+                      grid -> ~1/(kmax-kmin+1) ~ 0.03.
+      ang_harm_top3   the three strongest harmonics and their fractions.
+      radial_coh      mean Pearson r between the angular profiles of adjacent
+                      rings. Spokes converging on the centre -> high. Granular
+                      tissue -> near 0. THE NUMBER TO TRUST: it is the one that
+                      is invariant to how many spokes there are.
+      ang_energy      RMS of the ring-detrended luma, in display counts, so a
+                      large `frac` on a face with no contrast is visible as
+                      such rather than being quoted as a defect.
+
+    ⚠ READ THE `_hi` ROW, NOT THE BARE ONE. On every image tried — ours AND
+    plate-01 — the bare statistic is dominated by k = 2..4, which is not the
+    defect: it is the key light falling across a curved cap plus whatever the
+    window catches of the rind. plate-01 native scores k 3 / frac 0.136 /
+    radial_coh 0.490 and r9 landscape scores k 3 / 0.155 / 0.562, i.e. the bare
+    numbers cannot tell a photograph from a starburst. So the probe also
+    reports the same three quantities computed on harmonics k >= `khi`
+    (default 6) ONLY — the band a low-order shading gradient cannot reach and a
+    polar LATTICE must live in. `radial_coh_hi` is the discriminator: fine
+    angular detail that survives from ring to ring is a spoke; fine angular
+    detail that decorrelates is tissue.
+
+    Reported alongside `mask_px` and the ellipse, as every probe here does, so a
+    changed region is visible at a glance.
+    """
+    y0, y1, x0, x1 = [int(v) for v in str(win).split(":")]
+    sub = img[y0:y1, x0:x1]
+    L = luma(sub)
+    m = largest_component(L > float(floor))
+    ell, geom = second_moment_ellipse(m, float(scale))
+    if geom is None:
+        return {"error": "no subject in window"}
+    n = int(ell.sum())
+    if n < 256:
+        return {"error": "region too small", "mask_px": n}
+    nr, na = int(nr), int(na)
+    ts = np.linspace(float(r0), float(r1), nr)
+    ph = np.arange(na) * (2.0 * math.pi / na)
+    a, b, cx, cy = geom["a"], geom["b"], geom["cx"], geom["cy"]
+    xs = cx + np.outer(ts, np.cos(ph)) * a
+    ys = cy + np.outer(ts, np.sin(ph)) * b
+    h, w = L.shape
+    if xs.min() < 0 or ys.min() < 0 or xs.max() > w - 2 or ys.max() > h - 2:
+        xs = np.clip(xs, 0, w - 2); ys = np.clip(ys, 0, h - 2)
+    x0i = xs.astype(np.int32); y0i = ys.astype(np.int32)
+    fx = xs - x0i; fy = ys - y0i
+    P = (L[y0i, x0i] * (1 - fx) * (1 - fy) + L[y0i, x0i + 1] * fx * (1 - fy)
+         + L[y0i + 1, x0i] * (1 - fx) * fy + L[y0i + 1, x0i + 1] * fx * fy)
+    D = P - P.mean(axis=1, keepdims=True)          # kill the radial profile
+    F = np.fft.rfft(D, axis=1)
+    pw = (np.abs(F) ** 2).sum(axis=0)              # summed over rings
+    kmin, kmax = int(kmin), min(int(kmax), pw.size - 1)
+    band = pw[kmin:kmax + 1]
+    tot = float(band.sum())
+    if tot <= 1e-12:
+        return {"error": "no angular signal", "mask_px": n}
+    order = np.argsort(band)[::-1]
+    top3 = [[int(kmin + i), round(float(band[i] / tot), 4)] for i in order[:3]]
+    def coh(M):
+        cs = []
+        for i in range(M.shape[0] - 1):
+            u, v = M[i], M[i + 1]
+            su, sv = u.std(), v.std()
+            if su > 1e-9 and sv > 1e-9:
+                cs.append(float((u * v).mean() / (su * sv)))
+        return round(float(np.mean(cs)), 4) if cs else None
+    khi = int(khi)
+    Fh = F.copy(); Fh[:, :khi] = 0.0
+    H = np.fft.irfft(Fh, n=na, axis=1)             # harmonics k >= khi only
+    bh = pw[khi:kmax + 1]
+    th = float(bh.sum())
+    oh = np.argsort(bh)[::-1]
+    return {
+        "mask_px": n, "win": str(win), "scale": float(scale), "ellipse": geom,
+        "ang_harm_k": int(kmin + order[0]),
+        "ang_harm_frac": round(float(band[order[0]] / tot), 4),
+        "ang_harm_top3": top3,
+        "radial_coh": coh(D),
+        "ang_energy": round(float(D.std()), 2),
+        "ang_harm_k_hi": int(khi + oh[0]) if th > 1e-12 else None,
+        "ang_harm_frac_hi": round(float(bh[oh[0]] / th), 4) if th > 1e-12 else None,
+        "ang_harm_top3_hi": [[int(khi + i), round(float(bh[i] / th), 4)] for i in oh[:3]],
+        "radial_coh_hi": coh(H),
+        "ang_energy_hi": round(float(H.std()), 2),
+        "khi": khi, "grid": [nr, na], "t_range": [float(r0), float(r1)],
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# `outline` — v12. THE SAME STATISTIC AS `limb`, BUT ON DELIVERED PIXELS.
+#
+# WHY IT EXISTS, and it is a SEAM, not a new idea. `limb` reports
+# hull_concave_frac_pct / hull_concave_depth_pct / protr_* on the MESH under a
+# node harness. `silhouette` reports boundary_cv / max_protrusion_pct on a FRAME.
+# The two share no statistic, so nobody can ask the only question that matters
+# about a geometry change: DID THE MESH FEATURE SURVIVE TO THE SHIPPED PIXELS?
+# Round 9 is the demonstration. The apple's calyx went len 0.110 -> 0.225 and
+# `limb pose=ship` moved hull_concave_frac_pct 41.80 -> 50.78 and
+# protr_height_pct 8.15 -> 13.10, a large mesh win — while the SAME apple in
+# shots/{r8,r9}/11-combo+550ms, measured through a frozen crop, moved
+# max_protrusion_pct 12.62 -> 12.41 and boundary_cv 0.0775 -> 0.0747, i.e. DOWN.
+# Both numbers are honest. They are simply not the same number, and the pair of
+# them cannot be subtracted. That is how a builder ships a mesh gain that no
+# player will ever see and no probe will ever contradict.
+#
+# `outline` closes it by calling `_limb_stats` — the frozen v7 function, byte
+# for byte, at the same default thr=0.02 against the same k<=3 Fourier baseline
+# — on a radial signature traced from a FRAME. A mesh row and a frame row can
+# then be put side by side under identical statistic names.
+#
+# THE MASK IS GEOMETRIC. `subject_mask(img, floor)` + `largest_component`,
+# optionally inside an explicit rectangle `win=x0:y0:x1:y1` given by the caller
+# and quoted in the verdict, exactly as `foam` and `collar` take their windows.
+# Nothing keys on hue, on red-vs-green, or on "brighter than the body". mask_px
+# is reported so a changed mask is visible at a glance. `floor` is exposed so a
+# caller can show that a missing feature is a POSE fact and not a threshold
+# fact — sweeping floor 8/4/2/1 on the r9 apple crop returns the r8 numbers at
+# every floor, which is what proves the calyx is absent from those pixels rather
+# than merely dim.
+#
+# WHAT IT CANNOT DO, STATED SO NOBODY OVERCLAIMS IT. It is still the system
+# measured against itself: it says an outline has events, not that the events
+# say "apple". An EXTERNAL referent is still missing and is the right next
+# instrument — see the v12 notice at the top of this file for the dead end I
+# checked so the next agent does not repeat it.
+# ─────────────────────────────────────────────────────────────────────────────
+def probe_outline(img, ref=None, win=None, floor=8.0, rays=128, thr=0.02, **kw):
+    """Frame-space outline events, reported under `limb`'s statistic names."""
+    rays = int(rays); thr = float(thr)
+    H, W = img.shape[0], img.shape[1]
+    x0, y0, x1, y1 = 0, 0, W, H
+    if win:
+        x0, y0, x1, y1 = [int(v) for v in str(win).split(":")]
+        x0 = max(0, x0); y0 = max(0, y0); x1 = min(W, x1); y1 = min(H, y1)
+    sub = img[y0:y1, x0:x1]
+    m = largest_component(subject_mask(sub, float(floor)))
+    ys, xs = np.nonzero(m)
+    if len(ys) < 64:
+        return {"error": "no subject", "mask_px": int(m.sum()),
+                "win": [x0, y0, x1, y1]}
+    cy, cx = ys.mean(), xs.mean()
+    rad = np.hypot(ys - cy, xs - cx)
+    ang = np.arctan2(ys - cy, xs - cx)
+    idx = np.minimum((((ang + math.pi) / (2 * math.pi)) * rays).astype(int), rays - 1)
+    prof = np.full(rays, np.nan)
+    for i in range(rays):
+        sel = idx == i
+        if sel.any():
+            prof[i] = rad[sel].max()
+    # Circular fill of empty bins. A bin is empty only when the mask subtends
+    # less than one bin there; interpolating between its two occupied circular
+    # neighbours cannot invent a protrusion, only bridge one.
+    good = ~np.isnan(prof)
+    if good.sum() < rays // 2:
+        return {"error": "sparse profile", "mask_px": int(m.sum()),
+                "win": [x0, y0, x1, y1], "bins_filled": int(good.sum())}
+    if not good.all():
+        gi = np.nonzero(good)[0]
+        prof = np.interp(np.arange(rays), gi, prof[gi], period=rays)
+    st = _limb_stats(prof, rays, thr)
+    if st is None:
+        return {"error": "degenerate", "mask_px": int(m.sum())}
+    return {
+        "mask_px": int(m.sum()),
+        "win": [x0, y0, x1, y1],
+        "bbox": [int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)],
+        "floor": float(floor), "rays": rays,
+        "thr_pct_of_mean_radius": thr * 100,
+        "baseline": "k<=3 Fourier fit",
+        "bins_empty": int(rays - good.sum()),
+        "concave_frac_pct": round(st["concave_frac_pct"], 2),
+        "concave_depth_pct": round(st["concave_depth_pct"], 2),
+        "hull_concave_frac_pct": round(st["hull_concave_frac_pct"], 2),
+        "hull_concave_depth_pct": round(st["hull_concave_depth_pct"], 2),
+        "protr_n": int(st["protr_n"]),
+        "protr_width_deg": (round(float(np.median(st["widths_deg"])), 2)
+                            if st["widths_deg"] else None),
+        "protr_height_pct": (round(float(np.median(st["heights_pct"])), 2)
+                             if st["heights_pct"] else None),
+        "protr_height_max_pct": (round(float(max(st["heights_pct"])), 2)
+                                 if st["heights_pct"] else None),
+    }
+
+
 PROBES = {
     "clip": probe_clip, "void": probe_void, "silhouette": probe_silhouette,
     "droplets": probe_droplets, "particles": probe_particles, "ring": probe_ring,
     "lens": probe_lens, "tintlaw": probe_tintlaw, "foam": probe_foam,
     "collar": probe_collar, "filament": probe_filament,
-    "glare": probe_glare,
+    "glare": probe_glare, "spokes": probe_spokes, "outline": probe_outline,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1846,6 +2139,15 @@ SUITE = [
     # v9: what is that cusp sitting on. Same ridge again; the SKIRT half of
     # `filament`, which is blind to everything outside the core.
     ("glare", "00-hero.png"),
+    # v11: angular ORGANISATION inside the cut face. Same window and region rule
+    # as `foam` above, so the two rows describe the same pixels. plate-01 needs
+    # win=320:565:545:805 (native) or 122:216:208:308 (Lanczos-matched to 640w).
+    ("spokes", "05-cut+500ms.png"),
+    # v12: the same statistic `limb` reports on the MESH, on the FRAME, so the
+    # two can be subtracted. Pairs with silhouette:01-whole-watermelon above —
+    # same frame, same geometric mask, complementary statistic. Present in both
+    # orientations because 01 is the one whole-fruit frame both harnesses ship.
+    ("outline", "01-whole-watermelon.png"),
 ]
 
 def main():
