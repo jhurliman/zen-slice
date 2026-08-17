@@ -36,6 +36,29 @@ colour of the thing being measured. The moment a mask keys on colour, it can
 exclude the defect. Every mask below is geometric, and every probe reports the
 pixel count of its mask so a changed mask is visible at a glance.
 
+THE SECOND RULE, ADDED AFTER ROUND 9 AND EARNED THE SAME WAY
+------------------------------------------------------------
+A PROBE IS ONLY VALID AGAINST A REFERENCE AT MATCHED SCALE, and normalising by
+sqrt(mask_px) does NOT make a pixel-domain statistic scale-invariant.
+
+The round-9 cutter critic withdrew two of its own round-8 numbers, and one of
+them had the WRONG SIGN. It had reported `collar ridge_width_px_med /
+sqrt(mask_px)` at 0.03922 against plate-01's 0.02812 and concluded our collar
+band was 39% too WIDE. Running the identical frozen probe on the identical
+plate at three resolutions — same content, pure Lanczos resample, nothing else
+changed — the statistic swings 2.9x on ONE image: 0.02812 native, 0.06818 at
+640 wide, 0.08253 at 405. Mask-matched, our band is 43-46% too NARROW. The same
+critic then caught itself about to publish a second such number: `collar
+pct_R_ge_255` 37.78 vs plate-at-640's 5.00 reads as "blown out" until you run
+the plate NATIVE and get 28.89, because downsampling a photograph 2.6x destroys
+clipping.
+
+So: any statistic with a pixel-sized kernel (ridge widths, blob areas, speck
+counts, clipped fractions, angular energy above a spatial band) must be cited
+against a plate resampled to the SAME subject scale, with mask_px printed on
+both sides so the match is checkable. Prefer the citation where the resample
+works AGAINST the finding. A cross-resolution comparison is not evidence.
+
 USAGE
     python3 tools/probes.py list
     python3 tools/probes.py <probe> <image> [--ref <image>] [k=v ...]
