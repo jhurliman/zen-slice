@@ -691,8 +691,18 @@ export function createStage() {
     fInvSpan: uniform(12.5),
     // profile exponents; see streakNode. q = 0.5 is a defocus disc's chord,
     // large q is a gaussian filament. The blur morphs one into the other.
-    fQCore: uniform(11.0),
-    fQWarm: uniform(2.2),
+    // ⚠ ROUND 10 MOVED BOTH, AND THEY ARE PAYING FOR THE BLEACH, NOT BUYING
+    // COLOUR. Driving the core over the ceiling widens the saturated span, so
+    // `filament flattop_p50` (w90/w50) rises and `glare u20_u50` falls unless
+    // the cross-section is re-proportioned underneath it: the white core has to
+    // get NARROWER (fQCore 11.0 -> 40.0, so the span that saturates shrinks and
+    // w90 with it) and the amber sheath WIDER (fQWarm 2.2 -> 1.5, so the 20%
+    // and 50% heights stop landing on the same flank and u20_u50 comes back).
+    // Both are dimensionless exponents on `s`, identical at every raster, which
+    // is why they are the levers of choice here — see the fApM note below for
+    // what happens in this file when a width is expressed in device pixels.
+    fQCore: uniform(40.0),
+    fQWarm: uniform(1.5),
     // fQKnee — the value of b/(r0+b) at which q has fully reached the chord.
     // Round 8 hard-coded 0.45, i.e. q was already the pure disc chord once the
     // CoC reached 0.8 of the filament's own radius. That is too early to be the
@@ -703,9 +713,15 @@ export function createStage() {
     fQKnee: uniform(0.45),
     // flux law along the length; 1.0 = strict conservation. See streakNode.
     fKappa: uniform(0.25),
-    // amplitude of the veiling-glare skirt around the filament. See streakNode.
-    fHalo: uniform(0.11),
-    fHaloW: uniform(0.5),
+    // amplitude and reciprocal width of the veiling-glare skirt around the
+    // filament. See streakNode. Round 10: 0.11 -> 0.13 and 0.50 -> 0.36, i.e. a
+    // slightly stronger and ~18% wider skirt, which is the other half of the
+    // u20_u50 repair (fQWarm above is the first). It is a small move on purpose
+    // — this lobe done 17x too big is what cost round 1 sixteen points out of a
+    // hundred, and `void` corner_max on 01-whole-watermelon is the check in
+    // both orientations. Quoted in the r10 report.
+    fHalo: uniform(0.13),
+    fHaloW: uniform(0.36),
     // reciprocal width of the white hot spot along the span. See streakNode.
     fHotW: uniform(2.40),
     // knee of the along-span end fade, in the |px| screen parameter. See
@@ -747,7 +763,18 @@ export function createStage() {
     //       floor binds only below ~430x932; at the real device buffer
     //       fApW*bokeh is 1.37 px and this does nothing.
     fApA: uniform(0.45),
-    fApW: uniform(0.095),
+    // ⚠ ROUND 10: 0.095 -> 0.045, AND IT IS A LANDSCAPE-ONLY CHANGE BY
+    // CONSTRUCTION — WHICH IS THE POINT, NOT AN OVERSIGHT. `fApM` below floors
+    // the glare half-width at 0.60 device px. On the 1280x720 hero `bokeh` is
+    // 22.0, so this term is 0.99 px and the floor does not bind: the glare core
+    // halves and the saturated span with it. On the 215x466 shipping capture
+    // `bokeh` is 5.97, so 0.045*5.97 = 0.27 px is BELOW the floor and portrait
+    // keeps exactly round 9's 0.60 px core. That asymmetry is deliberate: the
+    // shape cost of the bleach is a landscape problem (the hero's core is 3.7x
+    // wider in bokeh units than portrait's floored one), and a sub-pixel PSF is
+    // aliasing, not a PSF. Measured, hero `filament flattop_p50` 0.355 -> 0.323
+    // with portrait unmoved at 0.333.
+    fApW: uniform(0.045),
     fApM: uniform(0.60),
     fApP: uniform(1.6),
     fApS: uniform(0.0),
@@ -787,20 +814,26 @@ export function createStage() {
     //          on purpose — fI is rewritten every frame from the flare's decay
     //          curve (`e = flare.i^2`, a FEEL decision), so folding an over-
     //          drive into it would couple the core's colour to the beat.
-    //          MEASURED, hero, per-channel knee, everything else shipped:
-    //            fOver  1.0  core_sat_p50 0.400  peak_p50 178.5
-    //            fOver  2.0  core_sat_p50 0.310  peak_p50 212.9
-    //            fOver  4.0  core_sat_p50 0.176  peak_p50 235.5
-    //            fOver  8.0  core_sat_p50 0.093  peak_p50 243.6
-    //            fOver 14.0  core_sat_p50 0.061  peak_p50 246.9  (SHIPPED)
-    //            fOver 24.0  core_sat_p50 0.043  peak_p50 248.5
-    //          i.e. it is a saturation curve and it flattens, which is why the
-    //          shipped value is not on a cliff: +/-40% of 14.0 moves core_sat by
-    //          under 0.02. The cost is the WIDTH of the saturated core, and that
-    //          is what `filament flattop_p50` and `glare` bound from the other
-    //          side; both are quoted in the r10 report on both orientations.
+    //          MEASURED on the seeded hero, per-channel knee on, `fCoreF` at
+    //          round 9's 0.06, everything else round 9 (`bleach core_sat_p50` /
+    //          `bleach peak_p50`):
+    //            fOver  1   0.326 / 185.6      fOver  8   0.041 / 235.2
+    //            fOver  2   0.193 / 210.5      fOver 16   0.021 / 236.4
+    //            fOver  4   0.093 / 228.1      fOver 32   0.021 / 237.3
+    //          i.e. a saturation curve that flattens, so the shipped value is
+    //          not on a cliff. THE COST IS THE WIDTH OF THE SATURATED CORE, and
+    //          that is what `filament flattop_p50` and `glare u20_u50` bound
+    //          from the other side; both are quoted on both orientations in the
+    //          r10 report, and the reason the shipped value is 4.0 rather than
+    //          16 is that the two shape gates close before core_sat bottoms out.
+    // fCoreF   floor of the white core lobe's LONGITUDINAL gate `wCore`. 0.06 is
+    //          round 9 exactly (the lobe is at 6% of height off the hot spot).
+    //          See the `wCore` block in streakNode: this is the term that made
+    //          twelve of thirteen ridge stations pure `fWarm`, which is why the
+    //          streak could not bleach at any exposure or any channel policy.
     fBleach: uniform(1.0),
-    fOver: uniform(14.0),
+    fOver: uniform(4.0),
+    fCoreF: uniform(1.0),
     // grade
     crush: uniform(0.010),
     contrast: uniform(1.10),
@@ -2300,7 +2333,36 @@ export function createStage() {
       // desaturating shoulder to bleach it back to white. The amber lobe was
       // gated off everywhere it could have been seen. So: the WHITE core is
       // what belongs to the hot spot, and the amber sheath runs the length.
-      const wCore = ends.mul(hot.mul(0.94).add(0.06)).toVar();
+      // ⚠ ROUND 10 SPLITS "CORE" INTO ITS TWO MEANINGS, AND THE PARAGRAPH ABOVE
+      // CONFLATED THEM. Round 6's defect was a streak that was neutral cream
+      // ALONG ITS LENGTH; the sentence it produced — "the WHITE core is what
+      // belongs to the hot spot" — then pinned the white lobe to a LONGITUDINAL
+      // gate. But plate-01's white is TRANSVERSE and runs the whole span: on the
+      // frozen `bleach` probe the plate reads core_sat_p50 0.054 with 9 of 13
+      // stations under 0.10 and peak_n_ge_230 10 of 13 — white in the middle of
+      // the cross-section at nearly every station — while its wings at 20% of
+      // amplitude read wing_sat_p50 0.332, i.e. orange. Round 9 shipped the
+      // opposite: core_sat_p50 0.434 hero / 0.466 portrait with exactly ONE
+      // station of thirteen reaching white, and that one is where the ridge
+      // crosses the melon's specular. With `hot` a gaussian of reciprocal width
+      // 2.40 the 0.06 floor means the white lobe is at 6% of its height over
+      // most of the span, so twelve of thirteen stations were pure `fWarm` BY
+      // CONSTRUCTION and no ceiling of any channel policy could have bleached
+      // them: linear B/R of `fWarm` 0xff9c46 is 0.058, so bleaching THAT to
+      // core_sat 0.15 needs the red channel 33x over the ceiling, and a clip
+      // that deep is a plateau (measured: global over-drive 8x takes `filament
+      // flattop_p50` to 0.529 hero / 0.478 portrait).
+      // `fCoreF` is that floor, made a uniform. 0.06 is round 9 EXACTLY.
+      // ⚠ AND THE ROUND-6 DISASTER IS NOW INSTRUMENTED RATHER THAN ARGUED. What
+      // made cream-from-end-to-end undetectable in round 6 was that no probe
+      // separated the middle of the cross-section from its wings. `bleach` does:
+      // core_sat and wing_sat are the same statistic at two heights on the same
+      // profile. So the shipped value is defended by the WING, not by the core —
+      // wing_sat_p50 must stay amber (plate-01 0.332 native, 0.552 at our own
+      // 1280 raster, 0.693 at 215) and it is quoted on both orientations in the
+      // r10 report. If a later round drives wing_sat toward the core's value it
+      // has rebuilt round 6 and this comment is the receipt.
+      const wCore = ends.mul(hot.mul(U.fCoreF.oneMinus()).add(U.fCoreF)).toVar();
       const wWarm = ends.mul(hot.mul(0.40).add(0.60)).toVar();
 
       // ── FLUX ALONG THE LENGTH ────────────────────────────────────────────
@@ -2324,7 +2386,33 @@ export function createStage() {
       // against the plate's 1.49 with NO help from the glare lobe.
       const flux = vLens.y.max(1e-4).pow(U.fKappa).toVar();
 
-      const c = U.fCore.mul(core.mul(aC).add(warm.mul(aG))).mul(wCore)
+      // ── ROUND 10: `fOver` MULTIPLIES THE HOT GROUP ONLY ──────────────────
+      // The two groups below are not two tunings of one thing, they are the
+      // FILAMENT and the SHEATH: `wCore` carries the near-white `fCore` tint and
+      // the narrow `core` = s^fQCore lobe, `wWarm` carries the amber `fWarm`
+      // tint on the wide `warm` = s^fQWarm lobe plus the veiling-glare `halo`.
+      // The over-drive that makes the per-channel ceiling bleach (see the
+      // soft-ceiling block) is applied HERE, to the hot group and to the
+      // aperture lobe, and NOT to the sheath — measured, and the measurement is
+      // the reason this is not one multiply on `lit`:
+      //   `fOver` on ALL of `lit`   4x -> `filament flattop_p50` 0.346 -> 0.433
+      //                             hero and 0.293 -> 0.400 portrait, because
+      //                             lifting the SKIRT above the ceiling
+      //                             saturates the skirt too and the whole
+      //                             cross-section becomes a plateau. At 14x it
+      //                             reaches 0.629/0.609. That is round 8's slab
+      //                             rebuilt out of clipping instead of geometry
+      //                             and it is not shippable.
+      //   `fOver` on the HOT GROUP  the saturated span stays inside the narrow
+      //                             lobe, the amber sheath keeps its level and
+      //                             goes on setting the FWHM, so the frame gets
+      //                             plate-01's actual picture: a white clipped
+      //                             core inside an orange halo, with w90/w50
+      //                             where round 9 left it.
+      // This is also the physically correct split: it is the SOURCE that is
+      // over-driven relative to the sensor, not the glare the source scatters
+      // into the lens, which is fainter than the source by construction.
+      const c = U.fCore.mul(core.mul(aC).add(warm.mul(aG))).mul(wCore).mul(U.fOver)
         .add(U.fWarm.mul(warm.mul(aW).add(halo.mul(U.fHalo))).mul(wWarm));
       // THE APERTURE LOBE DOES NOT TAKE `flux`: it is at the lens's own
       // resolution rather than being spread by the defocus, so its radiance
@@ -2350,7 +2438,7 @@ export function createStage() {
       // "remove or heavily reduce fApA" — is declined on this evidence.
       const apA = ap.mul(U.fApA).mul(W_CORE + W_GLOW + W_WARM)
         .mul(ends).mul(hot.mul(0.35).add(0.65)).toVar();
-      const cA = mix(U.fWarm, U.fCore, U.fApT).mul(apA).toVar();
+      const cA = mix(U.fWarm, U.fCore, U.fApT).mul(apA).mul(U.fOver).toVar();
       const lit = c.mul(norm).mul(flux).add(cA)
         .mul(U.fI).mul(U.fHot.mul(0.45).add(0.55)).toVar();
 
@@ -2409,11 +2497,41 @@ export function createStage() {
       // `fOver` EXISTS — see its declaration. Bleaching is a saturation effect;
       // a core sitting at 40% of the ceiling has three unsaturated wells and
       // stays exactly the colour it was.
-      const litO = lit.mul(U.fOver).toVar();
+      // ⚠ A SHARPER SHOULDER IS THE OBVIOUS WAY TO PAY FOR THIS AND IT DOES NOT
+      // WORK. I BUILT IT, MEASURED IT AND AM RECORDING THE DEAD END SO ROUND 11
+      // DOES NOT REBUILD IT. The cost of the bleach is that the exponential
+      // bends the whole upper half of the profile — at L = 0.5C it returns 0.79
+      // of linear, at L = C, 0.63 — so driving the core over the ceiling moves
+      // both shape gates at once: `filament flattop_p50` UP (the top flattens)
+      // and `glare u20_u50` DOWN (the 20% and 50% heights squeeze onto one
+      // flank). The natural answer is to keep the same ceiling with a harder
+      // knee, `K_n(t) = t/(1+t^n)^(1/n)` with t = L/fCeil: n -> 0 is softer than
+      // the exponential, n = 1 Reinhard, n -> infinity a hard clip that is
+      // perfectly transparent right up to the ceiling. I implemented it (in the
+      // overflow-safe reciprocal form `(1+t^-n)^(-1/n)`), verified it reproduces
+      // round 9 at n = 1.4 with the bleach off (`filament flattop_p50` 0.343
+      // hero / 0.293 portrait against the shipped 0.333/0.293), and swept it.
+      // AT IDENTICAL OVER-DRIVE, hero, everything else at the shipped values:
+      //     exponential          core_sat_p50 0.059   peak_p50 232.7
+      //     K_n, n = 1.4         core_sat_p50 0.298   peak_p50 196.2
+      //     K_n, n = 2.4         core_sat_p50 0.295   peak_p50 203.3
+      //     K_n, n = 3.4         core_sat_p50 0.297   peak_p50 203.3
+      //     K_n, n = 8.0         core_sat_p50 0.294   peak_p50 204.3
+      // — i.e. HARDENING THE KNEE DESTROYS THE BLEACH, and it destroys it
+      // immediately rather than gradually. The reason is the whole mechanism in
+      // one line: a hard clip pins the channel that is OVER the ceiling and
+      // leaves the ones under it alone, so out_b/out_r stays exactly the source's
+      // ratio and the core keeps its hue. What actually whitens a core is the
+      // SOFT part of the shoulder lifting the lower channels toward the same
+      // asymptote. Bleaching and a transparent shoulder are the same knob pulled
+      // in opposite directions; you cannot buy the first and keep the second.
+      // The exponential stays, unchanged in form since round 7, and the shape
+      // cost is paid in the lobe geometry above (fApW, fQCore, fQWarm, fHalo,
+      // fHaloW) where it can be paid without touching the colour.
+      const litO = lit;
+      const kn = (x) => U.fCeil.mul(x.div(U.fCeil).negate().exp().oneMinus());
       const pk = max(litO.r, max(litO.g, litO.b)).max(1e-5).toVar();
-      const knR = U.fCeil.mul(pk.div(U.fCeil).negate().exp().oneMinus()).div(pk).toVar();
-      const perC = U.fCeil.mul(litO.div(U.fCeil).negate().exp().oneMinus()).toVar();
-      return vec4(mix(litO.mul(knR), perC, U.fBleach), 1.0);
+      return vec4(mix(litO.mul(kn(pk).div(pk)), kn(litO), U.fBleach), 1.0);
     });
 
     streakMat = new THREE.MeshBasicNodeMaterial();

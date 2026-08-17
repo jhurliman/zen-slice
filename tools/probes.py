@@ -69,7 +69,107 @@ import sys, json, math
 import numpy as np
 from PIL import Image
 
-PROBE_VERSION = 13
+PROBE_VERSION = 14
+# ── v13 -> v14 (round 10 builder, referent) ──────────────────────────────────
+# LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 13 -> 14.
+#
+# ADDED one probe, `referent`, one frozen data table, `REFERENT_POLYS`, three
+# private helpers used only by it (`_poly_area`, `_poly_mask`, `_mask_sig`), and
+# appended one SUITE row (referent:01-whole-watermelon.png). NO EXISTING PROBE'S
+# EXECUTABLE CODE CHANGED BY ONE CHARACTER — clip, void, ring, silhouette,
+# droplets, particles, tintlaw, lens, foam, collar, filament, glare, bleach,
+# spokes, outline, species and limb are byte-identical to v13, as are all shared
+# helpers, including `_limb_stats`, `_limb_runs`, `_hull_radii`, `_sig_dist` and
+# `_sig_stats`, which `referent` CALLS rather than reimplements. PROBES gains one
+# key; the pre-existing SUITE rows are unchanged and in order.
+# CANARY under v14, verified before AND after the edit:
+#   `clip shots/r5/05-cut+500ms.png` -> mask_px 9490 / pct_R_ge_255 5.227.
+#
+# ⚠ WHY IT EXISTS, AND IT IS THE ONE OPEN INSTRUMENT PROBLEM FROM ROUND 9.
+# `identity` (v10) is a 6-way CLOSED-SET 1-NN over six bodies WE authored, so no
+# value of it can mean "this reads as a real apple". The round-9 geometry critic
+# supplied the killer number: the r8 ORANGE is provably featureless — `limb
+# pose=so3 n=32` gives hull_concave_frac_pct EXACTLY 0.00, boundary_cv_median
+# 0.008, elongation_median 1.011, a convex sphere in all 32 poses — and its
+# identity_recall was 1.000. THE METRIC AWARDS A PERFECT SCORE TO A MATHEMATICAL
+# SPHERE. Six smooth ellipsoids at six aspect ratios would also score 1.000.
+# Self-consistency cannot measure resemblance to a real fruit; that needs a
+# referent OUTSIDE the thing being measured, exactly as the geometric-mask rule
+# did. `referent` is that referent.
+#
+# THE GROUND TRUTH IS HAND-TRACED AND FROZEN HERE AS LITERAL COORDINATES.
+# The r9 critic already proved auto-segmentation of plate-01 does not work and
+# wrote the negative result into the v12 block below; I did not repeat it. The
+# four polygons in REFERENT_POLYS were traced by eye at 3x-13x zoom against
+# reference/plate-01.png, every vertex confirmed on the unaided RGB view, and
+# each one overlay-rendered back onto the plate and corrected until it hugged.
+# Provenance, crop box, per-vertex reasoning at the places that matter (stem,
+# calyx, shoulder notch, sepal spikes) and — because I am authoring ground truth
+# that will be used to score work — an explicit list of the vertices I was NOT
+# sure of are in rounds/reports/r10-referent.md. Read that before citing a
+# number from this probe. The uncertain arcs were traced as SMOOTH
+# interpolations between the confident ends, i.e. with no invented relief, which
+# is the direction that FLATTERS a render (it lowers the target).
+#
+# WHAT IT MEASURES, and every part of it is geometric and colour-blind:
+#   FRAME SIDE.  `subject_mask` (luma > floor, a property of the frame) inside an
+#     explicit window, then `largest_component`, then the outermost-pixel radial
+#     profile from that mask's own centroid — the identical construction
+#     `outline` uses, in `_mask_sig`. mask_px is reported.
+#   REFERENT SIDE.  Each frozen polygon is rasterised — by even-odd scanline fill
+#     — at a scale solved so its FILLED AREA EQUALS THE FRAME'S mask_px to within
+#     1%, then traced by the SAME `_mask_sig`. This is RULE 2 (matched scale)
+#     satisfied by construction rather than by assertion: both sides report
+#     mask_px and they agree. A consequence, and it is the correct one: when the
+#     render's fruit is small, the real fruit's stem and sepals fall below one
+#     pixel on the referent too, so the bar drops to what is actually resolvable.
+#   THE SCORE.  Two independent gains, both computed against the SAME frozen
+#     statistics, both bounded above by 1, and both EXACTLY 0 FOR A CIRCLE:
+#       limb_gain_j = 1 - ||f_frame - f_j||_1 / ||f_j||_1
+#         where f is the seven-vector of `_limb_stats` outputs
+#         (hull_concave_frac_pct, hull_concave_depth_pct, concave_frac_pct,
+#          concave_depth_pct, protr_n, median protr width_deg, median
+#          protr height_pct), each divided by a fixed stated scale. A circle has
+#         f = 0 in every component, so its numerator equals its denominator and
+#         limb_gain is 0 for EVERY referent and for EVERY choice of those
+#         scales — the anti-sphere property is weight-independent.
+#       sig_gain_j  = 1 - `_sig_dist`(frame_sig, [ref_sig]) / `_sig_dist`(ones, [ref_sig])
+#         `_sig_dist` is the frozen flip-invariant, circular-shift-minimised RMS
+#         between mean-normalised signatures, so this is scale- AND
+#         rotation-normalised by the same code `species` uses. The denominator
+#         is that same call with a FEATURELESS DISC as the first argument, which
+#         is algebraically the referent's own boundary RMS; so again a circle
+#         scores exactly 0.
+#     `referent_gain` is max_j limb_gain_j and `nearest` names the argmax. MAX,
+#     not MIN-distance: min-distance over a heterogeneous referent set is
+#     pathological (a near-circular real fruit shrinks everyone's denominator),
+#     whereas max-gain asks "how much of SOME real fruit's outline relief does
+#     this silhouette reproduce" and is 0 for a disc against any set.
+#   THE NULL HYPOTHESIS IS PRINTED WITH EVERY RUN. `controls` re-runs the whole
+#     pipeline at the frame's own mask_px on a rasterised CIRCLE and a rasterised
+#     ELLIPSE (axis ratio 1.35), so the reader never has to take "a circle scores
+#     0" on trust and sees the actual rasterisation floor at that pixel size.
+#
+# ⚠ WHAT THIS PROBE CANNOT DO, SAID HERE SO NOBODY OVERCLAIMS IT. It scores an
+# OUTLINE. It says nothing about shading, colour, or the cut face. A silhouette
+# that reproduces the apple's stem spur and shoulder notch scores well even if
+# the fruit is grey. It is also blind to which species it matched: a strawberry
+# render that scores its gain against the APPLE polygon has reproduced apple
+# relief, which `nearest` will say out loud. Quote `nearest` with every number.
+#
+# ⚠ AND THE REFERENCE I EXCLUDED, WITH THE MEASUREMENT. plate-02-highspeed-citrus
+# is a video still: across the lower half's left silhouette the 10-90 background-
+# to-fruit transition is 8-12 px (y=640: 220->228; y=680: 225->237) against
+# plate-01's 1-3 px on the same statistic (lemon left edge at y=800 is a 1-2 px
+# step). On a ~300 px subject that is +-4 px of boundary uncertainty, which is
+# the same size as the entire relief this probe measures; the right and upper
+# arcs of both halves are inside the aerosol cloud; and what is left is
+# near-elliptical, so it would supply a referent that a smooth ellipsoid matches
+# — the exact failure this instrument exists to prevent. Excluded on those
+# grounds, not on convenience. The pineapple was excluded for a harder reason:
+# its crown leaves are CLIPPED BY THE PLATE'S TOP BORDER at y=0 over x~180-330
+# and reach x<40 on the left, so no closed outline of it exists in the image.
+
 # ── v12 -> v13 (round 10 builder, stage) ─────────────────────────────────────
 # LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 12 -> 13.
 #
@@ -1896,13 +1996,416 @@ def probe_outline(img, ref=None, win=None, floor=8.0, rays=128, thr=0.02, **kw):
     }
 
 
+# ── v14: the EXTERNAL REFERENT. Hand-traced, frozen, and NOT auto-segmented ──
+#
+# Coordinates are NATIVE pixels of reference/plate-01.png (1672 x 941). Each
+# entry records the source file, the crop box the trace was made inside, the
+# polygon, and — because these are ground truth authored by an interested party
+# — `uncertain`, the arcs I could NOT read off the pixels, given as inclusive
+# vertex-index ranges into `poly`. Those arcs are smooth interpolations between
+# the confident ends: no relief was invented there, which is the direction that
+# LOWERS the bar for a render rather than raising it.
+#
+# METHOD, identically for all four: crop at 3x-13x with a labelled native-pixel
+# grid; place vertices by eye on the unaided RGB view; where a boundary was
+# steep or ambiguous, confirm the position against a printed scanline of the
+# actual channel values (this is a measuring aid for MY eye — the probe's mask
+# on a delivered frame remains purely geometric); then render the polygon back
+# over the plate and correct until it hugged. Every polygon below went through
+# at least one correction pass; the strawberry's whole upper-left arc moved
+# 7-10 px inward on the second pass and the kiwi's lower-left arc moved outward.
+REFERENT_POLYS = {
+    "apple_half": {
+        "source": "reference/plate-01.png",
+        "crop": (835, 105, 1140, 370),
+        "note": "Granny Smith, halved, cut face to camera, stalk attached. The "
+                "nameable events are (a) the STALK, a 30 px spur only 4-13 px "
+                "wide rising out of (b) the CALYX WELL, a two-sided notch: the "
+                "shoulder floor sits at y=151 left of the stalk and y=136-138 "
+                "right of it, and between the stalk's right edge and the "
+                "shoulder there is a genuinely dark 9 px gap at x 984-992, "
+                "y 128-137. Stalk vertices came from column dumps at x=976..991 "
+                "(the knob's apex is x=984-985, y=116; its right lobe reaches "
+                "x=991 at y=124 and is gone by x=992); shoulder vertices from a "
+                "5-consecutive-rows luma>35 column scan, with x=920/925 and "
+                "x=1060 hand-overridden because a droplet and a fleck sit above "
+                "the boundary there, and x=1085..1095 hand-overridden because a "
+                "flying beige chunk overlaps the limb at (1086-1097, 163-178).",
+        "uncertain": [(67, 76)],
+        "uncertain_note": "vertices 67-76, the lower-left arc x 853..960, "
+                          "y 277..352: a juice sheet is continuous with the "
+                          "fruit there and no threshold separates them (this is "
+                          "the same failure the v12 block records). Traced as a "
+                          "smooth arc between the confident (856,277) and "
+                          "(963,354). The left flank y 196..234 is a second, "
+                          "milder doubt: a green flap or leaf lies on the cut "
+                          "face at (845-875, 205-235) and its left boundary "
+                          "coincides with the body's, so it is IN the trace; if "
+                          "it is a separate leaf the true limb there is ~2 px "
+                          "further right, which would lower this referent.",
+        "poly": [
+        (962,151), (966,149), (968,143), (970,138), (972,133), (974,129),
+        (976,122), (979,119), (982,117), (985,116), (988,118), (990,121),
+        (991,124), (989,126), (986,129), (986,136), (991,137), (996,135),
+        (1001,134), (1006,134), (1011,134), (1016,134), (1021,133), (1026,135),
+        (1031,137), (1036,138), (1041,140), (1046,142), (1051,145), (1056,148),
+        (1061,152), (1066,156), (1071,160), (1076,165), (1081,171), (1085,178),
+        (1089,185), (1092,192), (1095,200), (1097,208), (1099,216), (1100,224),
+        (1101,232), (1101,240), (1101,248), (1100,256), (1099,264), (1098,272),
+        (1096,280), (1094,288), (1091,296), (1087,304), (1082,311), (1077,317),
+        (1071,323), (1064,330), (1057,335), (1049,341), (1041,346), (1032,350),
+        (1023,352), (1013,353), (1003,354), (993,356), (983,356), (973,355),
+        (963,354), (953,352), (941,350), (929,347), (917,342), (906,336),
+        (895,328), (885,319), (876,309), (868,298), (861,287), (856,277),
+        (852,275), (850,268), (848,262), (848,256), (848,250), (847,244),
+        (846,238), (847,232), (847,226), (847,220), (848,214), (850,208),
+        (853,202), (857,196), (858,190), (860,183), (862,176), (864,170),
+        (868,164), (873,160), (880,159), (885,154), (890,150), (895,147),
+        (900,145), (905,143), (910,142), (915,141), (920,141), (925,141),
+        (930,141), (935,143), (940,146), (945,148), (950,149), (955,150),
+        (960,151),
+        ],
+    },
+    "strawberry": {
+        "source": "reference/plate-01.png",
+        "crop": (1285, 420, 1500, 630),
+        "note": "Whole berry with its calyx. The nameable events are FOUR SEPAL "
+                "SPIKES and one slender stalk, all on the upper-right quadrant, "
+                "separated by real dark gaps: sepal A tip (1411,433), the "
+                "narrow pale-tipped stalk (1418,428), sepal B tip (1456,433) "
+                "with the deepest inter-sepal notch between them at (1429,463), "
+                "sepal C pointing right to (1470,487), sepal D pointing "
+                "right-down to (1487,521). The BODY's left and lower-left arcs "
+                "were placed from an R-minus-G plateau scan (first x where "
+                "R-G>80 for 4 consecutive px) and then moved 2 px outward for "
+                "the desaturated rim; that scan is why the first draft of this "
+                "polygon was 7-10 px too far left and this one is not.",
+        "uncertain": [(50, 57)],
+        "uncertain_note": "vertices 50-57, the bottom arc x 1300..1390, "
+                          "y 606..616: the berry is in shadow there and sits "
+                          "in red juice splash of the same chroma — R-minus-max"
+                          "(G,B) runs 30..50 straight through the boundary at "
+                          "x=1350 and x=1370 with no break. Placed by eye on "
+                          "the dark-red/splash contrast, +-4 px. SEPAL D's tip "
+                          "is a second doubt: a bright droplet overlaps its "
+                          "end, so the tip is set at the last unambiguous green "
+                          "(1487,521), which SHORTENS the spike. A fifth "
+                          "green structure at (1470-1483, 465-475) that may be "
+                          "another sepal was EXCLUDED as unresolvable.",
+        "poly": [
+        (1390,456), (1400,459), (1403,462), (1404,452), (1406,443), (1409,437),
+        (1411,433), (1414,437), (1416,433), (1418,428), (1421,433), (1421,443),
+        (1425,453), (1429,463), (1431,453), (1434,445), (1439,438), (1446,434),
+        (1452,433), (1456,433), (1453,440), (1449,449), (1445,459), (1442,469),
+        (1440,476), (1449,479), (1459,483), (1470,487), (1465,492), (1459,497),
+        (1456,501), (1464,506), (1474,513), (1487,521), (1479,525), (1471,527),
+        (1463,526), (1462,532), (1465,540), (1466,548), (1465,556), (1463,564),
+        (1460,572), (1456,581), (1450,589), (1443,595), (1435,600), (1424,604),
+        (1412,607), (1400,608), (1390,610), (1380,612), (1370,613), (1360,614),
+        (1350,615), (1340,616), (1332,616), (1324,613), (1317,608), (1310,602),
+        (1305,595), (1301,586), (1300,578), (1302,570), (1305,560), (1308,552),
+        (1312,543), (1315,535), (1318,527), (1322,518), (1325,508), (1328,500),
+        (1332,491), (1337,483), (1344,475), (1350,469), (1358,463), (1368,459),
+        (1378,457),
+        ],
+    },
+    "citrus_half": {
+        "source": "reference/plate-01.png",
+        "crop": (140, 705, 345, 915),
+        "note": "Lemon/orange half, cut face to camera, lower-left of the "
+                "plate. This is the referent that proves a citrus half is NOT a "
+                "disc: it is a rounded triangle with a sharp STYLAR APEX at "
+                "(256,722) and two near-straight flanks running down from it "
+                "(x=250 -> y=724, x=225 -> y=734, x=200 -> y=746, x=175 -> "
+                "y=768 on the left; x=275 -> y=734, x=300 -> y=751 on the "
+                "right). Bottom vertices came from column dumps: the peel there "
+                "is in deep shadow at luma 28-40 against a background of 1-3, "
+                "which a naive floor of 45 misses entirely (it reports the "
+                "bottom at y=880 when it is at y=904).",
+        "uncertain": [(9, 13)],
+        "uncertain_note": "vertices 9-13, the right flank y 768..804: red juice "
+                          "crosses the peel there and merges with it. Traced as "
+                          "a straight run at x=312-314 between the confident "
+                          "(310,768) and (316,813). A small pineapple chunk "
+                          "touches the lower-left at (146-178, 876-907) and is "
+                          "NOT in the trace.",
+        "poly": [
+        (256,722), (263,726), (270,731), (277,736), (284,741), (291,747),
+        (298,753), (305,760), (310,768), (312,777), (313,786), (313,795),
+        (314,804), (316,813), (318,822), (319,831), (320,840), (319,848),
+        (317,857), (315,866), (312,874), (307,882), (300,889), (292,895),
+        (283,899), (273,902), (263,904), (253,905), (244,904), (235,904),
+        (225,900), (214,896), (204,893), (195,887), (186,879), (178,870),
+        (171,861), (165,851), (161,842), (157,833), (155,824), (155,815),
+        (157,806), (160,797), (164,788), (169,779), (175,768), (181,761),
+        (188,755), (196,748), (204,742), (212,738), (220,734), (228,730),
+        (236,727), (244,724), (250,723),
+        ],
+    },
+    "kiwi_half": {
+        "source": "reference/plate-01.png",
+        "crop": (1170, 600, 1410, 835),
+        "note": "Kiwifruit half, face-on. INCLUDED DELIBERATELY AS THE "
+                "NEAR-CONVEX REAL CONTROL, and it is the honest half of this "
+                "table: a kiwi half seen face-on really is almost a circle "
+                "(bbox 201 x 202 px), so this referent is evidence that the "
+                "probe is not simply rewarding spikiness. It cannot be used to "
+                "earn a high gain — its own boundary RMS is small, so the "
+                "denominator of sig_gain is small and only a very close match "
+                "scores — but it also cannot be gamed, because a circle still "
+                "scores exactly 0 against it by construction.",
+        "uncertain": [(19, 33)],
+        "uncertain_note": "vertices 19-33, the lower-left arc x 1184..1345, "
+                          "y 742..820: the brown peel there reads luma 15-35 "
+                          "and the surrounding shadowed juice reads 20-30, so "
+                          "the boundary is genuinely indeterminate; a column "
+                          "scan finds an edge at x=1305..1335 (y 810-815) and "
+                          "NOTHING at x=1230..1275. Placed by eye at +-8 px. "
+                          "This is the least certain of the four traces and it "
+                          "is the one I would attack first.",
+        "poly": [
+        (1280,618), (1292,618), (1305,620), (1318,625), (1330,631), (1341,639),
+        (1352,650), (1360,661), (1367,675), (1374,689), (1381,707), (1384,722),
+        (1385,740), (1383,757), (1380,775), (1374,789), (1367,800), (1357,810),
+        (1345,817), (1332,820), (1320,820), (1305,819), (1292,818), (1282,817),
+        (1270,815), (1257,811), (1245,806), (1232,800), (1222,793), (1212,785),
+        (1204,776), (1197,765), (1192,754), (1189,742), (1186,731), (1184,720),
+        (1184,710), (1184,700), (1186,690), (1189,680), (1193,670), (1197,660),
+        (1203,651), (1210,642), (1218,635), (1227,629), (1238,624), (1250,621),
+        (1265,619),
+        ],
+    },
+}
+
+# Fixed scales for the `_limb_stats` feature vector. They set relative emphasis
+# ONLY; the anti-sphere property of limb_gain does not depend on them, because a
+# circle's feature vector is the zero vector in every component.
+_REFERENT_W = (10.0, 5.0, 10.0, 5.0, 4.0, 20.0, 5.0)
+
+
+def _poly_area(P):
+    """Shoelace area of a closed polygon given as an (n,2) array."""
+    x, y = P[:, 0], P[:, 1]
+    return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
+def _poly_fill(P, w, h):
+    """Even-odd scanline fill of a closed polygon at pixel centres. Pure numpy,
+    no dependency, and deterministic."""
+    m = np.zeros((h, w), dtype=bool)
+    x0, y0 = P[:, 0], P[:, 1]
+    x1, y1 = np.roll(x0, -1), np.roll(y0, -1)
+    for yy in range(h):
+        yc = yy + 0.5
+        hit = ((y0 <= yc) & (y1 > yc)) | ((y1 <= yc) & (y0 > yc))
+        if not hit.any():
+            continue
+        t = (yc - y0[hit]) / (y1[hit] - y0[hit])
+        xs = np.sort(x0[hit] + t * (x1[hit] - x0[hit]))
+        for i in range(0, len(xs) - 1, 2):
+            a = int(math.ceil(xs[i] - 0.5))
+            b = int(math.floor(xs[i + 1] - 0.5))
+            if b >= a:
+                m[yy, max(0, a):min(w, b + 1)] = True
+    return m
+
+
+def _poly_mask(poly, target_px, tol=0.01, iters=40):
+    """Rasterise a frozen polygon so its FILLED AREA equals `target_px` to
+    within `tol`. This is how RULE 2 (matched scale) is satisfied by
+    construction: the referent is resampled to the render's own subject scale,
+    never the other way round, and both sides print mask_px."""
+    P0 = np.asarray(poly, float)
+    P0 = P0 - P0.min(0)
+    A = _poly_area(P0)
+    if A <= 0 or target_px < 64:
+        return None
+    lo, hi = 0.05, 8.0
+    s = math.sqrt(float(target_px) / A)
+    lo, hi = s * 0.5, s * 2.0
+    best = None
+    for _ in range(iters):
+        s = 0.5 * (lo + hi)
+        P = P0 * s
+        w = int(math.ceil(P[:, 0].max())) + 3
+        h = int(math.ceil(P[:, 1].max())) + 3
+        m = _poly_fill(P + 1.0, w, h)
+        n = int(m.sum())
+        best = m
+        if abs(n - target_px) <= tol * target_px:
+            break
+        if n < target_px:
+            lo = s
+        else:
+            hi = s
+    return best
+
+
+def _mask_sig(m, rays):
+    """Outermost-pixel radial signature of a boolean mask from its own centroid.
+    This is the identical construction `probe_outline` uses on a frame, applied
+    unchanged to both sides of the comparison so the two are commensurable."""
+    ys, xs = np.nonzero(m)
+    if len(ys) < 64:
+        return None, None
+    cy, cx = ys.mean(), xs.mean()
+    rad = np.hypot(ys - cy, xs - cx)
+    ang = np.arctan2(ys - cy, xs - cx)
+    idx = np.minimum((((ang + math.pi) / (2 * math.pi)) * rays).astype(int), rays - 1)
+    prof = np.full(rays, np.nan)
+    for i in range(rays):
+        sel = idx == i
+        if sel.any():
+            prof[i] = rad[sel].max()
+    good = ~np.isnan(prof)
+    if good.sum() < rays // 2:
+        return None, None
+    if not good.all():
+        gi = np.nonzero(good)[0]
+        prof = np.interp(np.arange(rays), gi, prof[gi], period=rays)
+    return prof, int(rays - good.sum())
+
+
+def _limb_vec(st):
+    """The seven `_limb_stats` outputs as one scaled vector. Zero for a circle."""
+    W = _REFERENT_W
+    wd = float(np.median(st["widths_deg"])) if st["widths_deg"] else 0.0
+    ht = float(np.median(st["heights_pct"])) if st["heights_pct"] else 0.0
+    v = (st["hull_concave_frac_pct"], st["hull_concave_depth_pct"],
+         st["concave_frac_pct"], st["concave_depth_pct"],
+         float(st["protr_n"]), wd, ht)
+    return np.array([a / b for a, b in zip(v, W)], float)
+
+
+def _referent_score(sig, rays, thr, refs):
+    """Score one traced signature against every rasterised referent."""
+    a = np.asarray(sig, float)
+    an = a / a.mean()
+    fa = _limb_vec(_limb_stats(a, rays, thr))
+    ones = np.ones(rays)
+    rows = []
+    for name, bsig, bpx in refs:
+        b = np.asarray(bsig, float)
+        bn = b / b.mean()
+        fb = _limb_vec(_limb_stats(b, rays, thr))
+        ld = float(np.abs(fa - fb).sum()); ln = float(np.abs(fb).sum())
+        sd = _sig_dist(an, [bn], rays)
+        sn = _sig_dist(ones, [bn], rays)
+        lgain = (1.0 - ld / ln) if ln > 1e-9 else None
+        sgain = (1.0 - sd / sn) if sn > 1e-9 else None
+        both = (min(lgain, sgain) if (lgain is not None and sgain is not None)
+                else None)
+        rows.append({
+            "referent": name, "referent_mask_px": bpx,
+            "limb_dist": round(ld, 4), "limb_norm": round(ln, 4),
+            "limb_gain": round(lgain, 4) if lgain is not None else None,
+            "sig_dist": round(sd, 5), "sig_dist_of_disc": round(sn, 5),
+            "sig_gain": round(sgain, 4) if sgain is not None else None,
+            "gain": round(both, 4) if both is not None else None,
+        })
+    cand = [(r["gain"], r["referent"]) for r in rows if r["gain"] is not None]
+    if not cand:
+        return rows, (None, None)
+    g, name = max(cand)
+    row = [r for r in rows if r["referent"] == name][0]
+    return rows, (g, name, row["limb_gain"], row["sig_gain"])
+
+
+def probe_referent(img, ref=None, win=None, floor=8.0, rays=128, thr=0.02,
+                   only=None, **kw):
+    """
+    Does this silhouette resemble a REAL fruit? Scored against hand-traced
+    outlines of real fruit in reference/plate-01.png, at matched mask_px.
+
+    Headline is `referent_gain` — the fraction of the nearest real fruit's own
+    outline relief that this silhouette reproduces, in the flip- and
+    shift-optimal alignment. 1.0 is an exact match. 0.0 IS A MATHEMATICAL
+    SPHERE, exactly and by construction, against any referent set. `controls`
+    re-runs the same pipeline on a rasterised circle and a 1.35 ellipse at this
+    frame's own mask_px, so the null is printed beside the number every time.
+
+    Quote `nearest` with it: the gain says how much real-fruit relief is there,
+    not which fruit it belongs to.
+    """
+    rays = int(rays); thr = float(thr); floor = float(floor)
+    H, W = img.shape[0], img.shape[1]
+    x0, y0, x1, y1 = 0, 0, W, H
+    if win:
+        x0, y0, x1, y1 = [int(v) for v in str(win).split(":")]
+        x0 = max(0, x0); y0 = max(0, y0); x1 = min(W, x1); y1 = min(H, y1)
+    sub = img[y0:y1, x0:x1]
+    m = largest_component(subject_mask(sub, floor))
+    mask_px = int(m.sum())
+    sig, empt = _mask_sig(m, rays)
+    if sig is None:
+        return {"error": "no subject", "mask_px": mask_px, "win": [x0, y0, x1, y1]}
+    ys, xs = np.nonzero(m)
+
+    names = [k for k in sorted(REFERENT_POLYS)
+             if only is None or k in str(only).split(",")]
+    refs = []
+    for k in names:
+        rm = _poly_mask(REFERENT_POLYS[k]["poly"], mask_px)
+        if rm is None:
+            continue
+        rs, _ = _mask_sig(rm, rays)
+        if rs is None:
+            continue
+        refs.append((k, rs, int(rm.sum())))
+    if not refs:
+        return {"error": "no referent rasterised", "mask_px": mask_px}
+
+    rows, best = _referent_score(sig, rays, thr, refs)
+
+    controls = {}
+    th = np.linspace(0, 2 * math.pi, 512, endpoint=False)
+    for cname, ratio in (("circle", 1.0), ("ellipse_1.35", 1.35)):
+        cp = np.stack([100.0 * ratio * np.cos(th) + 200, 100.0 * np.sin(th) + 200], 1)
+        cm = _poly_mask(cp, mask_px)
+        cs, _ = _mask_sig(cm, rays) if cm is not None else (None, None)
+        if cs is None:
+            continue
+        _, cb = _referent_score(cs, rays, thr, refs)
+        controls[cname] = {"mask_px": int(cm.sum()),
+                           "referent_gain": (round(cb[0], 4) if cb[0] is not None
+                                             else None),
+                           "nearest": cb[1],
+                           "limb_gain": cb[2] if len(cb) > 2 else None,
+                           "sig_gain": cb[3] if len(cb) > 3 else None}
+
+    st = _limb_stats(sig, rays, thr)
+    return {
+        "mask_px": mask_px, "win": [x0, y0, x1, y1],
+        "bbox": [int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)],
+        "floor": floor, "rays": rays, "bins_empty": empt,
+        "thr_pct_of_mean_radius": thr * 100,
+        "referent_gain": (round(best[0], 4) if best[0] is not None else None),
+        "nearest": best[1],
+        "limb_gain": (best[2] if len(best) > 2 else None),
+        "sig_gain": (best[3] if len(best) > 3 else None),
+        "frame_limb": {"hull_concave_frac_pct": round(st["hull_concave_frac_pct"], 2),
+                       "hull_concave_depth_pct": round(st["hull_concave_depth_pct"], 2),
+                       "concave_frac_pct": round(st["concave_frac_pct"], 2),
+                       "concave_depth_pct": round(st["concave_depth_pct"], 2),
+                       "protr_n": int(st["protr_n"]),
+                       "protr_width_deg": (round(float(np.median(st["widths_deg"])), 2)
+                                           if st["widths_deg"] else 0.0),
+                       "protr_height_pct": (round(float(np.median(st["heights_pct"])), 2)
+                                            if st["heights_pct"] else 0.0)},
+        "per_referent": rows,
+        "controls": controls,
+        "referent_source": "hand-traced polygons, reference/plate-01.png; see "
+                           "REFERENT_POLYS and rounds/reports/r10-referent.md",
+    }
+
+
 PROBES = {
     "clip": probe_clip, "void": probe_void, "silhouette": probe_silhouette,
     "droplets": probe_droplets, "particles": probe_particles, "ring": probe_ring,
     "lens": probe_lens, "tintlaw": probe_tintlaw, "foam": probe_foam,
     "collar": probe_collar, "filament": probe_filament,
     "glare": probe_glare, "spokes": probe_spokes, "outline": probe_outline,
-    "bleach": probe_bleach,
+    "bleach": probe_bleach, "referent": probe_referent,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2332,6 +2835,11 @@ SUITE = [
     # Same `_radon_ridge`, same perpendicular window, 13 stations. plate-01
     # native: core_sat_p50 0.054 / core_sat3_p50 0.096 / peak_p50 237.4.
     ("bleach", "00-hero.png"),
+    # v14: the EXTERNAL referent. Same geometric mask as `outline` on the
+    # same frame, scored against hand-traced real-fruit outlines rasterised
+    # to THIS frame's mask_px. `controls` in the output is the null: a
+    # circle scores referent_gain 0.000 by construction.
+    ("referent", "01-whole-watermelon.png"),
 ]
 
 def main():
