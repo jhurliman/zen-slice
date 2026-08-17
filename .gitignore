@@ -212,3 +212,7 @@ rounds/.stallwatch-heartbeat
 # private iteration surfaces, not results. tools/probes.py and the harnesses are
 # not hidden, so this cannot swallow anything that matters.
 tools/.*
+shots/r7/
+shots/r7-iphone/
+shots/r8/
+shots/r8-iphone/

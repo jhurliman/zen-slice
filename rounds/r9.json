@@ -1,0 +1,69 @@
+{
+ "round": 9,
+ "at": "2026-08-08/13 \u2014 round 9 (BUILDERS ONLY, UNSCORED)",
+ "perf": {
+  "desktop": {
+   "peakDrawCalls": 111,
+   "peakTriangles": 200000,
+   "cpuMsPerFrame": 2.5
+  },
+  "portrait": {
+   "peakDrawCalls": 187,
+   "peakTriangles": 267000,
+   "cpuMsPerFrame": 7.6
+  }
+ },
+ "note": "PARTIAL ROUND. The exposure owner and all three builders finished; the integrator and all five critics died on the weekly usage limit (resets Aug 13 10:00 UTC). I integrated by hand: the build is clean and the harness ran both orientations with zero errors and zero failed beats. The scores above are ROUND 8'S, carried forward \u2014 no critic looked at this build, and showing movement would be inventing it. Two findings landed anyway, both about instruments rather than pixels. (1) PORTRAIT IS OVER EVERY PERF BAR: 187 draw calls vs a 120 bar, 267k triangles vs 250k, 7.6 ms worst frame vs landscape's 2.5 \u2014 on the only configuration that ships. Every perf number this project has reported for nine rounds was landscape, so the budget has been defended on the wrong device throughout. Same disease as the three portrait-only visual defects: a threshold expressed in pixels is correct at one raster and wrong at another. (2) THE identity METRIC I ADDED IN ROUND 8 IS SATURATED: it reads 0.96-0.99 on the very build whose silhouettes a critic could not name a single fruit in, and 1.0000 at ship poses. It is a 6-way closed-set 1-NN, and six bodies at elongations 1.01 to 2.57 are trivially mutually discriminable. So v10 fixed the metric's DIRECTION and left its RANGE broken \u2014 and the deeper error is the same one wearing a new costume: the metric still scores the system against ITSELF. Self-consistency cannot measure resemblance to a real apple. That needs an external referent, exactly as the mask rule needed a referent outside the thing being measured.",
+ "pieces": [
+  {
+   "key": "stage",
+   "name": "Lighting, grade & DOF",
+   "score": 73,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED \u2014 the weekly usage limit killed all five critics before they ran. Score shown is round 8's, carried forward unchanged so the chart does not imply progress that was never measured.",
+   "fix": "Re-run critique after the limit resets (Aug 13, 10:00 UTC)."
+  },
+  {
+   "key": "fruit-mat",
+   "name": "Fruit materials",
+   "score": 68,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED \u2014 the weekly usage limit killed all five critics before they ran. Score shown is round 8's, carried forward unchanged so the chart does not imply progress that was never measured.",
+   "fix": "Re-run critique after the limit resets (Aug 13, 10:00 UTC)."
+  },
+  {
+   "key": "fruit-geo",
+   "name": "Fruit silhouette",
+   "score": 73,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED \u2014 the weekly usage limit killed all five critics before they ran. Score shown is round 8's, carried forward unchanged so the chart does not imply progress that was never measured.",
+   "fix": "Re-run critique after the limit resets (Aug 13, 10:00 UTC)."
+  },
+  {
+   "key": "cutter",
+   "name": "Cut faces & rind",
+   "score": 72,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED \u2014 the weekly usage limit killed all five critics before they ran. Score shown is round 8's, carried forward unchanged so the chart does not imply progress that was never measured.",
+   "fix": "Re-run critique after the limit resets (Aug 13, 10:00 UTC)."
+  },
+  {
+   "key": "juice",
+   "name": "Juice fluid",
+   "score": 70,
+   "verdict": "unscored",
+   "biggestGap": "NOT SCORED \u2014 the weekly usage limit killed all five critics before they ran. Score shown is round 8's, carried forward unchanged so the chart does not imply progress that was never measured.",
+   "fix": "Re-run critique after the limit resets (Aug 13, 10:00 UTC)."
+  }
+ ],
+ "shots": [
+  "shots/r9/00-hero.png",
+  "shots/r9/01-whole-watermelon.png",
+  "shots/r9/04-cut+250ms.png",
+  "shots/r9/05-cut+500ms.png",
+  "shots/r9/08-citrus-caps.png",
+  "shots/r9/15-fast-flick+50ms.png",
+  "shots/r9/16-slow-cleave+50ms.png",
+  "shots/r9-iphone/11-combo+550ms.png"
+ ]
+}
