@@ -17,3 +17,8 @@ wf_f9e64709-862   # round 5 critique recovery: COMPLETED (5/5 verdicts on disk).
 wf_f5ee6f4f-445   # round 6: COMPLETED (10/10 agents, 5 verdicts + 5 reports on disk). Triaged 2026-08-08.
 wf_201bb995-e9f   # round 7: COMPLETED (11/11 agents, 5 verdicts + 5 reports on disk). Triaged 2026-08-08.
 wf_0cec5cf2-6be   # round 8: COMPLETED (11/11 agents, 5 verdicts + 5 reports on disk). Triaged 2026-08-08.
+wf_9f745f89-a63   # round 9: exposure owner + 3 builders COMPLETED; integrator and all 5
+                  # critics died on the WEEKLY USAGE LIMIT (resets Aug 13 10:00 UTC), so
+                  # 6 agents show permanently open. Integrated by hand: build clean,
+                  # harness run both orientations, recorded UNSCORED in rounds/r9.json.
+                  # Critique to be re-run after the reset. Triaged 2026-08-13.
