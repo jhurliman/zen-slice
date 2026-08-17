@@ -86,6 +86,57 @@ export const STAGE = Object.freeze({
   farZ: 2.0,
 });
 
+// ── Scene budget (round 10, perf) ────────────────────────────────────────────
+/**
+ * THE R4 BUDGET, EXPRESSED AS A POPULATION LIMIT THE DIRECTOR CAN ENFORCE.
+ *
+ * Nine rounds shipped with NO governor on the number of live bodies. The only
+ * cap in the codebase — `quality.maxFruit` — counts generation-0 fruit ONLY,
+ * and every cut turns one body into two. So the population that actually costs
+ * draw calls was unbounded, and the R4 ceilings were held by luck.
+ *
+ * Portrait is where the luck ran out, and the mechanism is a raster mistake of
+ * exactly the shape this project keeps making. `main.js: resize()` CONTAIN-fits
+ * STAGE.halfExtent, so the camera sits at z = halfExtent/(tan(vfov)*aspect)
+ * when aspect < 1: 10.16 in landscape (aspect 1.778), 22.02 in portrait
+ * (aspect 0.461). MEASURED, both orientations, same build:
+ *     landscape  world half-height 3.900   half-width 6.933
+ *     portrait   world half-height 8.453   half-width 3.900
+ * A stroke is authored in NDC, so ONE swipe sweeps 2.17x more world height in
+ * portrait and therefore cuts far more fruit per stroke. Measured fragment
+ * populations at the end of the identical seeded load loop:
+ *     landscape  gen0 41 / gen1  4 / gen2 12   ->  57 bodies, 127 calls
+ *     portrait   gen0 22 / gen1 13 / gen2 70   -> 105 bodies, 223 calls
+ * Same scene, same code, 1.8x the bodies. The extra draw calls are NOT a
+ * per-object cost difference (a portrait body is CHEAPER: tier 2, 2302 tris for
+ * a watermelon against tier 3's 3636) — they are 84% more bodies.
+ *
+ * These constants are MEASURED on the shipped build, both orientations, with an
+ * empty playfield (tools/.r10perf.mjs, `fixed`):  13 draw calls / 53391
+ * triangles with nothing in the scene, identical in landscape and portrait.
+ * Every live body then costs exactly 2 more draw calls (skin group + flesh
+ * group) and its own triangle count.
+ *
+ * The director enforces this every fixed step. It is a CEILING, not a target:
+ * it can only ever remove bodies, so no shipped frame can gain anything from
+ * it, and none of them come close to the cap (the five-fruit combo beat peaks
+ * at 10 bodies against a cap of 51).
+ */
+export const BUDGET = Object.freeze({
+  drawCalls: 120,        // R4
+  triangles: 250000,     // R4
+  fixedDrawCalls: 13,    // measured, empty scene, BOTH orientations
+  fixedTriangles: 53400, // measured, empty scene, BOTH orientations (53391)
+  callsPerBody: 2,       // skin material group + flesh material group
+  // Headroom for the fluid, which grows within a frame after the governor has
+  // already run: keep 4 draw calls and 6% of the triangle budget in hand.
+  reserveDrawCalls: 4,
+  reserveTriangles: 15000,
+  // Never retire more than this many bodies in one fixed step — a governor that
+  // deletes 40 things at once is a visible pop AND a CPU spike of its own.
+  maxRetirePerStep: 6,
+});
+
 // ── Quality tiers (the perf governor moves between these) ────────────────────
 export const TIER = Object.freeze({
   ULTRA: 3,   // desktop / M-series iPad

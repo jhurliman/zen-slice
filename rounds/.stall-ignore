@@ -22,3 +22,10 @@ wf_9f745f89-a63   # round 9: exposure owner + 3 builders COMPLETED; integrator a
                   # 6 agents show permanently open. Integrated by hand: build clean,
                   # harness run both orientations, recorded UNSCORED in rounds/r9.json.
                   # Critique to be re-run after the reset. Triaged 2026-08-13.
+wf_de403e5c-44f   # round 9 critique recovery: COMPLETED (5/5 verdicts on disk, all read and
+                  # merged into rounds/r9.json). The workflow reported agents_error=1 — the
+                  # cutter critic died between writing rounds/verdicts/r9-cutter.json and
+                  # returning, which is exactly the failure the "write your report to disk
+                  # BEFORE you return" rule was added for, and the rule saved it: the verdict
+                  # was complete on disk (20KB, score 76) and cost nothing to recover.
+                  # Triaged 2026-08-17.

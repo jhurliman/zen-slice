@@ -771,6 +771,36 @@ export function createStage() {
     // soft-clip block: this, not the exposure and not fI, is what decides how
     // many pixels of the frame the flare is allowed to blow.
     fCeil: uniform(0.62),
+    // ── round 10: fBleach / fOver — THE CEILING'S CHANNEL POLICY ───────────
+    // fBleach  0 = round 9's ratio (hue-preserving) knee, applied to the max
+    //          channel; 1 = the same curve applied PER CHANNEL. Shipped 1.
+    //          Read the soft-ceiling block in streakNode before moving it: a
+    //          ratio knee makes chromaticity invariant to radiance, which is
+    //          exactly the mechanism that prevented an over-driven warm source
+    //          from ever bleaching, and it is the r9 verdict's headline gap.
+    // fOver    scene-linear OVER-DRIVE applied to the streak immediately before
+    //          the ceiling. It is not an exposure and it cannot brighten the
+    //          frame: max(out) = fCeil at any value of it, so the only thing it
+    //          changes is HOW FAR ABOVE the ceiling the source sits, i.e. how
+    //          many of the three wells are saturated at the core. That is the
+    //          whole bleaching mechanism, and it is a separate uniform from fI
+    //          on purpose — fI is rewritten every frame from the flare's decay
+    //          curve (`e = flare.i^2`, a FEEL decision), so folding an over-
+    //          drive into it would couple the core's colour to the beat.
+    //          MEASURED, hero, per-channel knee, everything else shipped:
+    //            fOver  1.0  core_sat_p50 0.400  peak_p50 178.5
+    //            fOver  2.0  core_sat_p50 0.310  peak_p50 212.9
+    //            fOver  4.0  core_sat_p50 0.176  peak_p50 235.5
+    //            fOver  8.0  core_sat_p50 0.093  peak_p50 243.6
+    //            fOver 14.0  core_sat_p50 0.061  peak_p50 246.9  (SHIPPED)
+    //            fOver 24.0  core_sat_p50 0.043  peak_p50 248.5
+    //          i.e. it is a saturation curve and it flattens, which is why the
+    //          shipped value is not on a cliff: +/-40% of 14.0 moves core_sat by
+    //          under 0.02. The cost is the WIDTH of the saturated core, and that
+    //          is what `filament flattop_p50` and `glare` bound from the other
+    //          side; both are quoted in the r10 report on both orientations.
+    fBleach: uniform(1.0),
+    fOver: uniform(14.0),
     // grade
     crush: uniform(0.010),
     contrast: uniform(1.10),
@@ -2324,7 +2354,7 @@ export function createStage() {
       const lit = c.mul(norm).mul(flux).add(cA)
         .mul(U.fI).mul(U.fHot.mul(0.45).add(0.55)).toVar();
 
-      // ── SOFT CEILING, HUE-PRESERVING ─────────────────────────────────────
+      // ── SOFT CEILING — PER CHANNEL AS OF ROUND 10 ────────────────────────
       // The flare's authored decay spans 9x in the first 200 ms (`e =
       // flare.i^2`, and that curve is a FEEL decision I am not touching), so a
       // single linear gain cannot serve both +50 ms and +250 ms: calibrate the
@@ -2335,21 +2365,55 @@ export function createStage() {
       // the disc area and quietly held the peak near 230 no matter what was fed
       // in. A ribbon that carries its own flux term has no such accident.
       //
-      // So the streak states its own ceiling. `fCeil * (1 - exp(-L/fCeil))` is
-      // transparent well below the ceiling, asymptotes to it above, and is
-      // applied to the MAX CHANNEL with the hue carried through unchanged —
-      // which matters, because the amber is the thing we just spent the round
-      // measuring and a per-channel clip would bleach it back to white exactly
-      // where the streak is brightest. That is the same mechanism that made
-      // rounds 1-6's streak cream.
+      // So the streak states its own ceiling: `fCeil * (1 - exp(-L/fCeil))`,
+      // transparent well below the ceiling, asymptotic to it above.
+      //
+      // ⚠ ROUND 10 REVERSES THIS BLOCK'S CHANNEL POLICY, AND THE PARAGRAPH THAT
+      // USED TO SIT HERE WAS WRONG. It read: "applied to the MAX CHANNEL with
+      // the hue carried through unchanged — which matters, because the amber is
+      // the thing we just spent the round measuring and a per-channel clip would
+      // bleach it back to white exactly where the streak is brightest." That is
+      // an accurate description of the arithmetic and a backwards description of
+      // a camera. Dividing by `pk` makes the emitted CHROMATICITY exactly
+      // invariant to radiance — r:g:b is the same triple at L = 0.01 and at
+      // L = 100 — so no amount of over-drive can ever bleach the core. A real
+      // sensor has three independent wells; a warm source fills the red one
+      // first, then green, then blue, and its image goes WHITE at the core with
+      // the colour surviving only in the halo. plate-01 is that picture and says
+      // so on the frozen suite: `bleach reference/plate-01.png` core_sat_p50
+      // 0.054 with core_rgb_p50 [243,235,239] and peak_p50 237.4, against a
+      // wing_sat_p50 of 0.332 — white in the middle, orange at the edges. Ours
+      // under the ratio knee was core_sat_p50 0.434 hero / 0.466 portrait at
+      // [215,168,127], i.e. an amber rod end to end, and it is the r9 verdict's
+      // headline gap. THE FIX IS THIS ONE EXPRESSION, not the exposure:
+      //
+      //     per channel   out_c = fCeil * (1 - exp(-L_c / fCeil))
+      //
+      // Same curve, same ceiling, identical to within fp32 for everything dim
+      // (both forms are L - L^2/2fCeil + O(L^3)), but the three channels now
+      // asymptote to the SAME value, so an over-driven warm source tends to
+      // (fCeil, fCeil, fCeil) — neutral — with an amber fringe where only R has
+      // saturated. `fBleach` mixes the two forms so the change is bisectable at
+      // runtime and so a future round can measure the old behaviour without
+      // reverting the file: 0 is round 9 exactly, 1 is per channel. SHIPPED 1.
       //
       // 0.62 is the contract's own clip point (section 6: L_clip = 0.655) less a
       // hair, so the hot core lands at display ~250 — plate-01's own streak
       // peak_max on the frozen probe is 249.8 — and nothing the flare does can
-      // put a broad blown band into the frame at any point in its decay.
-      const pk = max(lit.r, max(lit.g, lit.b)).max(1e-5).toVar();
-      const kn = U.fCeil.mul(pk.div(U.fCeil).negate().exp().oneMinus()).div(pk).toVar();
-      return vec4(lit.mul(kn), 1.0);
+      // put a broad blown band into the frame at any point in its decay. That
+      // bound is UNCHANGED by the per-channel form: max(out_c) = fCeil either
+      // way, so the ceiling this file has defended since round 7 still holds and
+      // `void`'s corner boxes are still the check (quoted in the r10 report).
+      //
+      // ⚠ AND THE KNEE ALONE DOES NOTHING WITHOUT HEAD-ROOM, WHICH IS WHY
+      // `fOver` EXISTS — see its declaration. Bleaching is a saturation effect;
+      // a core sitting at 40% of the ceiling has three unsaturated wells and
+      // stays exactly the colour it was.
+      const litO = lit.mul(U.fOver).toVar();
+      const pk = max(litO.r, max(litO.g, litO.b)).max(1e-5).toVar();
+      const knR = U.fCeil.mul(pk.div(U.fCeil).negate().exp().oneMinus()).div(pk).toVar();
+      const perC = U.fCeil.mul(litO.div(U.fCeil).negate().exp().oneMinus()).toVar();
+      return vec4(mix(litO.mul(knR), perC, U.fBleach), 1.0);
     });
 
     streakMat = new THREE.MeshBasicNodeMaterial();

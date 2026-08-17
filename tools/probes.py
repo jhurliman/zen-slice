@@ -69,7 +69,56 @@ import sys, json, math
 import numpy as np
 from PIL import Image
 
-PROBE_VERSION = 12
+PROBE_VERSION = 13
+# ── v12 -> v13 (round 10 builder, stage) ─────────────────────────────────────
+# LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 12 -> 13.
+#
+# ADDED one probe, `bleach`, and appended one SUITE row (bleach:00-hero.png).
+# NO EXISTING PROBE'S EXECUTABLE CODE CHANGED BY ONE CHARACTER — clip, void,
+# ring, silhouette, droplets, particles, tintlaw, lens, foam, collar, filament,
+# glare, spokes, outline, species and limb are byte-identical to v12, as are all
+# shared helpers, including `_radon_ridge`, `_edge_1090`, `_radial_edges` and
+# `_spearman`, which `bleach` CALLS rather than reimplements. PROBES gains one
+# key; the pre-existing SUITE rows are unchanged and in order.
+# CANARY under v13, verified before AND after the edit:
+#   `clip shots/r5/05-cut+500ms.png` -> mask_px 9490 / pct_R_ge_255 5.227.
+#
+# WHY IT EXISTS. The round-9 stage verdict's headline gap is a COLOUR statistic
+# on the streak's core — "plate-01's rim streak is achromatic white at the core
+# (core sat p50 0.045) ... ours is a saturated amber rod" — and it was computed
+# in a critic's scratch script, so neither party could re-run it. `lens`,
+# `filament` and `glare` all read LUMA only and are colour-blind by design (that
+# is the point of them); `clip` and `foam` read colour but only inside the cut
+# face. Nothing in v12 can see the hue of the ridge. A headline that only one
+# party can measure is exactly what this file exists to prevent.
+#
+# WHAT IT MEASURES, and it is geometric by construction: the SAME ridge
+# `lens`/`filament`/`glare` find (`_radon_ridge`, colour-blind, the identical
+# call), the same perpendicular window, `nline` = 13 stations. At each station it
+# takes the profile's LUMA peak — the mask is "wherever the ridge is brightest",
+# which cannot be steered by colour — and reports
+#   core_sat      (max-min)/max of the RGB at that one peak pixel, 0..1
+#   core_sat3     the same on the mean RGB of the 3 px centred on the peak
+#                 (STRICTER: a 1-px white needle inside an amber core scores
+#                  low on core_sat and high on core_sat3, so quote both)
+#   core_rgb_p50  per-channel median of the peak-pixel RGB over the stations
+#   peak          the LUMA at that pixel, per station
+#   wing_sat      the same saturation at the first outward crossing of 20% of
+#                 the station's amplitude — the halo. plate-01 is white at the
+#                 core and orange in the wing, so a fix that merely desaturates
+#                 the whole flare moves BOTH and is visible here.
+# Stations whose amplitude over the profile's own end-median is below `min_amp`
+# are dropped, exactly as `filament` and `glare` drop them, and `n` reports how
+# many survived, so a deleted or dimmed streak returns fewer stations rather
+# than a flattering number.
+#
+# ⚠ SCALE. core_sat has a 1-px kernel and core_sat3 a 3-px one, so RULE 2
+# applies: resampling a plate DOWN mixes the orange wing into the white core and
+# RAISES core_sat, i.e. it flatters us. The citation that works AGAINST the
+# round-10 finding is therefore plate-01 NATIVE, and that is the one quoted as
+# the target (0.054 / 0.096). Both are reported in the r10-stage report with
+# mask_px on both sides.
+#
 # ── v11 -> v12 (round 9 critic, fruit-geo) ───────────────────────────────────
 # LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 11 -> 12.
 #
@@ -1533,6 +1582,113 @@ def probe_glare(img, ref=None, nline=25, halfw=40, min_amp=12.0, **kw):
     return out
 
 
+def probe_bleach(img, ref=None, nline=13, halfw=26, min_amp=8.0, **kw):
+    """
+    DOES THE STREAK'S CORE BLEACH? — the colour half of `lens`/`filament`/
+    `glare`, which are luma-only and cannot see it. See the v12 -> v13 notice.
+
+    Same ridge (`_radon_ridge`: geometric, colour-blind, the identical call),
+    same perpendicular window, `nline` stations. At each station the LUMA peak
+    pixel is the core — a geometric selection, not a colour one — and the probe
+    reports its saturation (max-min)/max, its RGB, its luma, and the saturation
+    of the halo at the first outward 20%-of-amplitude crossing.
+
+    A real over-driven warm source clips per channel and goes WHITE at the core
+    with the colour surviving only in the halo: plate-01 native reads
+    core_sat_p50 0.054 / core_sat3_p50 0.096 / peak_p50 237.4 / wing_sat_p50
+    0.332. A ratio-preserving (hue-preserving) ceiling cannot do that at any
+    brightness — its core_sat is invariant to gain by construction.
+
+    Stations below `min_amp` amplitude are dropped as in `filament`/`glare`.
+    """
+    L = luma(img)
+    h, w = L.shape
+    out = {"mask_px": int((L > 6.0).sum()), "shape": [int(w), int(h)]}
+    found = _radon_ridge(L)
+    if found is None:
+        out["found"] = False
+        return out
+    t, u0 = found
+    ct, st = math.cos(t), math.sin(t)
+    ax, ay = -st, ct
+    ts = np.linspace(-math.hypot(w, h) / 2.0, math.hypot(w, h) / 2.0, 4096)
+    px = w / 2.0 + u0 * ct + ts * ax
+    py = h / 2.0 + u0 * st + ts * ay
+    inside = (px >= 1) & (px < w - 1) & (py >= 1) & (py < h - 1)
+    if inside.sum() < 32:
+        out["found"] = False
+        return out
+    tin = ts[inside]
+    hw = int(halfw)
+    uu = np.arange(-hw, hw + 1, dtype=np.float64)
+
+    def sat(rgb):
+        mx = float(np.max(rgb)); mn = float(np.min(rgb))
+        return (mx - mn) / max(mx, 1e-6)
+
+    sats, sats3, peaks, pos, wings, rgbs = [], [], [], [], [], []
+    for k in range(int(nline)):
+        tk = tin[0] + (tin[-1] - tin[0]) * (k + 0.5) / int(nline)
+        cxk = w / 2.0 + u0 * ct + tk * ax
+        cyk = h / 2.0 + u0 * st + tk * ay
+        sx = np.clip((cxk + uu * ct).astype(int), 0, w - 1)
+        sy = np.clip((cyk + uu * st).astype(int), 0, h - 1)
+        prof = L[sy, sx]
+        C = img[sy, sx, :]
+        pos.append([int(round(cxk)), int(round(cyk))])
+        base = float(np.median(np.concatenate([prof[:6], prof[-6:]])))
+        amp = float(prof.max()) - base
+        if amp < float(min_amp):
+            sats.append(None); sats3.append(None); peaks.append(None)
+            continue
+        j = int(np.argmax(prof))
+        rgb1 = C[j]
+        lo = max(0, j - 1); hi = min(len(prof), lo + 3)
+        rgb3 = C[lo:hi].mean(axis=0)
+        sats.append(round(sat(rgb1), 3))
+        sats3.append(round(sat(rgb3), 3))
+        peaks.append(round(float(prof[j]), 1))
+        rgbs.append(rgb1)
+        thr = base + 0.20 * amp
+        gw = []
+        for idxs in (range(j, len(prof)), range(j, -1, -1)):
+            for i in idxs:
+                if prof[i] < thr:
+                    gw.append(sat(C[i]))
+                    break
+        if gw:
+            wings.append(float(np.median(gw)))
+    sv = [x for x in sats if x is not None]
+    s3 = [x for x in sats3 if x is not None]
+    pv = [x for x in peaks if x is not None]
+    out.update({
+        "found": True,
+        "angle_deg": round(math.degrees(t), 2),
+        "span_px": int(inside.sum() * (math.hypot(w, h) / 4096.0)),
+        "samples": pos,
+        "core_sat": sats,
+        "core_sat3": sats3,
+        "peak": peaks,
+        "n": len(sv),
+    })
+    if sv:
+        out["core_sat_p50"] = round(float(np.median(sv)), 3)
+        out["core_sat_n_under_010"] = int(sum(1 for x in sv if x < 0.10))
+        out["core_sat_n_under_015"] = int(sum(1 for x in sv if x < 0.15))
+    if s3:
+        out["core_sat3_p50"] = round(float(np.median(s3)), 3)
+        out["core_sat3_n_under_010"] = int(sum(1 for x in s3 if x < 0.10))
+    if pv:
+        out["peak_p50"] = round(float(np.median(pv)), 1)
+        out["peak_n_ge_215"] = int(sum(1 for x in pv if x >= 215.0))
+        out["peak_n_ge_230"] = int(sum(1 for x in pv if x >= 230.0))
+    if rgbs:
+        out["core_rgb_p50"] = [round(float(x), 1) for x in np.median(np.array(rgbs), axis=0)]
+    if wings:
+        out["wing_sat_p50"] = round(float(np.median(wings)), 3)
+    return out
+
+
 def probe_spokes(img, ref=None, win="208:300:288:392", scale=0.80, floor=8.0,
                  nr=24, na=180, r0=0.12, r1=0.92, kmin=2, kmax=30, khi=6, **kw):
     """
@@ -1746,6 +1902,7 @@ PROBES = {
     "lens": probe_lens, "tintlaw": probe_tintlaw, "foam": probe_foam,
     "collar": probe_collar, "filament": probe_filament,
     "glare": probe_glare, "spokes": probe_spokes, "outline": probe_outline,
+    "bleach": probe_bleach,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2171,6 +2328,10 @@ SUITE = [
     # same frame, same geometric mask, complementary statistic. Present in both
     # orientations because 01 is the one whole-fruit frame both harnesses ship.
     ("outline", "01-whole-watermelon.png"),
+    # v13: the COLOUR of the ridge the three rows above measure in luma only.
+    # Same `_radon_ridge`, same perpendicular window, 13 stations. plate-01
+    # native: core_sat_p50 0.054 / core_sat3_p50 0.096 / peak_p50 237.4.
+    ("bleach", "00-hero.png"),
 ]
 
 def main():
