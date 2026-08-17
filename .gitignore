@@ -164,7 +164,7 @@ bare.mjs
 # are shots/rN/ and shots/rN-iphone/; these are working notes.
 shots/r*-juice-*/
 shots/r*-blade/
-shots/r*-stage/
+shots/r*-stage*/
 shots/dbg*.png
 
 # ── round 0 ──────────────────────────────────────────────────────────────────
