@@ -132,9 +132,19 @@ export const BUDGET = Object.freeze({
   // already run: keep 4 draw calls and 6% of the triangle budget in hand.
   reserveDrawCalls: 4,
   reserveTriangles: 15000,
-  // Never retire more than this many bodies in one fixed step — a governor that
-  // deletes 40 things at once is a visible pop AND a CPU spike of its own.
-  maxRetirePerStep: 6,
+  // Cap on retirements per fixed step, so a pathological population cannot turn
+  // the governor itself into the frame spike. MEASURED, and this is why it is
+  // 32 and not the 6 I first wrote: cuts are emitted on the `swipe` bus event,
+  // which the harness (and a real stroke) fires BEFORE the step, so one stroke
+  // can add ~25 bodies at once — and in PORTRAIT it does, because an NDC-length
+  // stroke sweeps 8.45 world units of playfield against landscape's 3.90. With
+  // a limit of 6 the governor needed five steps to converge, and the complexity
+  // probe renders on i=19/39/59 which are themselves swipe steps, so it
+  // screenshotted the un-converged frame: portrait 165 draw calls with 53 live
+  // bodies, i.e. 76 at the render. At 32 it converges inside the step that
+  // created the overload. The scan is O(live) with no allocation, so the worst
+  // case is ~32*120 comparisons — tens of microseconds.
+  maxRetirePerStep: 32,
 });
 
 // ── Quality tiers (the perf governor moves between these) ────────────────────

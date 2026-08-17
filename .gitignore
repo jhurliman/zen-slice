@@ -216,3 +216,11 @@ shots/r7/
 shots/r7-iphone/
 shots/r8/
 shots/r8-iphone/
+
+# ── round 10 perf owner's working captures ───────────────────────────────────
+# Same rule as the other per-agent A/B dirs above. -base/ is r9 code re-shot,
+# -rep/ is a same-build repeat control, -noise/ is three renders of ONE build
+# used to characterise capture nondeterminism. The shipped r10 frames are
+# shots/r10/ and shots/r10-iphone/, produced by the integrator.
+shots/r10-perf*/
+tmp/

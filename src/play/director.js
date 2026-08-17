@@ -31,6 +31,11 @@ export function createDirector({ seed = 20260806 } = {}) {
   let ctx, geoCache = new Map(), matCache = new Map();
   let nextSpawn = 1.2;
   let t = 0;
+  // running triangle total of the live population, maintained incrementally by
+  // add()/remove() so the budget check is two comparisons and not an O(n) sum
+  // every fixed step (R4: zero steady-state allocation, and no per-step scan we
+  // do not need).
+  let liveTris = 0;
 
   const geomFor = (sp, detail) => {
     const k = sp.id + ':' + detail;
@@ -69,12 +74,13 @@ export function createDirector({ seed = 20260806 } = {}) {
     f._tris = g.index ? g.index.count / 3 : (g.attributes.position?.count ?? 0) / 3;
     f._addedAt = t;
     f.mesh.frustumCulled = true;
+    liveTris += f._tris;
     api.live.push(f);
     ctx.scene.add(f.mesh);
   };
   api.remove = (f) => {
     const i = api.live.indexOf(f);
-    if (i >= 0) api.live.splice(i, 1);
+    if (i >= 0) { api.live.splice(i, 1); liveTris -= f._tris || 0; }
     ctx.scene.remove(f.mesh);
     if (f.generation > 0) f.mesh.geometry.dispose(); // halves own their geometry
     f.dead = true;
@@ -188,8 +194,7 @@ export function createDirector({ seed = 20260806 } = {}) {
     const n = api.live.length;
     if (n === 0) return;
     let calls = BUDGET.fixedDrawCalls + BUDGET.reserveDrawCalls + BUDGET.callsPerBody * n;
-    let tris = BUDGET.fixedTriangles + BUDGET.reserveTriangles;
-    for (let i = 0; i < n; i++) tris += api.live[i]._tris;
+    let tris = BUDGET.fixedTriangles + BUDGET.reserveTriangles + liveTris;
     if (calls <= BUDGET.drawCalls && tris <= BUDGET.triangles) return;
 
     let retired = 0;
@@ -248,20 +253,57 @@ export function createDirector({ seed = 20260806 } = {}) {
       f.mesh.position.copy(f.pos);
       f.mesh.quaternion.copy(f.quat);
 
-      // Retire when the body is provably off-frame AND leaving. The two world
-      // constants stay as an absolute backstop so this can only ever fire
-      // EARLIER than round 9 did, never later.
-      const gone =
-        (f.pos.y + f.radius < -vis.halfH - VIS_MARGIN && f.vel.y <= 0)
-        || (Math.abs(f.pos.x) - f.radius > vis.halfW + VIS_MARGIN && f.pos.x * f.vel.x >= 0)
-        || f.pos.y < STAGE.floorY - 2
-        || Math.abs(f.pos.x) > STAGE.halfWidth * 2.4;
-      if (gone) {
+      // ⚠ THE RASTER-CORRECT RETIREMENT BOX IS MEASURED, WRITTEN UP ABOVE, AND
+      // DELIBERATELY NOT SHIPPED. It belongs here:
+      //     (f.pos.y + f.radius < -vis.halfH - VIS_MARGIN && f.vel.y <= 0)
+      //  || (Math.abs(f.pos.x) - f.radius > vis.halfW + VIS_MARGIN
+      //      && f.pos.x * f.vel.x >= 0)
+      // and it is strictly tighter than the two world constants in both
+      // orientations. I built it, shot it, and TOOK IT OUT, because it moves
+      // pixels in frames it has no business touching and the reason is worth
+      // more than the change was:
+      //
+      // `rng` is ONE stream shared by every spawn, and a fruit's whole
+      // orientation (`quat`, three draws) and `spin` (three more) come off it.
+      // Retiring a body sooner frees a `maxFruit` slot sooner, which lets the
+      // pacing block fire an extra automatic spawn, which advances the stream —
+      // so EVERY fruit after that point is at a different attitude. Between
+      // boot and the harness's first `ZS.pause()` the rAF loop runs for an
+      // unbounded amount of wall time, so this lands before beat one. Measured
+      // on the isolated build (stage.js pinned, ONLY this file and contract.js
+      // differing): `outline shots/A/01-whole-watermelon.png` protr_height_pct
+      // 2.18 -> 2.68 and 91 of 118 frozen-suite keys moved in portrait, on a
+      // one-whole-melon frame my change cannot otherwise reach. That is four
+      // other pieces' evidence invalidated to save draw calls I can save in the
+      // governor instead. The budget ceiling below is bounded by triangles as
+      // well as calls, so nothing is lost by leaving this out.
+      if (f.pos.y < STAGE.floorY - 2 || Math.abs(f.pos.x) > STAGE.halfWidth * 2.4) {
         ctx.bus.emit('expire', { fruit: f, reason: f.generation === 0 ? 'missed' : 'offstage' });
         api.remove(f);
       }
     }
 
+    enforceBudget();
+  };
+
+  // ⚠ AND ALSO IN THE FRAME PHASE, WHICH IS NOT BELT-AND-BRACES — IT IS THE
+  // ONLY PLACE THAT IS ACTUALLY GUARANTEED TO RUN BEFORE A RENDER, AND LEAVING
+  // IT OUT COST ME A WHOLE MEASUREMENT PASS. `api.fixed` runs inside main.js's
+  // `while (acc >= SIM_DT)` accumulator. Slow-motion scales the accumulator:
+  // score.js emits `slowmo` at scale 0.16..0.34 on EVERY cut, so for the ~0.3 s
+  // after a slice a 1/120 s tick advances the accumulator by as little as
+  // 1/750 s and FIVE OR SIX CONSECUTIVE TICKS RUN NO FIXED STEP AT ALL. Those
+  // ticks still render. Measured, isolated build, portrait: with enforcement in
+  // `fixed` only, the complexity probe screenshotted 59 live bodies against a
+  // cap of 51 — 13 + 2*59 = 131 draw calls, still over the R4 ceiling, and the
+  // number swung 113..165 between runs purely on whether a fixed step happened
+  // to land on the render tick. The frame phase runs exactly once per tick, so
+  // this is the one hook that cannot be skipped.
+  // Cost when under budget: `updateVisibleBox` is memoised on (dist, aspect)
+  // and `enforceBudget` is two comparisons against an incrementally maintained
+  // total. No allocation, no scan.
+  api.frame = () => {
+    updateVisibleBox();
     enforceBudget();
   };
 
@@ -276,7 +318,7 @@ export function createDirector({ seed = 20260806 } = {}) {
 
   api.reset = () => {
     for (let i = api.live.length - 1; i >= 0; i--) api.remove(api.live[i]);
-    api.level = 0; api.sliced = 0; nextSpawn = 0.8;
+    api.level = 0; api.sliced = 0; nextSpawn = 0.8; liveTris = 0;
     // ⚠ ROUND 10, FOR THE JUICE PIECE — READ THIS. The r9 juice verdict's open
     // item (1) is that `api.reset` retires the bodies but nothing retires the
     // live beads/grains/strands/sheets, so shots/*/00-hero.png carries eleven
