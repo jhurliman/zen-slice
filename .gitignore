@@ -154,6 +154,7 @@ vite.config.ts.timestamp-*
 tools/r*bench*/
 tools/critic*/
 tools/__pycache__/
+*.pyc
 tools/*-snapshot.js
 t*.mjs
 tgpu*.mjs
@@ -243,3 +244,4 @@ shots/r11-stage*/
 shots/r11-shape*/
 tmp/
 __pycache__/
+*.pyc
