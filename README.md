@@ -1,5 +1,27 @@
 # Zen Slice
 
+### ▶ [Play it](https://jhurliman.github.io/zen-slice/) · [round-by-round progress](https://jhurliman.github.io/zen-slice/progress.html)
+
+**On a phone: open that link in Safari, then Share → Add to Home Screen.** It
+launches full-screen with no browser chrome, which is what the framing is
+composed for.
+
+Published from `main` by [`.github/workflows/pages.yml`](.github/workflows/pages.yml)
+on every push. The whole site is two self-contained HTML files, so there is
+nothing to serve but HTML.
+
+> **It has to be served over https.** `navigator.gpu` is undefined over plain
+> `http://` from anything but `localhost`, and this is a `WebGPURenderer`-only
+> build with no WebGL2 fallback — so opening `dist/index.html` from a laptop's
+> IP address gives you a silently blank canvas. Pages is https; that is the
+> reason it is deployed rather than copied.
+>
+> **WebGPU needs iOS 26+ / Safari 26+.** On an older Safari the canvas stays
+> black and the failure is recorded on `window.ZS_BOOT_ERROR` and as
+> `data-zs-error` on `<body>`.
+
+---
+
 A Fruit-Ninja-style slicing game in Three.js, built to a photographic bar and
 scored blind against it every round.
 
@@ -103,8 +125,23 @@ reference/                the bar
 ```sh
 npm install
 node build.mjs                                    # -> dist/index.html
+node tools/progress.mjs                           # -> dist/progress.html
 node tools/shoot.mjs --out shots/rN --device desktop
 python3 tools/probes.py suite shots/rN
+```
+
+To try a build on a phone before it is pushed, serve it over `localhost` and
+forward the port — `npx serve dist` plus an SSH tunnel, or a tailnet address.
+Anything that reaches the phone as a bare `http://192.168.x.x` will boot to a
+blank canvas, because that is not a secure context and `navigator.gpu` will not
+exist. That is the same constraint `tools/shoot.mjs` works around by serving
+from `http://localhost`.
+
+The screenshot harness needs a **full** Chromium — Playwright's default
+`chromium_headless_shell` has no `navigator.gpu` at all:
+
+```sh
+npx playwright install chromium
 ```
 
 The harness runs on a **virtual clock**: it simulates in the dark at a fixed

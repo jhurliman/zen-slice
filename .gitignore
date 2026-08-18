@@ -185,6 +185,10 @@ shots/r0/
 # not results, and not comparable to the frozen suite.
 /.*
 !/.gitignore
+# ...but .github is infrastructure, not scratch. The `/.*` rule above stops git
+# descending into an excluded DIRECTORY at all, so the directory itself has to
+# be un-ignored, not just its contents.
+!/.github
 
 # ── historical round frames ──────────────────────────────────────────────────
 # Rounds 1-6 raw PNGs are ~35MB and are superseded every round. The full visual
@@ -249,3 +253,12 @@ shots/r11-bleachcheck*/
 tmp/
 __pycache__/
 *.pyc
+
+# ── round 12 working captures ────────────────────────────────────────────────
+# Same rule as every other per-agent A/B dir: -shapeD/ is the control (shape D,
+# r11 juice), -mix/ and -mix-iphone/ are the new mix, -ctrl-iphone/ is the
+# portrait control shot with juice+slicer stashed. The round's CANONICAL frames
+# are shots/r12/ and shots/r12-iphone/, which are versioned.
+shots/r12-shapeD/
+shots/r12-mix*/
+shots/r12-ctrl*/

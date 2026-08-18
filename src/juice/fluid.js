@@ -1925,8 +1925,102 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // when the fast flick was measured. Longest life in this file is now
     // 0.317 s and it belongs to a small tail of rim beads. Anything longer and
     // the two test frames stop being independent measurements.
-    const fast = cl((S - 18) / 62, 0, 1);
     const heavy = cl((R - 0.45) / 0.90, 0, 1);
+    // ══ r12: THE MIX IS THE WEBER NUMBER. `fast` IS NOW A DERIVED QUANTITY. ═══
+    // THE PLAYER, 2026-08-18 (rounds/reports/r11-PLAYER-NOTE-juice-mix.md):
+    //   "both the high speed fluid spray and lower speed fluid blobs are both
+    //    great, we should always show some combination of both with each hit but
+    //    weighted more toward fluid blobs and slower speeds and more like 80%
+    //    spray 20% blobs at a higher speed"
+    //   "the weighting should change based on the velocity of the blade. more
+    //    spray at higher velocities"
+    //
+    // He is describing a LAW, so this is one. `We = rho_air v^2 d / sigma` is the
+    // ratio of the disruptive inertial shear across a ligament to the surface
+    // tension holding it together. Above a critical We a sheet atomises; below
+    // it, it stays coherent and pinches into large blobs by Rayleigh-Plateau.
+    // The atomised MASS FRACTION is then the share of the ligament size
+    // distribution that sits above the critical diameter, and because that
+    // distribution is roughly log-spread, the share is a logistic in log(We):
+    //
+    //     fast = We / (We_crit + We)    ->    written here as  we / (1 + we)
+    //
+    // THE TWO PROPERTIES THAT MAKE THIS THE RIGHT SHAPE AND NOT A LERP:
+    //  · Near zero it is exactly `we`, and `we` goes as v SQUARED. The note asks
+    //    for precisely this ("a 2x faster flick should look dramatically more
+    //    atomised, not 2x more"). The OLD `fast` was linear in v with a hard
+    //    clamp at both ends, which is not a law, it is two presets with a cliff
+    //    between them — and the cliff sat exactly where ordinary swipes live.
+    //    Measured spray share of on-screen droplet AREA, landscape, melon,
+    //    OLD law: 10.1% at 0.8 ndc/s, 10.5% at 3.6, 19.3% at 5.4, 27.6% at 7.2,
+    //    54.2% at 9.8, 82.8% at 12.5. Flat, then a wall.
+    //  · It never reaches 0 or 1, at any speed. "ALWAYS SOME COMBINATION OF
+    //    BOTH" is therefore a property of the algebra rather than a floor
+    //    someone remembered to add.
+    //
+    // ⚠ RANGE AND ENDPOINTS ARE PRESERVED ON PURPOSE. `fast` is still a [0,1]
+    // number that is ~0 for a cleave and ~1 for a flick, so `filmness`,
+    // `mistness`, `nSpr`, `beadReach`, `mistReach` and all six aimWedge spreads
+    // keep the calibration eight rounds put into them. ONLY THE SHAPE OF THE
+    // TRANSITION MOVED. That is what makes this round attributable.
+    //
+    // ── WHERE THE CROSSOVER SITS, AND WHY IT IS NOT A WORLD SPEED ───────────
+    // I tried to derive V_CRIT as a world speed and I am reporting that it does
+    // not close, because the next round will otherwise try the same thing.
+    // Using this file's OWN median rim-bead diameter (the rim law below is
+    // `(0.017 + 0.123*u^4.4)*szScale`, median radius 0.0228 units, so d = 4.56 mm
+    // at 1 unit = 1 dm), We_crit = 12, and this world's sqrt(1/7) velocity
+    // scaling for its 14 dm/s^2 gravity:
+    //     rho = rho_AIR  (1.2)   ->  V_CRIT =  47.5 units/s
+    //     rho = rho_WATER(1000)  ->  V_CRIT =   1.7 units/s
+    // — a 29x spread that turns entirely on which density you decide the
+    // instability sees, and another ~3x on whether `v` is the blade's speed or
+    // the sheet's ejection speed (`B.spd` below is ~110 units/s for a cleave
+    // REGARDLESS of blade speed). **The Weber number fixes the SHAPE of this
+    // law exactly and its crossover only to an order of magnitude.** Pretending
+    // otherwise would be the same error as deriving juice lifetimes from a still
+    // photograph: a real quantity, quoted to digits it does not have.
+    //
+    // So the shape is physics and the crossover is stated in the unit the
+    // PLAYER'S half of it has. "A fast swipe" is a gesture, and a gesture's
+    // natural unit is screen-widths per second — the r10 lesson (`GRAIN_PX`)
+    // in one line: state the threshold in the unit the intent has, and convert
+    // where the frame is known. `frameAt` knows it.
+    //
+    //   CROSS_NDC = 9.0 ndc/s = 4.5 full frame crossings per second, i.e. the
+    //   50/50 point is a swipe that crosses the whole frame in 0.22 s.
+    //
+    // Measured (tools/.r12mix.mjs, spray share of on-screen droplet AREA, melon,
+    // 24 seeds per row) — and the two orientations now agree to ~1 point, where
+    // the shipped build had them 3.85x apart:
+    //     swipe        0.8   1.5   2.5    4     6     8    11    14    20  ndc/s
+    //     landscape   10.6  11.6  13.3  18.2  26.3  37.7  53.2  65.4  79.0 %
+    //     PORTRAIT    10.9  11.6  13.6  17.7  26.5  35.6  52.2  64.3  77.3 %
+    // against the SHIPPED law in portrait, which was 10.7 / 10.1 / 19.4 / 42.6 /
+    // 82.8 / 89.8 / 88.3 / 90.0 / 89.3 — flat, then a wall at 4-6 ndc/s, then
+    // saturated forever. His "80% spray 20% blobs at a higher speed" now happens
+    // at a hard flick and nowhere else, and his "weighted more toward fluid
+    // blobs" is every ordinary swipe.
+    //
+    // ⚠ THIS MAKES THE MIX ORIENTATION-INVARIANT BY CONSTRUCTION, AND THAT IS A
+    // FEEL DECISION, NOT A PHYSICAL ONE. A blade genuinely sweeps fewer world
+    // units in portrait (half-width 3.90 against landscape's 6.93), so strict
+    // physics would leave portrait blobbier for the same gesture. It is stated
+    // here rather than buried because it is the one place this law is not
+    // derived, and because it is the first thing to revisit if he says one
+    // orientation feels wrong.
+    //
+    // ⚠ ITS INPUT WAS BROKEN UNTIL r12 AND THE FIX IS IN slicer.js, NOT HERE.
+    // `stroke.speed` had no aspect-ratio term, so the identical gesture read
+    // 2.16x faster in PORTRAIT — the orientation he plays in — and pinned this
+    // whole law at the aerosol end on his device. See the long block above
+    // `axisScale` in slicer.js. A law is only as good as the number under it.
+    const CROSS_NDC = 9.0;
+    frameAt(e.at.z);                          // FB.w / FB.h at this cut's depth
+    const halfW = FB.w / EXIT_MARGIN;         // the TRUE visible half-width
+    const V_CRIT = CROSS_NDC * halfW;
+    const we = (S / V_CRIT) * (S / V_CRIT);
+    const fast = we / (1 + we);
     const filmness = cl(heavy * Math.pow(1 - fast, 1.6), 0, 1);
     // bounded: at 1.35 a fast flick is ~1300 grains, which is a legible haze at
     // 640x360 without fusing into one blob
@@ -1975,6 +2069,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // and where a viewer reads it as a decal ON the fruit rather than as liquid
     // leaving it. A fast flick is unaffected (filmness = 0 there by
     // construction) so RULE 1 holds.
+    // (already called above the Weber block, which needs FB.w; idempotent)
     frameAt(e.at.z);
     const reach = R * (0.85 + 1.55 * filmness) * (0.85 + 0.30 * amt);
     // r7 (A3): k 52 -> 96. RULE 2: the beat labelled "+33 ms" is ~11 ms of SIM

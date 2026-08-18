@@ -56,6 +56,46 @@ export function createSlicer() {
     const mid = new THREE.Vector3().addVectors(_ra, _rb).normalize();
     const dir = new THREE.Vector3().subVectors(_rb, _ra).normalize();
 
+    // ══ r12: `worldSpeed` HAD NO ASPECT TERM, AND PORTRAIT IS THE ORIENTATION ══
+    // ══      HE PLAYS IN.                                                     ══
+    // `speedNdc` is `hypot(dx, dy)/dt` in NDC, where x and y are EACH mapped to
+    // [-1,1] over the viewport. One ndc-x is therefore a different number of
+    // world units from one ndc-y unless the aspect ratio is 1, and this line
+    // used to be `sw.speedNdc * dist * 0.55` — a single magic factor with the
+    // aspect ratio simply absent from it.
+    //
+    // MEASURED ON THE LIVE BUS (tools/.r12speed.mjs instruments `bus.on('juice')`
+    // and reads `stroke.speed` back), the identical harness gesture:
+    //     gesture (ndc/s)   landscape S   portrait S    ratio
+    //     slow cleave 1.2         6.72        14.54     2.16x
+    //     melon cut   5.0        28.01        60.60     2.16x
+    //     fast flick 14.0        78.42       169.67     2.16x
+    // The correct horizontal conversion is `dist * tan(fov/2) * aspect`, which is
+    // just the visible HALF-WIDTH at that depth: 6.933 landscape, 3.900 portrait.
+    // So portrait should read 0.56x landscape for the same finger movement — the
+    // frame is NARROWER, the blade covers less world — and it read 2.16x instead.
+    // The shipped factor is 3.11x too high in portrait and 0.81x too low in
+    // landscape; the two orientations were 3.85x apart on the same gesture.
+    //
+    // WHAT THAT DID, and it is the player's note: `fluid.js` gates its whole
+    // spray/blob morphology on `fast = clamp((S-18)/62, 0, 1)`. In portrait an
+    // ORDINARY melon cut read S = 60.6, i.e. fast = 0.687, and anything brisker
+    // saturated at 1.0 — so `filmness` was 0, the sheet never fired, the rim
+    // beads collapsed to the 5% floor and every cut on his phone was aerosol.
+    // Measured spray share of on-screen juice AREA for the same 5 ndc/s cut:
+    // landscape 17.3%, PORTRAIT 63.4% (tools/.r12mix.mjs). "We should always
+    // show some combination of both with each hit" is this line.
+    //
+    // Exact, and it costs one hypot per swipe rather than one per fruit: project
+    // the ndc delta onto the two world axes and take its length, then normalise
+    // by the ndc length so `speedNdc * dist * axisScale` stays the shape of the
+    // original expression.
+    const dnx = sw.b.x - sw.a.x, dny = sw.b.y - sw.a.y;
+    const dnLen = Math.hypot(dnx, dny) || 1e-9;
+    const asp = cam.aspect || 1.7778;
+    const axisScale = Math.tan(THREE.MathUtils.degToRad(cam.fov) * 0.5)
+      * Math.hypot(dnx * asp, dny) / dnLen;
+
     const list = ctx.fruits.live;
     for (let i = list.length - 1; i >= 0; i--) {
       const f = list[i];
@@ -79,7 +119,7 @@ export function createSlicer() {
 
       f.lastStroke = strokeId;
       const at = new THREE.Vector3().copy(f.pos).addScaledVector(plane.n, -d);
-      const worldSpeed = sw.speedNdc * _e.distanceTo(f.pos) * 0.55;
+      const worldSpeed = sw.speedNdc * _e.distanceTo(f.pos) * axisScale;
       const stroke = new SliceStroke(plane, dir.clone(), worldSpeed, at, sw.t);
       cut(f, stroke);
     }
