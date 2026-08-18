@@ -910,11 +910,14 @@
  * bought "identifiability" in a currency — deviation from a sphere — that the
  * photograph does not spend at all.
  *
- * ── 11C. SO THIS ROUND SHIPS A SWITCH, NOT AN OPINION ───────────────────────
- * `SHAPE_VARIANTS` holds four whole fruit sets. The DEFAULT IS 'A', which is
- * round 10 unchanged, bit for bit, so every frozen probe number and every
- * earlier shot reproduces exactly until somebody picks. Select with `?shape=B`
- * on the URL of the shipped build, or `setShapeVariant('B')` from a rig.
+ * ── 11C. SO ROUND 11 SHIPPED A SWITCH, NOT AN OPINION ───────────────────────
+ * `SHAPE_VARIANTS` holds five whole fruit sets and r11 shipped with the default
+ * on 'A' — round 10 bit for bit — so nothing moved until the PLAYER picked a
+ * column. On 2026-08-17 he picked **D, premium smooth**, and r12 flipped the
+ * default. 'A' is retained and still reproduces r10's mesh exactly, so every
+ * frame in shots/r9 and shots/r10 stays reproducible; select any variant with
+ * `?shape=A` on the URL of the shipped build, or `setShapeVariant('A')` from a
+ * rig. See the block above `SHAPE_DEFAULT` for what D buys and costs.
  * The bake-off images are rounds/reports/r11-shape-*.png.
  */
 
@@ -1983,16 +1986,44 @@ export const SHAPE_VARIANTS = {
 };
 
 /**
- * Which fruit set is live. DEFAULT 'A' = round 10, bit for bit.
+ * Which fruit set is live.
+ *
+ * ══ r12: THE DEFAULT IS 'D'. THE PLAYER PICKED THE COLUMN. ═══════════════════
+ * The r11 bake-off shipped nothing and blocked on him deliberately, because the
+ * whole reason the fruit went spiky is that three rounds of critics asked for
+ * "outline events" and a metric that measures DEVIATION FROM A SPHERE rewarded
+ * every one of them. Choosing the replacement by the same authority that caused
+ * the defect would have been the identical mistake one level up. On 2026-08-17
+ * he looked at `rounds/reports/r11-shape-bakeoff-portrait.png` and picked
+ * **D — premium smooth**.
+ *
+ * What that buys, from the bake-off's own frozen-probe table: the orange goes
+ * `hull_concave_frac_pct` 25.39 -> 0.00 and the kiwi 37.89 -> 2.34. Those
+ * numbers going to zero is the CORRECT outcome and it is the r8 verdict's
+ * finding ("a mathematically featureless sphere scored second best of six")
+ * arriving from the other direction. `hull_concave_*` is a control, never a
+ * target — see the graveyard table in HANDOFF.md §3.
+ *
+ * It is also cheaper than every alternative that fixes anything: 1.20x
+ * triangles against B/T's 1.71x, because removing spikes removes mesh. Draw
+ * calls are unchanged in every variant (they are exactly `13 + 2*bodies`).
+ * On-screen fruit AREA rises — orange mask_px_median +21%, kiwi +15% — which is
+ * a straight gain against the REFERENCE_BAR framing auto-fail.
+ *
+ * A/T/B/C are KEPT, not deleted. `A` still reproduces r10's mesh bit for bit on
+ * all 24 species x detail combinations, so every frame in `shots/r9`, `shots/r10`
+ * remains reproducible, and `T` is the control to re-shoot the day somebody
+ * proposes buying smoothness with triangles again.
  *
  * Resolution order, most specific first:
- *   1. `?shape=B` on the page URL   (works on the shipped build, no rebuild)
+ *   1. `?shape=A` on the page URL   (works on the shipped build, no rebuild)
  *   2. `globalThis.__ZS_SHAPE`      (for node rigs and the bake-off harness)
- *   3. 'A'
+ *   3. 'D'
  * Read ONCE at module load for the URL, but `setShapeVariant()` can move it at
  * any time — callers that cache geometry (director.js keeps a geoCache keyed on
  * species+detail) must drop their cache themselves.
  */
+export const SHAPE_DEFAULT = 'D';
 let VARIANT = (() => {
   try {
     const s = (typeof location !== 'undefined' && location.search) || '';
@@ -2000,7 +2031,7 @@ let VARIANT = (() => {
     if (SHAPE_VARIANTS[v]) return v;
   } catch (e) { /* no location outside a browser; fall through */ }
   const g = String(globalThis.__ZS_SHAPE || '').toUpperCase();
-  return SHAPE_VARIANTS[g] ? g : 'A';
+  return SHAPE_VARIANTS[g] ? g : SHAPE_DEFAULT;
 })();
 
 /** @returns {string} the live variant key */
