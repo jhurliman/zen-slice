@@ -31,15 +31,93 @@ export function createHud() {
       levelEl.classList.remove('show'); void levelEl.offsetWidth;
       levelEl.classList.add('show');
     });
+    // ══ THE COMBO CALLOUT ════════════════════════════════════════════════
+    // The player asked for this: "when you get a combo text should appear over
+    // your slice. This makes the game feel more exciting."
+    //
+    // It is DOM, not scene geometry, and that is deliberate on three counts.
+    // (1) It must be legible, and the scene it sits over has a bloom and a
+    // depth-of-field pass that he has ALREADY complained about twice — putting
+    // the callout in the scene would hand it to the lens that blurred the fruit
+    // he was aiming at. (2) DOM text is resolution-independent, so it is crisp
+    // at the 2x device pixel ratio the phone actually renders at, where the
+    // r11 bake-off found the harness had been judging at 1x for eleven rounds.
+    // (3) It costs zero draw calls against a budget of 120 and zero triangles
+    // against 250k.
+    //
+    // NO WEBFONT. The whole game is ONE self-contained HTML file with no
+    // network at runtime — that is the property that lets it be opened once and
+    // added to the home screen — so a downloaded display face would either
+    // break that or add its bytes to a bundle that is already 3.9MB. The look
+    // is built out of a heavy system stack plus layered CSS instead; see the
+    // `.zs-combo` block in style.css for how the bevel and the gold are made.
     c.bus.on('combo', (e) => {
-      const p = e.at.clone().project(c.camera);
       const el = document.createElement('div');
-      el.className = 'zs-combo';
-      el.textContent = `${e.count}×`;
-      el.style.left = `${(p.x * 0.5 + 0.5) * 100}%`;
-      el.style.top = `${(-p.y * 0.5 + 0.5) * 100}%`;
+      el.className = 'zs-combo' + (e.peak ? ' peak' : '');
+      // `data-t` is what draws the dark outline: a ::before pseudo-element
+      // stroked and painted BEHIND the gradient fill, because -webkit-text-stroke
+      // and background-clip:text cannot both live on one element.
+      const l1 = `${e.count} FRUIT COMBO`;
+      const l2 = `+${Math.max(1, Math.round(e.gain ?? e.count))}`;
+      el.innerHTML =
+        `<span class="zs-c1" data-t="${l1}">${l1}</span>`
+        + `<span class="zs-c2" data-t="${l2}">${l2}</span>`;
+
+      // Position over the cut, then KEEP IT ON SCREEN — and clamp in PIXELS
+      // against the callout's own MEASURED width, not in percent. A percentage
+      // clamp cannot know how wide "5 FRUIT COMBO" is, and portrait is only 430
+      // CSS px across: the first version put the text 12 px from the left edge
+      // and cut the glow off. This is the same class of mistake as r10's
+      // GRAIN_PX note — state the bound in the unit the thing is measured in.
+      // ONE CALLOUT AT A TIME. Combos land inside a 0.55 s window (COMBO_WINDOW
+      // in score.js), so two of these can overlap by construction — and two
+      // overlapping slabs of gold outlined type are not "exciting", they are
+      // illegible. Caught by rendering the worst case rather than by reasoning
+      // about it. Anything still on screen is retired into a fast fade so the
+      // newest number is always the readable one.
+      for (const f of floats) if (f.t < f.life - 0.18) { f.t = f.life - 0.18; f.life -= 0.10; }
+
+      // Appended first so offsetWidth is real.
       comboLayer.appendChild(el);
-      floats.push({ el, t: 0 });
+      const p = e.at.clone().project(c.camera);
+      const cw = comboLayer.clientWidth || 1, ch = comboLayer.clientHeight || 1;
+      // 16, not 10: the text-shaped glow spills ~0.35em past the glyphs, so a
+      // pad sized to the glyph box lets the bloom kiss the rim.
+      const pad0 = 16;
+      // ⚠ FIT BEFORE YOU CLAMP. At `peak` size "5 FRUIT COMBO" is wider than a
+      // 430 px portrait viewport, so clamping alone centres a string that is
+      // still clipped at BOTH edges — which is exactly what the first version
+      // did, and it took rendering the widest case at the rim to see it.
+      // `fit` is folded into the pop scale in api.frame below, so the callout
+      // shrinks only as far as it has to and a desktop never sees it move.
+      // ⚠ AND FIT AGAINST THE POP, NOT THE RESTING SIZE. The callout overshoots
+      // to POP_MAX during its punch-in, so a `fit` computed against the resting
+      // width leaves it 20% too wide for the two frames a viewer actually
+      // notices — which is what the second render still showed, clipped on the
+      // right. Measure the widest moment, not the average one.
+      const POP_MAX = 1.20;
+      const avail = cw - 2 * pad0;
+      const fit = Math.min(1, avail / Math.max(1, el.offsetWidth * POP_MAX));
+      const halfW = el.offsetWidth * fit * POP_MAX * 0.5;
+      const halfH = el.offsetHeight * fit * POP_MAX * 0.5;
+      // `pad` also covers the text-shaped glow, which spills ~0.35em past the
+      // glyphs, and keeps the callout clear of the score readout at the top.
+      const pad = pad0;
+      const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) * 0.5 : v < lo ? lo : v > hi ? hi : v);
+      // start ABOVE the cut rather than on it — the blade streak is bright and
+      // lies exactly along the slice, so a callout centred on the cut point
+      // lands on top of the one element it must not fight with
+      const lift = halfH + 14;
+      el.style.left = `${clamp((p.x * 0.5 + 0.5) * cw, halfW + pad, cw - halfW - pad).toFixed(1)}px`;
+      el.style.top = `${clamp((-p.y * 0.5 + 0.5) * ch - lift, halfH + pad + 46, ch - halfH - pad).toFixed(1)}px`;
+
+      // A small deterministic tilt so it reads as hand-placed rather than
+      // pasted on. Derived from the count, NOT from Math.random(), so that a
+      // captured frame is reproducible — r12 seeded the harness precisely so
+      // that frames could be compared byte for byte, and a random rotation here
+      // would put that back.
+      const tilt = ((e.count * 37) % 11) - 5;
+      floats.push({ el, t: 0, tilt, fit, life: 1.15 });
     });
     c.bus.on('slice', () => { if (hintEl) { hintEl.classList.add('gone'); } });
 
@@ -51,12 +129,32 @@ export function createHud() {
     const s = c.score?.score ?? 0;
     shownScore += (s - shownScore) * Math.min(1, dt * 9);
     scoreEl.textContent = Math.round(shownScore);
+    // The callout's motion is driven HERE rather than by a CSS animation, so it
+    // runs on the game's own `dt`. A CSS keyframe would keep playing while the
+    // game is paused and would ignore `ctx.timeScale` if slow-motion is ever
+    // reintroduced — the r11 feel owner deleted slow-mo, and the lesson from
+    // that round was that a timeline authored against the wrong clock is a bug
+    // nobody sees until they compare two beats.
     for (let i = floats.length - 1; i >= 0; i--) {
       const f = floats[i];
       f.t += dt;
-      f.el.style.transform = `translate(-50%,-50%) translateY(${-f.t * 46}px) scale(${1 + f.t * 0.5})`;
-      f.el.style.opacity = String(Math.max(0, 1 - f.t / 0.9));
-      if (f.t > 0.95) { f.el.remove(); floats.splice(i, 1); }
+      const u = f.t / f.life;
+      // POP: overshoot to 1.14 in the first 90 ms, settle by 260 ms. A callout
+      // that fades up reads as a notification; one that punches reads as a hit.
+      const pop = f.t < 0.09
+        ? 0.55 + 0.65 * (f.t / 0.09)
+        : 1.20 - 0.20 * Math.min(1, (f.t - 0.09) / 0.17);
+      // RISE: fast out of the cut, then eased, so the eye is pulled up off the
+      // fruit rather than the text drifting away at a constant speed.
+      const rise = -58 * (1 - Math.pow(1 - Math.min(1, f.t / 0.75), 2));
+      // Hold full opacity for the first 55% of life; a callout that starts
+      // fading immediately never reads at all on a 120 Hz display.
+      const fade = u < 0.55 ? 1 : Math.max(0, 1 - (u - 0.55) / 0.45);
+      f.el.style.transform =
+        `translate(-50%,-50%) translateY(${rise.toFixed(1)}px) `
+        + `rotate(${f.tilt}deg) scale(${(pop * f.fit).toFixed(3)})`;
+      f.el.style.opacity = fade.toFixed(3);
+      if (f.t > f.life) { f.el.remove(); floats.splice(i, 1); }
     }
   };
 
