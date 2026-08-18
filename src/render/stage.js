@@ -12,8 +12,12 @@
  *     never large and soft: highlight SIZE is the emitter's solid angle,
  *     highlight BRIGHTNESS is its radiance. So the env is tiny, very hot panels.
  *   - A hot warm streak rakes horizontally behind the blade plane.
- * `reference/plate-02-highspeed-citrus.jpeg` governs depth: it is emphatically
- * shallow-focus, so we now run a real DOF pass.
+ * `reference/plate-02-highspeed-citrus.jpeg` governed depth: it is emphatically
+ * shallow-focus, so we run a real DOF pass. ⚠ ROUND 11 DEMOTED IT. It is a
+ * macro still with maybe 30 mm of usable depth; a player tracking five fruit is
+ * not looking at a still. See the DOF note further down — the lens is now about
+ * half as strong as plate-02 asks for, on the player's own instruction, and
+ * that is the correct trade.
  *
  * ── Round-1 verdict this file exists to fix (it scored 16/100) ──────────────
  *   "The blade flare's broad haze lobe plus bloom floods the entire frame with
@@ -94,22 +98,36 @@
  *    `api.lens.line(halfWidthPx, -viewZ)` per trail vertex is the fix, it now
  *    has a working caller to copy (the streak), and it takes an optional third
  *    argument if the sprite pool's growth cap is the wrong cap for you.
- *  - DOF RACKS TO THE FRUIT YOU JUST CUT. On a `slice` event the two fresh
- *    halves are latched as the focus subject for 1.6 s and the lens tracks the
- *    NEARER of them; only when that lapses does it fall back to "the nearest
- *    fruit large enough to be the subject". Round 3 used the fallback rule
- *    alone, and in a five-fruit frame the nearest fruit is usually a whole one
- *    at the bottom of its arc, so the hero cut faces — the only surfaces in the
- *    game with authored detail on them — were the things that got blurred.
- *    The sharp slab is ±1.05..1.45 world units, narrower than the ±2 playfield.
- *    Consequences for you:
+ *  - ⚠ ROUND 11 CUT THIS LENS ROUGHLY IN HALF, ON THE PLAYER'S OWN NOTE, AND
+ *    THE PARAGRAPH THAT USED TO BE HERE ARGUED FOR THE DEFECT HE FOUND. He
+ *    wrote, after his first session: "the depth of field is overdone, many of
+ *    the fruits are completely blurry". He is not describing a bug — he is
+ *    describing this design, which was solved against a shallow-focus hero
+ *    PHOTOGRAPH and not against a player who is tracking five objects and has
+ *    to choose which one to swipe. What the numbers are now:
+ *      * `focalLength` — the distance over which the blur reaches its MAXIMUM,
+ *        not a slab half-width — is 3.20..3.90 world units against a ~4-unit
+ *        playfield. It was 1.05..1.45, i.e. a quarter of the playfield, which
+ *        is why every non-subject fruit sat pinned at the full `bokeh` radius
+ *        with no gradient left. "Completely blurry" was exactly right.
+ *      * `bokeh`, the maximum CoC radius, is 4.2..6.0 texels at 360p, down from
+ *        7.5..11.0.
+ *      * The hero latch is 0.65 s, down from 1.6 s. It was sized to cover a
+ *        slow-mo beat that round 11 deleted (player note 3).
+ *      * A CROWD CLAMP now pushes the focus plane BACK — never forward, never
+ *        past the farthest fruit — whenever a live fruit would otherwise sit
+ *        more than one `focalLength` behind it. See api.frame.
+ *      * Measured, `crowd 11-combo+550ms` (probes v16, added for this note
+ *        because `defocus` measures only the object that is IN focus): the
+ *        blurriest fruit in the frame goes 3.52 px of 10-90 limb width -> 1.76,
+ *        and the frame's sharpest:blurriest ratio 4.13 -> 1.79.
+ *    Still true, and still the reason the near side is the cheap direction:
  *      * A single fruit in play is always the subject, so hero beats are sharp.
- *      * A fruit one z-unit behind the subject is visibly soft. Intended, and
- *        measured: 6.1 px of 10-90 silhouette width against 0.8 px at focus.
- *      * The near side of the CoC is compressed 6.7x, so the front hemisphere
- *        of a big fruit — up to 1.55 units NEARER than its own centre, where
- *        focus sits — stays sharp while its silhouette rim goes soft. That is
- *        what a real fast lens does to a watermelon.
+ *      * The near side of the CoC is compressed 6.7x (`nearScale` 0.15), so the
+ *        front hemisphere of a big fruit — up to 1.55 units NEARER than its own
+ *        centre, where focus sits — stays sharp while its silhouette rim goes
+ *        soft. That is what a real fast lens does to a watermelon, and it is
+ *        what makes the crowd clamp above almost free.
  *      * Anything you draw with `depthWrite = false` (sprites, trails, the
  *        streak) inherits the depth of whatever is BEHIND it — over a fruit
  *        that is the fruit's depth, over the void it is the far plane, and DOF
@@ -144,6 +162,33 @@
  *              THE LIGHTING NUMBERS BELOW ARE UNCHANGED FROM ROUND 4.
  *                     WHAT CHANGED IS WHAT YOU SOLVE AGAINST.
  * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * ── ROUND 11: ONE AMENDMENT, AND IT IS AN ENVIRONMENT AMENDMENT ────────────
+ * Exposure 1.28, key 3.40, rim 5.00, fill 1.90, environmentIntensity 1.31 and
+ * NeutralToneMapping are ALL HELD. Section 1's table is unchanged and so is the
+ * clip point, the E table, the albedo->display table and every target in
+ * sections 3-8. Nothing a materials author solves against has moved.
+ *
+ * WHAT DID MOVE is the RADIANCE DISTRIBUTION inside buildEnvScene(), on the
+ * player's note 5 ("the specular lighting is overdone ... like chrome"). The
+ * room's peak radiance goes 46 -> 11 and the PMREM's pre-blur 0.008 -> 0.045
+ * rad; every panel was widened to hold its own flux, and the WHOLE ROOM loses
+ * 12.3% of its total flux (radiance x area, 1931 -> 1695).
+ *
+ * The only number in this contract that touches: the env's own share of a
+ * camera-facing surface's diffuse irradiance, which section 1 puts at ~21%.
+ * -12.3% of that is -2.6% of E, i.e. -0.008 linear on a cut face at the
+ * section-3 target of 0.31 — a TENTH of the +-25% band that target is stated
+ * with, and a fortieth of a stop. It is below the capture harness's own
+ * reproducibility (three renders of one build differ by up to 3 display
+ * counts). No albedo needs rescaling.
+ *
+ * Two sentences elsewhere in this block are now stale and are left in place
+ * with this correction rather than edited, so the provenance stays readable:
+ * section 2's "a mirror-ish one sees the env cores directly (radiance 15..46)"
+ * and section 4's "a PMREM whose panels run at radiance 15..46" should both
+ * read 3.6..11. The CONCLUSION either draws is unchanged and both are still
+ * correct in direction; only the range moved.
  *
  * ── ROUND 7: HELD AGAIN. NOT ONE LIGHTING NUMBER IN THIS BLOCK MOVED. ───────
  * Exposure 1.28, env 1.31, key 3.40, rim 5.00, fill 1.90, NeutralToneMapping,
@@ -610,8 +655,56 @@ function buildEnvScene() {
     new THREE.MeshBasicNodeMaterial({ color: 0x000000, side: THREE.BackSide, toneMapped: false })
   ));
 
-  // KEY — upper right, warm, small. Nested panels: a modest one that shapes the
-  // form, plus SMALL hot cores that make the blinding pin-highlights.
+  /* ── ROUND 11: THE PLAYER'S NOTE 5, AND IT IS THIS FUNCTION'S FAULT ────────
+   *
+   *   "the specular lighting is overdone, it makes the fruits look like chrome
+   *    or something when the light hits fruits in certain ways"
+   *
+   * "Chrome" is a precise diagnosis and it names this function. The header of
+   * this file says, correctly, that highlight SIZE is the emitter's solid angle
+   * and highlight BRIGHTNESS is its radiance, and then chooses TINY panels at
+   * radiance 15..46 because that is what reproduces plate-01's 1312 pin-pips in
+   * a still. Run those numbers forward through a fruit skin instead of through
+   * a photograph:
+   *
+   *   apple skin, species.js: roughness 0.20, clearcoat 0.75 @ 0.07 roughness
+   *   clearcoat Fresnel: 0.04 face-on, -> 1.0 at grazing
+   *   env radiance 46 x environmentIntensity 1.31            = 60.3 scene-linear
+   *   face-on:  0.75 * 0.04 * 60.3 = 1.81      clip point is 0.655  ->  2.8x over
+   *   grazing:  0.75 * 1.00 * 60.3 = 45.2                          -> 69x over
+   *
+   * 69x over the clip point means the ENTIRE REFLECTED IMAGE of the panel is
+   * pure 255,255,255 — not a hot core with a warm falloff, a flat white plate
+   * with a hard edge. A flat white plate with a hard edge on a curved body is
+   * the definition of chrome, and "when the light hits fruits in certain ways"
+   * is grazing incidence: the moment a rotating fruit turns its shoulder to the
+   * key. It was never visible in the frozen stills because they are posed.
+   *
+   * TWO CHANGES, AND THEY ARE THE TWO TERMS IN THE HEADER'S OWN SENTENCE:
+   *
+   *  1. RADIANCE DOWN, SIZE UP, roughly at constant flux per panel. The whole
+   *     env loses 12.3% of its flux (1931 -> 1695 in radiance*area), which is
+   *     ~2.6% of a camera-facing surface's total irradiance once the analytic
+   *     key — untouched, 3.40, as the exposure contract requires — is counted.
+   *     That is a twentieth of the contract's own +-25% band on L_face. The
+   *     PEAK radiance anywhere in the room goes 46 -> 11, a 4.2x cut, and THAT
+   *     is the number that decides whether a highlight is white or coloured.
+   *  2. The PMREM's own pre-blur, `sigma`, 0.008 rad -> 0.045 rad (2.6 deg).
+   *     A clearcoat at roughness 0.07 samples essentially mip 0, so before this
+   *     it saw a hard-edged panel no matter what the material did. 0.045 rad is
+   *     a little wider than the rim filament's own 0.037 rad angular thickness,
+   *     so the hottest thing in the room is now convolved to ~0.64 of its peak
+   *     as well: the effective mirror-visible maximum is ~7, down 6.6x from 46.
+   *     It costs nothing at runtime — this scene is baked once at init.
+   *
+   * WHAT IS DELIBERATELY *NOT* DONE: the exposure is not dropped, no albedo is
+   * desaturated, and `environmentIntensity` stays at 1.31. Those were round 9's
+   * and round 10's wins and they are not this note's to spend. The highlight
+   * gets wider and dimmer; the fruit does not get duller.
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  // KEY — upper right, warm. Nested panels: a modest one that shapes the form,
+  // plus smaller, HOTTER cores that give a wet surface more than one pip.
   //
   // Round-2 measured our watermelon body at p90 luminance 131.6 with 13.3% over
   // 120, against plate-01's 177.7 / 28.8%, and counted 6 highlight blobs over
@@ -620,18 +713,26 @@ function buildEnvScene() {
   // So the key is now a small cluster: three cores at slightly different angles
   // give every wet surface three pips instead of one, with no runtime cost
   // (this whole scene is baked to a PMREM once at init).
-  panel(3.4, 2.4, 0xfff0d6, 15.0, [9.5, 9.0, 6.5]);
-  panel(0.85, 0.85, 0xfffaf0, 26.0, [8.6, 8.2, 6.0]);
-  panel(0.50, 0.50, 0xfff6e6, 22.0, [7.0, 9.7, 4.6]);
-  panel(0.40, 0.40, 0xffeeda, 18.0, [9.8, 8.6, 5.2]);
+  // ⚠ r11: radiance 15.0/26.0/22.0/18.0 -> 6.0/5.0/4.2/3.6, each panel widened
+  // to hold its own flux to within a few percent. See the block above.
+  panel(4.2, 3.0, 0xfff0d6, 6.0, [9.5, 9.0, 6.5]);
+  panel(1.50, 1.50, 0xfffaf0, 5.0, [8.6, 8.2, 6.0]);
+  panel(1.00, 1.00, 0xfff6e6, 4.2, [7.0, 9.7, 4.6]);
+  panel(0.85, 0.85, 0xffeeda, 3.6, [9.8, 8.6, 5.2]);
 
   // RIM / KICKER — a long thin horizontal filament behind the subject. Being
   // wide-and-thin is what gives wet surfaces the raking anamorphic streak
   // highlight instead of a round blob. Biased RIGHT: round 2 measured our
   // highlight centroid at dx -0.29 (upper-LEFT) where plate-01's is hard
   // upper-right, and this backlight was the loudest thing on the silhouette.
-  panel(26.0, 0.5, 0xffd7a2, 26.0, [2.0, 1.4, -13.0]);
-  panel(9.0, 0.22, 0xfff2e0, 46.0, [4.2, 1.4, -12.6]);
+  // ⚠ r11: 26.0 -> 8.5 and 46.0 -> 11.0, both widened to hold flux. This pair
+  // is the single worst chrome offender in the room, and not because it is the
+  // brightest — because it is BEHIND the subject, so a fruit shows it at
+  // GRAZING incidence, where a clearcoat's Fresnel is 1.0 rather than 0.04.
+  // The 25x difference between those two numbers is why the rim, not the key,
+  // is what turns a rotating apple into a mirror.
+  panel(26.0, 0.9, 0xffd7a2, 8.5, [2.0, 1.4, -13.0]);
+  panel(9.0, 0.50, 0xfff2e0, 11.0, [4.2, 1.4, -12.6]);
 
   // Cool separation edge, behind-left, dim and small. Pulled down so it stops
   // competing with the key for the highlight centroid.
@@ -870,6 +971,35 @@ export function createStage() {
     glowStrength: uniform(0.32),
     glowRadius: uniform(0.16),
     glowThreshold: uniform(1.35),
+    // ── ROUND 11: glowCeil — THE OTHER HALF OF THE PLAYER'S "CHROME" ─────────
+    // Per-channel CEILING, scene-linear, on what a single source pixel may
+    // contribute to the glow pyramid. NOT a threshold and not a strength: it is
+    // the top of the bright pass, and it exists because one term in this scene
+    // produces radiances with no physical meaning at all.
+    //
+    // A DirectionalLight is a DELTA emitter — zero solid angle, infinite
+    // radiance — and species.js gives the apple skin `clearcoat: 0.75` at
+    // `clearcoatRoughness: 0.07`. GGX at alpha = 0.0049 has D(0) = 1/(pi a^2)
+    // = 13 300, so the mirror-direction specular radiance off that surface is
+    //     5.0 (rim) * 13 300 * 0.03 (F*clearcoat) / 4  ~  500 scene-linear,
+    // i.e. 760x the 0.655 clip point, in a lobe about one pixel across. On its
+    // own that is harmless: a clipped pip is a wet highlight and is supposed to
+    // be there. What was NOT harmless is that `glowDown`'s high-pass passes the
+    // tap's FULL value, so 500 went into a 3-level tent pyramid and came back
+    // out as ~8-125 linear spread over a 16 px disc, times glowStrength 0.32.
+    // That disc is 4-40x the clip point across its whole area, which renders as
+    // a flat, hard-edged, ACHROMATIC WHITE PLATE sitting on a curved fruit.
+    // That is the player's "chrome", and its size is set here, not by any
+    // material and not by the exposure.
+    //
+    // 4.0 is chosen so that NOTHING ELSE IN THE FRAME IS TOUCHED, which was
+    // checked rather than assumed: the blade streak is soft-ceilinged at
+    // `fCeil` = 0.62 and so never reaches the 1.35 threshold at all; juice
+    // emissives and the hottest lit rind run under ~1.5; the env panels are not
+    // in the frame (`scene.background = null`). The ONLY pixels above 4.0 in
+    // any beat are delta-light specular needles. A needle still blooms — 4.0 is
+    // 3x the threshold — it just no longer detonates.
+    glowCeil: uniform(4.0),
     // DEAD as of round 4 — kept only because `api.uniforms` is public and a
     // harness may still read it. The round-3 gather normalised every tap by the
     // area it scattered over and needed a floor for the in-focus case; the
@@ -916,11 +1046,19 @@ export function createStage() {
   let focusTarget = 10.2;
 
   // The pieces produced by the most recent slice. While `heroHold` is positive
-  // the lens tracks these and nothing else — see api.frame. 1.6 s covers the
-  // whole slow-mo beat plus the rack back out.
+  // the lens tracks these and nothing else — see api.frame.
+  //
+  // ⚠ ROUND 11: 1.6 s -> 0.65 s, ON THE PLAYER'S NOTE 6. 1.6 s was sized to
+  // "cover the whole slow-mo beat plus the rack back out", and round 11's feel
+  // agent DELETED the slow-mo beat (player note 3), so the thing this duration
+  // was measured against no longer exists. What is left is 1.6 s — most of a
+  // fruit's airtime — during which the lens is locked to two halves that are
+  // already leaving frame while the player is deciding which of the OTHER four
+  // fruit to swipe. 0.65 s is long enough to read as a rack onto the cut and
+  // short enough that the next decision is not made through a stale one.
   const heroes = [];
   let heroHold = 0;
-  const HERO_HOLD = 1.6;
+  const HERO_HOLD = 0.65;
 
   /* ═════════════════════════════════════════════════════════════════════════
    *      THE STREAK IS A 3-D SEGMENT THROUGH THE STAGE  (round 7, task A)
@@ -1569,10 +1707,15 @@ export function createStage() {
       const tap = (dx, dy) => {
         const s = tex.sample(at.add(vec2(dx, dy))).rgb;
         if (!hp) return s;
+        // ROUND 11: the ceiling comes FIRST, so the knee is evaluated on the
+        // value that will actually be spread. See U.glowCeil. Above the knee
+        // both forms are identical anyway; putting the clamp first just makes
+        // "what this pixel contributes to the glow" one expression.
+        const c = s.min(vec3(U.glowCeil)).toVar();
         // Soft knee, same shape as BloomNode's: nothing under `threshold`
         // survives, everything a stop over it passes at full value.
-        return s.mul(smoothstep(U.glowThreshold, U.glowThreshold.add(0.35),
-          luminance(s)));
+        return c.mul(smoothstep(U.glowThreshold, U.glowThreshold.add(0.35),
+          luminance(c)));
       };
       const s = tap(ox, oy)
         .add(tap(ox.negate(), oy))
@@ -1858,7 +2001,12 @@ export function createStage() {
     renderer.toneMapping = THREE.NoToneMapping;
     pmrem = new THREE.PMREMGenerator(renderer);
     const envScene = buildEnvScene();
-    envRT = pmrem.fromScene(envScene, 0.008, 0.1, 60);
+    // ⚠ r11: sigma 0.008 -> 0.045 rad. The SECOND half of the player's note-5
+    // fix; see the block at the top of buildEnvScene(). A clearcoat at
+    // roughness 0.07 reads mip 0 of this map essentially verbatim, so until
+    // this line changed, no material parameter anywhere could stop a fruit from
+    // mirroring a hard-edged panel. Baked once at init; free at runtime.
+    envRT = pmrem.fromScene(envScene, 0.045, 0.1, 60);
     renderer.toneMapping = tmWas;
     scene.environment = envRT.texture;
     // 1.31, HELD. The env is deliberately NOT reduced along with the key: it is
@@ -2723,18 +2871,43 @@ export function createStage() {
     tier = q.tier;
     U.grain.value = q.tier >= TIER.HIGH ? 0.011 : 0.007;
     U.vignette.value = q.tier >= TIER.MED ? 0.19 : 0.14;
-    // Max CoC radius at 360p; api.resize rescales it for the real buffer. The
-    // tap COUNT is fixed per tier in buildGraph, so raising this costs cache
-    // locality and sampling density, not passes. 8.8 -> 11.0 on ULTRA: the
-    // silhouette ramp a defocused fruit produces is ~2R wide, and 8.8 measured
-    // 3.3 px of 10-90 width against a >4 px target. At 11.0 it measures 5.2-5.8
-    // px on the rig and 6.1 px on the real combo beat, and the in-focus fruit
-    // is unaffected because its effective radius is zero either way.
-    bokehBase = q.tier >= TIER.ULTRA ? 11.0 : (q.tier >= TIER.HIGH ? 10.0 : 7.5);
+    // ── ROUND 11: THE PLAYER'S NOTE 6. "THE DEPTH OF FIELD IS OVERDONE, MANY
+    //    OF THE FRUITS ARE COMPLETELY BLURRY." BOTH NUMBERS BELOW MOVE. ───────
+    //
+    // Everything rounds 3-10 wrote about this lens solved a HERO STILL against
+    // `reference/plate-02`, which is a macro high-speed plate with maybe 30 mm
+    // of usable depth. A player is not looking at a still. He is tracking five
+    // objects at once and choosing which one to swipe next, and the two numbers
+    // below decided that four of the five would be unreadable while he did it.
+    //
+    // The arithmetic, which is the whole argument. `cocOf` is
+    // smoothstep(0, focalLength, |shaped|), so `focalLength` is NOT a slab half
+    // width — it is the distance over which the blur reaches its MAXIMUM. At
+    // 1.05 world units, against a playfield 4 units deep, ANY fruit more than
+    // one unit behind the subject was at the full `bokeh` radius. Full stop, no
+    // gradient left. That is not a shallow lens; that is a binary mask, and
+    // "completely blurry" is the exactly correct description of it.
+    //
+    //   distance behind focus     0.5      1.0      2.0      4.0   (world units)
+    //   CoC radius, r10 ULTRA    6.5 px  10.7 px  11.0 px  11.0 px
+    //   CoC radius, r11 ULTRA    0.4 px   1.4 px   4.1 px   6.0 px
+    //
+    // So: the RAMP triples (1.05 -> 3.20) and the CEILING comes down 1.8x
+    // (11.0 -> 6.0). The ramp is the bigger of the two moves on purpose. A fruit
+    // one unit off the subject — the common case in a five-fruit frame — goes
+    // from 7.5x sharper; a fruit genuinely deep in the background still reaches
+    // a 6 px disc, so the frame keeps a real lens and does not go flat.
+    //
+    // ⚠ THIS WILL SCORE WORSE ON `defocus`, AND THAT IS THE COST, NOT A BUG.
+    // `defocus 11-combo+550ms` and the r3/r4 "6.1 px of silhouette ramp against
+    // a >4 px target" acceptance were both calibrated against plate-02. The
+    // player outranks plate-02. Numbers are in rounds/reports/r11-stage.md.
+    bokehBase = q.tier >= TIER.ULTRA ? 6.0 : (q.tier >= TIER.HIGH ? 5.5 : 4.2);
     U.bokeh.value = bokehBase * dofScale(W, H, DPR);
-    // Sharp-slab half width, world units, against a 2.4-unit fruit spread.
-    // Tighter on ULTRA: more separation where we can afford the taps.
-    U.focalLength.value = q.tier >= TIER.ULTRA ? 1.05 : (q.tier >= TIER.HIGH ? 1.15 : 1.45);
+    // Distance over which the blur ramps from 0 to `bokeh`, world units, against
+    // a ~4-unit playfield depth. Was 1.05/1.15/1.45 — i.e. a quarter of the
+    // playfield, which is why everything outside the subject saturated.
+    U.focalLength.value = q.tier >= TIER.ULTRA ? 3.20 : (q.tier >= TIER.HIGH ? 3.40 : 3.90);
     // Sprite bokeh growth ceiling — see api.lens.sprite(). LOW disables sprite
     // defocus entirely (1.0 = no growth) because that tier also drops the post
     // DOF pass, and a defocused sprite over a fully sharp scene is worse than
@@ -2814,7 +2987,10 @@ export function createStage() {
     }
     if (heroHold <= 0 && heroes.length) heroes.length = 0;
 
-    const live = heroLocked ? null : ctx.fruits?.live;
+    // The crowd's depth extent, computed EVERY frame whether the hero latch is
+    // holding or not, because the round-11 clamp below needs it in both cases.
+    const live = ctx.fruits?.live;
+    let crowdFar = -Infinity;
     if (live && live.length) {
       const cz = camera.position.z;
       let maxApp = 0;
@@ -2823,10 +2999,11 @@ export function createStage() {
         if (!f.pos || f.dead) continue;
         const d = cz - f.pos.z;
         if (!(d > 1.0)) continue;
+        if (d > crowdFar) crowdFar = d;
         const app = (f.species?.radius || f.radius || 0.5) / d;
         if (app > maxApp) maxApp = app;
       }
-      if (maxApp > 0) {
+      if (!heroLocked && maxApp > 0) {
         const gate = maxApp * 0.6;
         let nearest = Infinity;
         for (let i = 0; i < live.length; i++) {
@@ -2838,6 +3015,28 @@ export function createStage() {
         }
         if (nearest < Infinity) focusTarget = nearest;
       }
+    }
+    // ── ROUND 11: THE CROWD CLAMP. "MANY OF THE FRUITS ARE COMPLETELY BLURRY."
+    //
+    // The rule above is "focus forward, blur backward", and it is a good rule
+    // for a photograph and a bad one for a frame the player has to read. It
+    // picks the NEAREST qualifying fruit, so in a five-fruit combo every other
+    // fruit is behind the plane by construction — and the far side of `cocOf`
+    // is the STEEP side (`nearScale` compresses the near side 6.7x, the far
+    // side not at all). Widening `focalLength` fixes most of that on its own;
+    // this is the belt to that braces, and it only ever fires when the crowd is
+    // deeper than the lens can hold.
+    //
+    // It pushes the plane BACK, never forward, and never past the farthest
+    // fruit: focus lands wherever it must so that no live fruit is more than
+    // one `focalLength` behind it, i.e. so that nothing in play is ever at the
+    // saturated end of the ramp. Because the near side is compressed 6.7x,
+    // moving the plane back costs the near fruit essentially nothing — a fruit
+    // 3 units in FRONT of the plane sees shaped = 0.45 and a CoC of 0.8 px —
+    // which is exactly why this is the cheap direction to give.
+    if (crowdFar > -Infinity) {
+      const want = crowdFar - U.focalLength.value;
+      if (want > focusTarget) focusTarget = Math.min(crowdFar, want);
     }
     // Rack in real time (not scene time) so slow-mo does not turn a focus pull
     // into a five-second crawl. 8/s reaches ~94% in a third of a second, which

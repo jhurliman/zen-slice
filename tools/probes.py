@@ -69,7 +69,39 @@ import sys, json, math
 import numpy as np
 from PIL import Image
 
-PROBE_VERSION = 15
+PROBE_VERSION = 16
+# ── v15 -> v16 (round 11 builder, stage) ─────────────────────────────────────
+# LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 15 -> 16.
+#
+# ADDED one probe, `crowd`, and appended one SUITE row
+# (crowd:11-combo+550ms.png). NO EXISTING PROBE'S EXECUTABLE CODE CHANGED BY
+# ONE CHARACTER, and no shared helper changed; `crowd` is new code that calls
+# the existing `subject_mask`, `components` and `_radial_edges` unmodified.
+# Canary re-verified after the edit:
+#   clip shots/r5/05-cut+500ms.png -> mask_px 9490 / pct_R_ge_255 5.227
+#
+# WHY IT EXISTS, AND IT IS THE ROUND'S WHOLE LESSON IN ONE PROBE. On
+# 2026-08-17 the player wrote "the depth of field is overdone, many of the
+# fruits are completely blurry". Nothing in v15 could see that. `defocus`, the
+# closest instrument, takes the LARGEST COMPONENT in the frame — which is the
+# subject the lens is racked to, i.e. by construction the ONE object that is in
+# focus. It answers "is the hero sharp"; he did not complain about the hero. He
+# complained about the other four fruit, and a probe that only ever measures
+# the sharpest thing in the frame will report a lens getting better while every
+# other fruit in play turns to mush.
+#
+# `crowd` measures EVERY fruit-sized subject in the frame and reports the
+# WORST one. Same geometric mask discipline (luma floor + connected
+# components + shape gates that know nothing about colour), same frozen
+# `_radial_edges`/`_edge_1090` pair `defocus` uses, so the two are directly
+# comparable per subject. The headline is `edge_1090_px_max`: the limb width of
+# the blurriest fruit in the frame. `defocus` and `crowd` are the two ends of
+# the same distribution and should be quoted together.
+#
+# ⚠ IT IS A PIXEL-DOMAIN STATISTIC, so rule two at the top applies in full: do
+# not compare it across resolutions or to a plate at a different subject scale.
+# It is for comparing two builds of THIS game at THE SAME capture size, and for
+# that it is exact.
 # ── v14 -> v15 (round 10 builder, fruit-geo) ─────────────────────────────────
 # LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 14 -> 15.
 #
@@ -2088,6 +2120,86 @@ def probe_defocus(img, ref=None, win=None, floor=8.0, nray=24, out=6.0, **kw):
     }
 
 
+
+def probe_crowd(img, ref=None, win=None, floor=8.0, minpx=200, nray=24,
+                out=6.0, elong=3.0, fill=0.30, **kw):
+    """How sharp is EVERY subject in this frame — and how bad is the worst one.
+
+    See the v15 -> v16 notice at the top for why `defocus` cannot answer this.
+
+    MASK, and it is geometric end to end. `subject_mask` (luma above the void
+    floor) inside an optional explicit window, then every 8-connected component
+    of at least `minpx` pixels. Two SHAPE gates then drop the things in this
+    game that are not fruit, and neither of them looks at colour:
+      * `elong` — bounding-box aspect outside 1/elong .. elong. The blade
+        streak and the juice ligaments are long and thin; a fruit is not. This
+        also drops a component in which the streak has MERGED with a fruit it
+        crosses, which is the honest outcome: that component's limb is no
+        longer a fruit's limb and should not be quoted as one.
+      * `fill` — area / bounding-box area under `fill`. Drops sparse droplet
+        constellations that happen to touch.
+    `n_rejected` is reported so a frame where the gates ate the subjects is
+    visible at a glance rather than silently returning two objects.
+
+    Then, per surviving subject, the frozen `_radial_edges` / `_edge_1090` pair
+    on luma — identical code to `defocus`, so a `crowd` per-subject number and
+    a `defocus` number on the same component are the same measurement.
+
+    HEADLINE: `edge_1090_px_max`, the blurriest subject in the frame.
+    `edge_1090_px_min` is the sharpest, and their ratio is how much depth of
+    field the frame is actually spending. Quote all three."""
+    H, W = img.shape[0], img.shape[1]
+    x0, y0, x1, y1 = 0, 0, W, H
+    if win:
+        x0, y0, x1, y1 = [int(v) for v in str(win).split(":")]
+        x0 = max(0, x0); y0 = max(0, y0); x1 = min(W, x1); y1 = min(H, y1)
+    sub = img[y0:y1, x0:x1]
+    L = luma(sub)
+    m = subject_mask(sub, float(floor))
+    comps = components(m, int(minpx))
+    subjects, rejected = [], 0
+    for comp in comps:
+        ys = np.array([c[0] for c in comp]); xs = np.array([c[1] for c in comp])
+        bh = float(ys.max() - ys.min() + 1); bw = float(xs.max() - xs.min() + 1)
+        asp = bw / max(1.0, bh)
+        ff = len(comp) / max(1.0, bw * bh)
+        if asp > float(elong) or asp < 1.0 / float(elong) or ff < float(fill):
+            rejected += 1
+            continue
+        w = _radial_edges(L, ys, xs, nray=int(nray), out=float(out))
+        if not w:
+            rejected += 1
+            continue
+        subjects.append({
+            "area_px": int(len(comp)),
+            "cx": int(round(float(xs.mean()))) + x0,
+            "cy": int(round(float(ys.mean()))) + y0,
+            "bbox": [int(bw), int(bh)],
+            "edge_1090_px": round(float(np.median(w)), 3),
+        })
+    if not subjects:
+        return {"error": "no subjects", "mask_px": int(m.sum()),
+                "n_components": len(comps), "n_rejected": rejected,
+                "win": [x0, y0, x1, y1]}
+    subjects.sort(key=lambda d: -d["area_px"])
+    e = np.array([d["edge_1090_px"] for d in subjects], float)
+    return {
+        "mask_px": int(m.sum()),
+        "win": [x0, y0, x1, y1],
+        "floor": float(floor), "minpx": int(minpx), "nray": int(nray),
+        "elong": float(elong), "fill": float(fill),
+        "n_components": len(comps),
+        "n_subjects": len(subjects),
+        "n_rejected": int(rejected),
+        "edge_1090_px_min": round(float(e.min()), 3),
+        "edge_1090_px_med": round(float(np.median(e)), 3),
+        "edge_1090_px_max": round(float(e.max()), 3),
+        "edge_max_over_min": round(float(e.max() / max(1e-6, e.min())), 3),
+        "n_over_3px": int((e > 3.0).sum()),
+        "subjects": subjects,
+    }
+
+
 # ── v14: the EXTERNAL REFERENT. Hand-traced, frozen, and NOT auto-segmented ──
 #
 # Coordinates are NATIVE pixels of reference/plate-01.png (1672 x 941). Each
@@ -2498,7 +2610,7 @@ PROBES = {
     "collar": probe_collar, "filament": probe_filament,
     "glare": probe_glare, "spokes": probe_spokes, "outline": probe_outline,
     "bleach": probe_bleach, "referent": probe_referent,
-    "defocus": probe_defocus,
+    "defocus": probe_defocus, "crowd": probe_crowd,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2936,6 +3048,12 @@ SUITE = [
     # v15: how sharp is the limb of the object in the frozen fruit-geo apple
     # window. See the v15 notice: a WITHIN-FRAME ratio only, never absolute.
     ("defocus", "11-combo+550ms.png"),
+    # v16: the OTHER end of the same distribution. `defocus` above reports the
+    # largest component, which is the object the lens is racked to; this reports
+    # every fruit-sized subject in the same frame and headlines the WORST one.
+    # The player's note 6 ("many of the fruits are completely blurry") is a
+    # statement about that maximum, and nothing before v16 could see it.
+    ("crowd", "11-combo+550ms.png"),
 ]
 
 def main():
