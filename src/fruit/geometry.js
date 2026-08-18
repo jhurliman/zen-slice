@@ -865,6 +865,57 @@
  * and the pineapple is the only species where the second loop is routinely
  * large (28.8% of planes). That is its crown, it is pre-existing, and it is the
  * reason the pineapple's cap cost dominates the cut budget.
+ *
+ * ── Round 11: THE PLAYER PLAYED IT. "the fruit hulls look like they are some
+ *    jank low poly? like they are spiky? but the slicing looks really nice" ──
+ *
+ * Nine rounds of critics asked this file for OUTLINE EVENTS. It delivered them,
+ * every metric went up, and the first human to hold the game called the result
+ * spiky. Both halves of that sentence are this file's fault and they have
+ * DIFFERENT causes, so they get different fixes. Read `SHAPE_VARIANTS` below.
+ *
+ * ── 11A. THE DIAGNOSIS, SPLIT IN TWO ───────────────────────────────────────
+ *
+ * (a) "JANK LOW POLY" IS NOT SILHOUETTE FACETING. It cannot be: at detail 8
+ *     (the tier portrait ships) a watermelon carries nBase = 46 columns, so the
+ *     limb's polygonal sagitta on a 107-CSS-px fruit is R*(1-cos(pi/46)) =
+ *     0.16 px. Two orders under a pixel, exactly as the round-6 note claims.
+ *     What IS visible is SHADING across the facet, and there are three of them:
+ *       * the specular highlight. A ring/column cell at the equator is
+ *         TAU/nBase in both directions, i.e. ~14 DEVICE px on a 107-CSS-px
+ *         fruit at the dpr 2 the player's phone actually runs (main.js:203).
+ *         A tight specular lobe interpolated across a 14-px triangle bands. The
+ *         harness has never seen this, because playwright runs at
+ *         deviceScaleFactor 1 and every frame in shots/ is therefore at HALF
+ *         the player's pixel density.
+ *       * the CUT RIM. The clip ring puts one vertex per crossed edge, so the
+ *         rim polygon is the column count directly, and the rim carries a thin
+ *         bright albedo band that shows every chord. This is the one place
+ *         where a column is worth a whole pixel of readability, and it is
+ *         attached to the one thing the player singled out as good.
+ *       * near-pole rings, where `cols` floors at 8.
+ * (b) "SPIKY" IS THE CROWN FIELD BEING UNDER-SAMPLED, AND IT IS ARITHMETIC.
+ *     The orange's navel: 5 nubs, wa = 0.357 rad, so a footprint of 0.714 rad,
+ *     against a crown pitch of TAU/20 = 0.314 rad at detail 8. TWO AND A QUARTER
+ *     COLUMNS PER NUB. A bump sampled on two columns is a triangular pyramid —
+ *     a spike — no matter what pAz says the profile is. Same arithmetic on the
+ *     apple's five 0.225-long calyx sepals. r10's `lobeTwist` is the second
+ *     source and the more famous one, but the nubs are the louder one on screen.
+ *
+ * ── 11B. WHAT THE REFERENCE ACTUALLY SHOWS ─────────────────────────────────
+ * Every ordinary fruit in plate-01 has a SMOOTH limb: the apple is a green ball
+ * with a thin dark stalk, the orange is a circle, the kiwi is a smooth barrel,
+ * the strawberry is a smooth cone with a green star on it. The only spiky thing
+ * in the photograph is the pineapple crown, which is real foliage. Rounds 8-10
+ * bought "identifiability" in a currency — deviation from a sphere — that the
+ * photograph does not spend at all.
+ *
+ * ── 11C. SO THIS ROUND SHIPS A SWITCH, NOT AN OPINION ───────────────────────
+ * `SHAPE_VARIANTS` holds four whole fruit sets. The DEFAULT IS 'A', which is
+ * round 10 unchanged, bit for bit, so every frozen probe number and every
+ * earlier shot reproduces exactly until somebody picks. Select with `?shape=B`
+ * on the URL of the shipped build, or `setShapeVariant('B')` from a rig.
+ * The bake-off images are rounds/reports/r11-shape-*.png.
  */
 
 import * as THREE from 'three';
@@ -1642,6 +1693,325 @@ const SHAPE = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ROUND 11 — THE SHAPE BAKE-OFF. FOUR WHOLE FRUIT SETS, ONE SWITCH.
+//
+// Each entry is a SHAPE-table overlay plus three mesh-density multipliers. The
+// multipliers are relative to round 10's own numbers, so `1.0` everywhere is
+// arithmetically the shipped build and `A` is bit-identical to it:
+//
+//   cols   multiplies nBase           — vertices around a ring (and therefore
+//                                       the CUT RIM's polygon count)
+//   rings  multiplies the ring-layout arc-length density
+//   crown  multiplies crownCols       — how many columns a blade footprint gets,
+//                                       i.e. whether an appendage is a shape or
+//                                       a spike
+//
+// Triangles go roughly as cols*rings, so 1.30/1.30 is 1.69x. That is the number
+// the budget will actually feel; see the cost table in the round-11 report.
+//
+// Anything not named in `over` is inherited from SHAPE above unchanged. A named
+// `crown` REPLACES the species' crown object wholesale (it is not deep-merged),
+// which is deliberate — an appendage is a design, not a bag of scalars.
+// ─────────────────────────────────────────────────────────────────────────────
+export const SHAPE_VARIANTS = {
+  // ── A — ROUND 10 AS SHIPPED. The control. This is what the player is looking
+  //   at when he says "jank low poly ... spiky". Nothing is overridden and no
+  //   multiplier is anything but 1, so every probe, every earlier shot and every
+  //   triangle count reproduces exactly.
+  A: {
+    label: 'A · r10 as shipped (control)',
+    cols: 1.0, rings: 1.0, crown: 1.0,
+    over: {},
+  },
+
+  // ── T — TESSELLATION ONLY. Not a candidate: this is the CONTROL for the
+  //   "jank low poly" half of the note, and it exists because the answer turned
+  //   out to be no. Round 10's fruit at 1.30x columns and 1.30x rings — 1.72x
+  //   the triangles — and nothing else changed. Rendered against A at the
+  //   player's own pixel density (860x1864 portrait, 2560x1440 landscape),
+  //   the limb of a watermelon is INDISTINGUISHABLE. See 11A(a): the polygonal
+  //   sagitta was already 0.16 px and no amount of money moves a number that is
+  //   already two orders under a pixel. Keep it as the thing to re-shoot if
+  //   anybody proposes buying smoothness with triangles again.
+  T: {
+    label: 'T · tessellation only, 1.3x (control, not a candidate)',
+    cols: 1.30, rings: 1.30, crown: 1.45,
+    over: {},
+  },
+
+  // ── B — TWIST OUT, MESH UP. The minimal, literal reading of the note: undo
+  //   round 10's `lobeTwist` (which is the term that took the orange from
+  //   mathematically convex to hull_concave_frac 22.27 and the apple to a
+  //   "faceted green gem" at higher amplitude), restore the apple's pre-r10
+  //   k=5 shading lobe, and spend the round-10 perf headroom on tessellation.
+  //   NOTHING ELSE MOVES: the orange still has its five 0.270-long navel nubs
+  //   and the apple its 0.225 calyx, so if B still reads spiky, the twist was
+  //   never the spike and 11A(b) is the whole story. That is the point of B —
+  //   it is the control for C, not a candidate I expect to win.
+  B: {
+    label: 'B · no twist, 1.3x mesh',
+    cols: 1.30, rings: 1.30, crown: 1.45,
+    over: {
+      // r4-r9 apple waist: k=5, 7.5%, symmetric, untwisted. A shading feature.
+      apple: { lobeN: 5, lobeAmp: 0.075, lobePhase: 0.7, lobeYc: -0.10, lobeYw: 1.30, lobeTwist: 0, lobeBias: 0 },
+      // orange / kiwi / strawberry had NO azimuthal lobe before round 10.
+      orange: { lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0 },
+      kiwi: { lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0 },
+      strawberry: { lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0 },
+    },
+  },
+
+  // ── C — KEEP CHARACTER, KILL SPIKES. B's lobe changes, B's mesh, plus the
+  //   fix 11A(b) actually asks for: every appendage is widened until its
+  //   footprint spans 5-8 columns instead of 2, and shortened until it reads as
+  //   the thing it is. A navel is a PUCKER, not five horns; a dried calyx is a
+  //   little brown rosette, not a crown of thorns; a melon stem is a fat woody
+  //   stub. The low-frequency `asym` term stays — it is 2-3% at a ~200-degree
+  //   wavelength, which is "no real fruit is a lathe" and is not a spike at any
+  //   sampling rate — and the apple keeps its gentle untwisted five-lobe waist.
+  C: {
+    label: 'C · character kept, spikes killed',
+    cols: 1.30, rings: 1.30, crown: 1.45,
+    over: {
+      watermelon: {
+        asym: 0.034,
+        // fatter, blunter, shorter stub. wArc 0.150 -> 0.190 is +27% of
+        // footprint, which at crown 1.45x is 5.6 columns instead of 3.2.
+        crown: {
+          cols: 48, woody: true,
+          whorls: [
+            { n: 1, a: 0.72, len: 0.30, wArc: 0.190, wp: 0.230, pPol: 1.30, pAz: 1.60, round: true, phase: 0.13, jit: 0, jitA: 0 },
+          ],
+        },
+      },
+      orange: {
+        lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0,
+        asym: 0.022,
+        // THE NAVEL, AS A NAVEL. Round 9/10 made it 0.270 long on a 0.357-rad
+        // footprint: five horns. A navel orange's navel is a shallow puckered
+        // ring a few percent of the radius deep, sitting in a dimple. len is cut
+        // to 28% and the footprint widened 45%, so each nub is 8 columns across
+        // and 0.075 proud — a pucker you can see and not a thorn you can count.
+        wellBot: 0.130, wellBotW: 0.30,
+        crown: {
+          cols: 30, skin: true,
+          whorls: [
+            { n: 5, a: 2.70, len: 0.075, wArc: 0.240, wp: 0.300, pPol: 1.15, pAz: 1.00, round: true, phase: 0.15, jit: 0.06, jitA: 0.012 },
+          ],
+        },
+      },
+      kiwi: {
+        lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0,
+        crown: {
+          cols: 28, woody: true,
+          whorls: [
+            { n: 1, a: 0.62, len: 0.30, wArc: 0.185, wp: 0.235, pPol: 1.30, pAz: 1.60, round: true, phase: 0.41, jit: 0, jitA: 0 },
+          ],
+        },
+      },
+      apple: {
+        lobeN: 5, lobeAmp: 0.075, lobePhase: 0.7, lobeYc: -0.10, lobeYw: 1.30, lobeTwist: 0, lobeBias: 0,
+        // a thinner, longer, more graceful stalk — a real apple stalk is a wire,
+        // and this one is the species' best feature (r9 measured it as the
+        // largest single outline event in the table bar the pineapple crown).
+        stem: { r: 0.122, len: 1.02, taper: 0.42, tip: 0.85 },
+        // the calyx as a dried rosette: half the length, 1.6x the footprint.
+        crown: {
+          cols: 45, woody: true,
+          whorls: [
+            { n: 5, a: 2.58, len: 0.118, wArc: 0.185, wp: 0.190, pPol: 1.90, pAz: 1.60, round: true, phase: 0.20, jit: 0.08, jitA: 0.018 },
+          ],
+        },
+      },
+      strawberry: {
+        lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0,
+        // broader sepals (wArc 0.082 -> 0.108) and less tip jitter: a green
+        // star with leaves, not six needles of six different lengths.
+        crown: {
+          cols: 90,
+          whorls: [
+            { n: 6, a: 0.80, len: 0.58, wArc: 0.108, round: true, skew: 0.26, wp: 0.215, pPol: 2.40, pAz: 1.15, phase: 0.00, jit: 0.09, jitA: 0.036 },
+          ],
+        },
+      },
+      pineapple: {
+        // wider straps, stiffer rosette. The crown is the one thing in the game
+        // that is SUPPOSED to be pointed, so it only gets sampling, not surgery.
+        crown: {
+          cols: 88,
+          whorls: [
+            { n: 8, a: 0.12, len: 1.911, wArc: 0.0790, round: true, skew: 0.25, wp: 0.215, pPol: 3.00, pAz: 1.15, phase: 0.00, jit: 0.06, jitA: 0.024 },
+            { n: 8, a: 0.29, len: 1.732, wArc: 0.0910, round: true, skew: 0.30, wp: 0.215, pPol: 3.00, pAz: 1.15, phase: 0.33, jit: 0.07, jitA: 0.028 },
+            { n: 8, a: 0.46, len: 1.466, wArc: 0.1020, round: true, skew: 0.55, wp: 0.215, pPol: 3.00, pAz: 1.15, phase: 0.67, jit: 0.08, jitA: 0.032 },
+          ],
+        },
+      },
+    },
+  },
+
+  // ── D — MY OPINION, AND IT IS THE PHOTOGRAPH'S. plate-01 has ONE spiky
+  //   object in it and that object is a pineapple crown. Everything else is a
+  //   smooth solid with a beautiful edge, and it reads as premium precisely
+  //   BECAUSE the limb is quiet: a relaxing game wants a shape your eye can
+  //   finish in one sweep. So D deletes every azimuthal wave, every rib and
+  //   every appendage that is not a thing you would name in a photograph —
+  //   no navel horns, no calyx thorns — and puts the whole budget into a clean
+  //   limb, a clean cut rim, and the four appendages that ARE the fruit:
+  //   the apple's wire stalk, the strawberry's leafy star, the melon's woody
+  //   stub, the pineapple's plume.
+  //
+  //   Identity comes back the way round 6 argued it should and then round 8
+  //   talked itself out of: PROPORTION and the MERIDIAN PROFILE. An orange is a
+  //   sphere, a kiwi is a truncated barrel, a strawberry is a cone, an apple is
+  //   a dished oblate with a stalk. Those are already in the table and they do
+  //   not need a single spike to work.
+  //
+  //   This variant WILL score worse on `limb`, `outline` and `separation` than
+  //   A does. That is the round-11 brief's whole premise and I am not going to
+  //   pretend otherwise.
+  D: {
+    label: 'D · premium smooth (my pick to look at)',
+    cols: 1.00, rings: 1.00, crown: 1.45,
+    over: {
+      watermelon: {
+        rib: 0, asym: 0.030, lumps: 0.009,
+        // THE GROUND SPOT COMES OFF THE MESH. It is a real thing on a real
+        // melon and it is a COLOUR, not a plane cut: r9 restored it as a facet
+        // to move `limb hull_concave_depth` 7.64 -> 10.22, and what it does at
+        // the player's pixel density is put a hard straight corner on the
+        // shoulder of the hero fruit (visible top-left in the A and B sheets).
+        // If we want the pale patch it belongs to species.js's albedo.
+        facets: null,
+        // a real melon's stem is a short fat woody stub, and that is all.
+        crown: {
+          cols: 48, woody: true,
+          whorls: [
+            { n: 1, a: 0.72, len: 0.26, wArc: 0.205, wp: 0.245, pPol: 1.25, pAz: 1.80, round: true, phase: 0.13, jit: 0, jitA: 0 },
+          ],
+        },
+      },
+      orange: {
+        // A SPHERE WITH A DIMPLE AT EACH END. No lobe, no navel nubs, no rib.
+        // plate-01's orange is a circle and the r6 note that made it one was
+        // right for the wrong reason; it is right again for the right one.
+        lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0,
+        asym: 0.018, lumps: 0.006,
+        wellTop: 0.070, wellTopW: 0.24, wellBot: 0.150, wellBotW: 0.34,
+        stem: { r: 0.082, len: 0.045, taper: 0.45, tip: 0.90 },
+        crown: null,
+      },
+      kiwi: {
+        lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0,
+        asym: 0.024, lumps: 0.010,
+        // pTop/pBot 6.60/5.40 -> 3.90/3.40. r9 pushed the pole exponents up to
+        // put "k=4 corner energy no ovoid in the table has" on the outline; at
+        // the player's pixel density that reads as a LOAF OF BREAD with four
+        // corners, which is what the A/B/C sheets show. 3.9/3.4 is still a
+        // visibly flat-ended barrel — nothing else in the table has flat ends at
+        // all — with the corners rounded off. Elongation, which is the actual
+        // species label, is untouched.
+        pTop: 3.90, pBot: 3.40,
+        // a kiwi's stem scar is a tiny woody dot, not a 0.44 spur.
+        crown: {
+          cols: 28, woody: true,
+          whorls: [
+            { n: 1, a: 0.60, len: 0.17, wArc: 0.200, wp: 0.250, pPol: 1.20, pAz: 1.90, round: true, phase: 0.41, jit: 0, jitA: 0 },
+          ],
+        },
+      },
+      apple: {
+        // NO WAIST LOBE AT ALL. An apple's five lobes are a bottom-view feature
+        // on a real fruit and a 1-px shading wobble on ours; deleting them costs
+        // nothing anybody can see and removes the last azimuthal wave in the
+        // table. The wells stay — an apple IS dished, that is its profile — and
+        // are softened 8% so the shoulder crest carries the eye instead of a rim.
+        lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0,
+        asym: 0.024, lumps: 0.008,
+        // AND THE BLOSSOM END STOPS BEING A CRATER. wellBot 0.46 with taper
+        // 0.28 gives the apple a flat dished base with a hard rim, which is why
+        // it reads as a bell pepper in the A/B/C sheets rather than as an apple.
+        // 0.30 at a wider footprint, with the taper eased to 0.21, is a rounded
+        // base with a dimple in it, which is what an apple has. The STALK well
+        // stays deep — that one is the apple's signature and it is on the
+        // profile where it reads.
+        taper: 0.210, taperK: 2.2,
+        wellTop: 0.520, wellTopW: 0.42, wellBot: 0.300, wellBotW: 0.40,
+        stem: { r: 0.115, len: 1.05, taper: 0.45, tip: 0.85 },
+        // the calyx survives ONLY as a low brown rosette, because species.js's
+        // `wood` uv band needs geometry under it and because a real blossom end
+        // does have five dried points — at 0.085 of the radius, which is what
+        // they are on a real apple, instead of 0.225.
+        crown: {
+          cols: 45, woody: true,
+          whorls: [
+            { n: 5, a: 2.58, len: 0.085, wArc: 0.210, wp: 0.205, pPol: 1.70, pAz: 1.80, round: true, phase: 0.20, jit: 0.06, jitA: 0.014 },
+          ],
+        },
+      },
+      strawberry: {
+        lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0,
+        lumps: 0.010,
+        // pBot 1.10 -> 1.24: r8 chased "a straight-sided cone to a point" and
+        // the point is a needle at delivered size. A real strawberry's tip is
+        // rounded; 1.24 keeps the cone and loses the pin.
+        pBot: 1.24,
+        // THE ONE APPENDAGE I MADE MORE GENEROUS. plate-01's strawberry wears a
+        // broad green star with leaves that lie back over the shoulder and turn
+        // up at the tips; wide leaves at 1.45x crown columns are 9 columns each,
+        // so they shade as leaves. This is the fruit that most needs its crown.
+        crown: {
+          cols: 96,
+          whorls: [
+            { n: 6, a: 0.78, len: 0.60, wArc: 0.125, round: true, skew: 0.34, wp: 0.230, pPol: 2.30, pAz: 1.10, phase: 0.00, jit: 0.07, jitA: 0.030 },
+          ],
+        },
+      },
+      pineapple: {
+        lumps: 0.010,
+        crown: {
+          cols: 88,
+          whorls: [
+            { n: 8, a: 0.12, len: 1.911, wArc: 0.0820, round: true, skew: 0.25, wp: 0.220, pPol: 3.00, pAz: 1.15, phase: 0.00, jit: 0.05, jitA: 0.024 },
+            { n: 8, a: 0.29, len: 1.732, wArc: 0.0950, round: true, skew: 0.30, wp: 0.220, pPol: 3.00, pAz: 1.15, phase: 0.33, jit: 0.06, jitA: 0.028 },
+            { n: 8, a: 0.46, len: 1.466, wArc: 0.1070, round: true, skew: 0.55, wp: 0.220, pPol: 3.00, pAz: 1.15, phase: 0.67, jit: 0.07, jitA: 0.032 },
+          ],
+        },
+      },
+    },
+  },
+};
+
+/**
+ * Which fruit set is live. DEFAULT 'A' = round 10, bit for bit.
+ *
+ * Resolution order, most specific first:
+ *   1. `?shape=B` on the page URL   (works on the shipped build, no rebuild)
+ *   2. `globalThis.__ZS_SHAPE`      (for node rigs and the bake-off harness)
+ *   3. 'A'
+ * Read ONCE at module load for the URL, but `setShapeVariant()` can move it at
+ * any time — callers that cache geometry (director.js keeps a geoCache keyed on
+ * species+detail) must drop their cache themselves.
+ */
+let VARIANT = (() => {
+  try {
+    const s = (typeof location !== 'undefined' && location.search) || '';
+    const v = String(new URLSearchParams(s).get('shape') || '').toUpperCase();
+    if (SHAPE_VARIANTS[v]) return v;
+  } catch (e) { /* no location outside a browser; fall through */ }
+  const g = String(globalThis.__ZS_SHAPE || '').toUpperCase();
+  return SHAPE_VARIANTS[g] ? g : 'A';
+})();
+
+/** @returns {string} the live variant key */
+export function shapeVariant() { return VARIANT; }
+/** @param {string} v one of the SHAPE_VARIANTS keys */
+export function setShapeVariant(v) {
+  const k = String(v || '').toUpperCase();
+  if (SHAPE_VARIANTS[k]) VARIANT = k;
+  return VARIANT;
+}
+
 /** Map the legacy `species.shape` fields so a species with no SHAPE entry still
  *  gets something sane. */
 function legacyShape(sh) {
@@ -1768,10 +2138,21 @@ const NBASE_MAX = 60;
  * body that is 120 px across at review framing -> silhouette sagitta
  * 60*(1-cos(pi/46)) = 0.14 px. Two orders of magnitude under a pixel.
  */
-function resolution(detail, S, R = 1.35) {
+function resolution(detail, S, R = 1.35, V = SHAPE_VARIANTS.A) {
   const d = clamp(Math.round(detail), 3, 14);
   const sizeF = clamp(0.55 + 0.45 * (R / 1.35), 0.72, 1.0);
-  const nBase = 2 * Math.round(Math.max(16, clamp(4.6 * d + 10, 20, NBASE_MAX) * sizeF) / 2);
+  // ROUND 11 — `n10` is round 10's own column count and it is what every
+  // multiplier below is quoted against, so `cols: 1.0` is arithmetically the
+  // shipped build and no variant can drift as this expression is edited later.
+  const n10 = 2 * Math.round(Math.max(16, clamp(4.6 * d + 10, 20, NBASE_MAX) * sizeF) / 2);
+  const nBase = V.cols === 1 ? n10 : 2 * Math.round(Math.max(16, n10 * V.cols) / 2);
+  // Ring density is a SEPARATE knob from column count. They are equal at the
+  // equator by default (the layout target is TAU/ringN in profile units and a
+  // column step is TAU/nBase radians on a radius-1 waist, i.e. square cells),
+  // and the two are worth different things: rings carry the SILHOUETTE under
+  // director.js's pose (a lathe seen with its axis in frame projects its
+  // meridian exactly), columns carry the CUT RIM and the pole-on limb.
+  const ringN = Math.max(16, n10 * V.rings);
   let crownCols = 0;
   if (S.crown) {
     // The crown's column count must be an exact multiple of every whorl's blade
@@ -1781,10 +2162,13 @@ function resolution(detail, S, R = 1.35) {
       const g = (a, b) => (b ? g(b, a % b) : a);
       L = (L * w.n) / g(L, w.n);
     }
-    const f = clamp(nBase / NBASE_MAX, 0.42, 1);
-    crownCols = Math.max(L * 2, Math.round((S.crown.cols * f) / L) * L);
+    // `f` is deliberately computed from n10, not nBase: the crown multiplier is
+    // the thing that decides whether an appendage is a shape or a spike (see
+    // 11A(b)) and it must not be silently doubled by the column multiplier too.
+    const f = clamp(n10 / NBASE_MAX, 0.42, 1);
+    crownCols = Math.max(L * 2, Math.round((S.crown.cols * f * V.crown) / L) * L);
   }
-  return { nBase, crownCols };
+  return { nBase, ringN, crownCols };
 }
 
 /**
@@ -1822,7 +2206,7 @@ function layoutRings(prof, S, res) {
   const { Y, R, U, n } = prof;
   const bands = crownBands(S);
   const zone = bands ? bands.zone : null;
-  const base = TAU / res.nBase;
+  const base = TAU / (res.ringN || res.nBase);
   const rings = [];
   let acc = 1e9;
   let prevA = Math.PI;
@@ -2018,9 +2402,13 @@ function bladeHeight(blades, a, phi) {
  * @param {number} detail   resolution knob, 4..11 (main.js's fruitSegments)
  */
 export function makeFruitGeometry(species, detail = 3) {
-  const S = Object.assign({}, BASE, legacyShape(species.shape || {}), SHAPE[species.id] || {});
+  // ROUND 11 — the variant overlay is applied LAST, on top of the species'
+  // round-10 entry, so an overlay that names nothing is the shipped fruit.
+  const V = SHAPE_VARIANTS[VARIANT] || SHAPE_VARIANTS.A;
+  const S = Object.assign({}, BASE, legacyShape(species.shape || {}),
+    SHAPE[species.id] || {}, V.over[species.id] || {});
   const R = species.radius;
-  const res = resolution(detail, S, R);
+  const res = resolution(detail, S, R, V);
   const prof = buildProfile(S);
   const rings = layoutRings(prof, S, res);
 
