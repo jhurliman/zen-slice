@@ -190,22 +190,53 @@ Rounds 0-9 are scored in `rounds/r*.json` with per-piece verdicts in `rounds/ver
 was the best: **71.2 -> 75.4, all five pieces up**. Round 10's builders all landed but **no critic
 ever ran** — the player's feedback arrived first and superseded it, so it is recorded UNSCORED.
 
-**Round 11 (in flight at handoff)** works only the player's notes:
+**Round 11 is COMPLETE.** It worked only the player's notes:
 - ✅ **feel** — slow-mo deleted. It also repaired the measurement layer: the beat labelled
   "+250ms" was really +50ms, so a round-3 critic comparing juice at "+250ms" was looking at a
   frame five times earlier than it believed. `tools/simbeats.mjs` measures this; every ratio is
   now 1.00.
 - ✅ **juice** — lifetimes derived from closed-form ballistic exit time per layer rather than
   guessed, separately for the two orientations. A droplet now leaves because it flew out.
-- 🔄 **physics** — Rapier convex-hull rigid bodies, driven from the existing 120Hz fixed step so
-  the deterministic harness still works. ⚠ **Bundle went 1.1MB -> 3.9MB** when the WASM was
-  inlined; check whether it can be split out.
-- ⬜ **stage** — pull back specular ("chrome") and DOF ("completely blurry").
-- ⬜ **shape bake-off** — four variants rendered side by side for the user to choose. **He asked
-  to pick before anyone commits a round to it. Do not choose for him.**
+- ✅ **juice, the real finding** — it was a **velocity** bug, not a lifetime bug. A rim bead's
+  median asymptotic travel was 2.20 units against a 6.93-unit half-width: it could not reach the
+  frame edge at *any* lifetime. Drag constants were 9-62 where physically faithful drag for
+  1.7-14mm droplets is 1-4. Off-screen-before-dying went rim 4.8% -> 96%, mist 0% -> 56-64%.
+- ✅ **physics** — Rapier. Interpenetration median **1.276 -> 0.008** units (five converging
+  fruit) and **1.065 -> 0.000** (four melon halves), by separating-axis over 48 directions on the
+  world-space render meshes. Hulls in **0.98-1.4 ms per cut**, and only because the cloud is
+  reduced from 10,908 loose vertices to <=48 exact support points first — naive was 34 ms.
+  Draw calls *fell* to 33/53. ⚠ **Bundle 1.1MB -> 3.94MB** from inlined WASM; splitting is open.
+- ✅ **stage** — specular and DOF pulled back, staged as three attributable captures.
+- ⏸ **shape bake-off** — `rounds/reports/r11-shape-bakeoff.png`. **AWAITING HIS COLUMN CHOICE.
+  Do not choose for him.** Its control column T (shipped mesh, +72% triangles, nothing else
+  changed) is indistinguishable from shipped: **the polygon count was never the problem, the
+  spikes were**, and the spikes are ours from three rounds of critics demanding outline events.
+  Variant D is *cheaper* (1.20x vs B's 1.71x) because removing spikes removes mesh.
+
+### Two more instrument failures round 11 found
+
+- **The perf probe has been measuring a scene twice as heavy as real play.** It spawns and cuts
+  on a *tick* schedule while the world runs on the *sim* clock, so slow-mo doubled the population
+  it measured. Rounds 4-10 checked the ceilings against a fiction.
+- **The `15-fast-flick` / `16-slow-cleave` pair was never controlled** — sampled at 25.0 vs 16.7ms
+  of sim time. The two beats that exist to bracket blade speed differed by the harness, not the
+  game. They now differ by design (the Weber-number note).
+
+### The cross-file cancellation, and how it was caught
+
+Deleting slow-mo made `ctx.timeScale` identically 1, turning `stage.js`'s
+`fdt = dt * (0.35 + 0.65*timeScale)` into plain `dt` — decaying the blade flare 1.75x faster and
+silently undoing round 10's bleach. **The `feel` owner does not own `stage.js`.** It measured the
+damage in a file it was not allowed to touch and published the coefficients rather than letting a
+critic find it. That is the behaviour to preserve. Recalibrated by the derived 0.571x; `core_sat`
+sits at 0.112 (inside the <0.15 band, not back at r10's 0.017). A further 30% coefficient change
+moved it 0.008, so the flare decay is no longer the dominant lever — and the baseline is
+confounded anyway, since r11's juice puts 268 blobs in the hero where r10 had 8. **Left for a
+critic rather than tuned by eye.**
 
 ### Open work, roughly in priority order
 
+0. **The player's column choice for fruit shape** — blocking, and deliberately so.
 1. **The velocity-dependent juice mix** — the player's latest note, spec'd in
    `rounds/reports/r11-PLAYER-NOTE-juice-mix.md` as the Weber number (`We = rho v^2 d / sigma`).
    Not yet implemented; his note arrived minutes after the juice agent finished. Spray fraction
