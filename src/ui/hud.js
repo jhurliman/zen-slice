@@ -5,6 +5,17 @@
  */
 import * as THREE from 'three';
 
+// ── the callout's motion constants ──────────────────────────────────────────
+// SHARED, because the placement clamp and the animation have to agree about how
+// far the callout travels. They did not: the clamp reserved room for the
+// RESTING box and `frame()` then translated it up by RISE_MAX, which left the
+// glyph box 4 px from the top of the viewport at the end of the rise — glow
+// clipped, and overlapping the score readout, which is the one thing that bound
+// exists to prevent. Caught in review. Same class of mistake as fitting the
+// width against the resting size while the pop overshoots it.
+const RISE_MAX = 58;      // px the callout travels upward over its life
+const POP_MAX = 1.20;     // peak overshoot of the punch-in
+
 export function createHud() {
   const api = {};
   let ctx, root, scoreEl, levelEl, comboLayer, hintEl;
@@ -95,7 +106,6 @@ export function createHud() {
       // width leaves it 20% too wide for the two frames a viewer actually
       // notices — which is what the second render still showed, clipped on the
       // right. Measure the widest moment, not the average one.
-      const POP_MAX = 1.20;
       const avail = cw - 2 * pad0;
       const fit = Math.min(1, avail / Math.max(1, el.offsetWidth * POP_MAX));
       const halfW = el.offsetWidth * fit * POP_MAX * 0.5;
@@ -108,8 +118,35 @@ export function createHud() {
       // lies exactly along the slice, so a callout centred on the cut point
       // lands on top of the one element it must not fight with
       const lift = halfH + 14;
+
+      // ⚠ THE TOP BOUND MUST RESERVE THE WHOLE RISE, AND THE SCORE'S REAL BOX.
+      // Two things were wrong here and review caught both at once. (1) The
+      // clamp reserved room for the resting box, then `frame()` translated the
+      // callout up by RISE_MAX, so at the end of the rise the glyph box sat
+      // 4 px from the viewport edge. (2) The clearance under the score was a
+      // hard-coded 46, but `.zs-score` is `clamp(30px, 6vmin, 62px)` — 30 px in
+      // portrait and 43 px in landscape — so one number could not be right on
+      // both. Measure the element instead of guessing at it.
+      //
+      // ⚠ AND IT HAS TO BE MEASURED IN THE COMBO LAYER'S OWN COORDINATES.
+      // `.zs-hud` is `position: fixed; inset: 0` WITH padding (the safe-area
+      // insets), and `.zs-combos` is `inset: 0` inside that padding box — so
+      // `el.style.top` is relative to the layer while `getBoundingClientRect()`
+      // is relative to the viewport, and they differ by the notch inset. On a
+      // phone that is not a rounding error.
+      const layerTop = comboLayer.getBoundingClientRect().top;
+      const scoreBottom = scoreEl
+        ? scoreEl.getBoundingClientRect().bottom - layerTop
+        : 60;
+      // The gap to the score is `pad + 12`, not a token 8. `getBoundingClientRect`
+      // does NOT include a `filter: drop-shadow` spill, so the measurement that
+      // says "clear of the score" is measuring the glyph box while the thing a
+      // viewer sees touching is the glow — which is ~0.42em, i.e. 22 px at
+      // landscape's 52 px type. Measured at the end of the rise before this
+      // widening: glyph box cleared the score by 20 px and the glow by −2.
+      const topBound = scoreBottom + (pad + 12) + halfH + pad + RISE_MAX;
       el.style.left = `${clamp((p.x * 0.5 + 0.5) * cw, halfW + pad, cw - halfW - pad).toFixed(1)}px`;
-      el.style.top = `${clamp((-p.y * 0.5 + 0.5) * ch - lift, halfH + pad + 46, ch - halfH - pad).toFixed(1)}px`;
+      el.style.top = `${clamp((-p.y * 0.5 + 0.5) * ch - lift, topBound, ch - halfH - pad).toFixed(1)}px`;
 
       // A small deterministic tilt so it reads as hand-placed rather than
       // pasted on. Derived from the count, NOT from Math.random(), so that a
@@ -142,11 +179,11 @@ export function createHud() {
       // POP: overshoot to 1.14 in the first 90 ms, settle by 260 ms. A callout
       // that fades up reads as a notification; one that punches reads as a hit.
       const pop = f.t < 0.09
-        ? 0.55 + 0.65 * (f.t / 0.09)
-        : 1.20 - 0.20 * Math.min(1, (f.t - 0.09) / 0.17);
+        ? 0.55 + (POP_MAX - 0.55) * (f.t / 0.09)
+        : POP_MAX - (POP_MAX - 1) * Math.min(1, (f.t - 0.09) / 0.17);
       // RISE: fast out of the cut, then eased, so the eye is pulled up off the
       // fruit rather than the text drifting away at a constant speed.
-      const rise = -58 * (1 - Math.pow(1 - Math.min(1, f.t / 0.75), 2));
+      const rise = -RISE_MAX * (1 - Math.pow(1 - Math.min(1, f.t / 0.75), 2));
       // Hold full opacity for the first 55% of life; a callout that starts
       // fading immediately never reads at all on a 120 Hz display.
       const fade = u < 0.55 ? 1 : Math.max(0, 1 - (u - 0.55) / 0.45);

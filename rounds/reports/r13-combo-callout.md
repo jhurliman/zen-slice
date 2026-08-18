@@ -72,6 +72,39 @@ callout lives 1.15 s, so overlap is guaranteed by construction, not rare. Two sl
 type on top of each other are not exciting, they are unreadable. A new callout now retires any
 survivor into a fast fade so the newest number is always the readable one.
 
+## A THIRD BUG, CAUGHT IN REVIEW, AND IT IS THE SAME MISTAKE AS (a)
+
+The automated review flagged the top bound: the clamp reserved room for the callout's **resting**
+box, and `frame()` then translates it upward by `RISE_MAX`. At the end of the rise the glyph box sat
+`16 + 46 − 58 = 4 px` from the top of the viewport — glow clipped, overlapping the score readout,
+which is the one thing that bound exists to prevent. **It is the width bug again on the other axis:
+clamp against the resting size, animate past it.** I had already written that lesson down for the
+width and did not apply it to the height.
+
+Verified it twice over, and the second half was mine to find: the clearance under the score was a
+hard-coded `46`, but `.zs-score` is `clamp(30px, 6vmin, 62px)` — **30 px in portrait and 43 px in
+landscape** — so no single constant could be right on both. It now measures the score's real box.
+
+Three things changed:
+
+* `RISE_MAX` and `POP_MAX` are module constants shared by the clamp and the animation, so they
+  cannot drift apart again.
+* The score clearance is measured, **in the combo layer's own coordinates** — `.zs-hud` is
+  `position: fixed; inset: 0` with the safe-area insets as padding and `.zs-combos` is `inset: 0`
+  inside that, so `el.style.top` and `getBoundingClientRect()` differ by the notch inset. On a phone
+  that is not a rounding error.
+* The gap is `pad + 12`, not a token 8, because **`getBoundingClientRect` does not include a
+  `filter: drop-shadow` spill**. The measurement that says "clear of the score" measures the glyph
+  box while the thing a viewer sees touching is the glow, ~0.42em = 22 px at landscape's 52 px type.
+
+Measured at the end of the rise (`tools/.r13top.mjs`, combo fired at the top of the playfield, worst
+string, peak type size), glyph-box gap to the score readout:
+
+| | before review | glyph box after | glow after |
+|---|---|---|---|
+| landscape 1280x720 | **4 px from the viewport edge, over the score** | 40.1 px clear | ~18 px clear |
+| portrait 430x932 | — | 96.8 px clear | ~75 px clear |
+
 ## What I did not do
 
 * **No font is bundled.** If he wants the reference face exactly, that is a licensing and a
