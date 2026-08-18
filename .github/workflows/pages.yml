@@ -1,0 +1,102 @@
+# Publish the game to GitHub Pages.
+#
+# The whole site is TWO self-contained files — `build.mjs` inlines the JS, the
+# CSS and Rapier's WASM into one `dist/index.html`, and `tools/progress.mjs`
+# inlines every round's frames into `dist/progress.html` as base64 WebP. So
+# there is nothing to serve but HTML: no asset paths to get wrong, no CORS, no
+# MIME types to configure, and the page works from any subdirectory.
+#
+# ⚠ WHY PAGES AND NOT A LOCAL SERVER: **WebGPU requires a secure context.**
+# `navigator.gpu` is undefined over plain http:// from anything but localhost,
+# and this game is `WebGPURenderer`-only with no WebGL2 fallback (see
+# src/main.js — `?capture=1` forces WebGL2 for the screenshot harness and for
+# nothing else). Pages is https, so the phone gets the real renderer. Opening
+# dist/index.html over http from a laptop's IP would silently give you a blank
+# canvas, which is exactly the failure mode main.js warns about.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a half-finished deploy; queue behind it instead.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `playwright` is a devDependency and its postinstall downloads ~150 MB of
+      # browsers. The harness needs them; a Pages build does not.
+      - name: install
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: build the game
+        run: node build.mjs
+
+      # The founding spec asked for a live progress page, so it ships next to
+      # the game. Best-effort: it reads rounds/*.json and shots/, and a missing
+      # or malformed round record must never block the game from deploying.
+      - name: build the progress page
+        continue-on-error: true
+        run: node tools/progress.mjs
+
+      # ── the same discipline the screenshot harness uses ────────────────────
+      # `tools/shoot.mjs` refuses to write a black frame because a black frame
+      # is worse than a missing one: it looks like a result. Same here. esbuild
+      # can exit 0 having produced a bundle that is missing three.js, and a
+      # 40 KB index.html would deploy perfectly happily and boot to nothing.
+      # The real bundle is ~3.9 MB, dominated by three.webgpu + Rapier's WASM.
+      - name: refuse to publish a broken bundle
+        run: |
+          set -euo pipefail
+          test -f dist/index.html || { echo "::error::dist/index.html was not produced"; exit 1; }
+          bytes=$(stat -c%s dist/index.html)
+          echo "dist/index.html is $((bytes / 1024)) KB"
+          if [ "$bytes" -lt 1000000 ]; then
+            echo "::error::dist/index.html is only $((bytes / 1024)) KB; the real bundle is ~3900 KB."
+            echo "::error::That means the three.js/Rapier bundle did not make it in. Refusing to deploy."
+            exit 1
+          fi
+          grep -q 'ZenSlice.boot' dist/index.html \
+            || { echo "::error::bootstrap missing from dist/index.html"; exit 1; }
+          grep -q 'WebGPURenderer' dist/index.html \
+            || { echo "::error::three's WebGPU build is not in the bundle"; exit 1; }
+
+      # Pages runs Jekyll unless told not to, and Jekyll drops files and
+      # directories beginning with `_`. Nothing here starts with `_` today; this
+      # is one byte of insurance against the day something does.
+      - name: disable Jekyll
+        run: touch dist/.nojekyll
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
