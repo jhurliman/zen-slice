@@ -70,6 +70,25 @@ import numpy as np
 from PIL import Image
 
 PROBE_VERSION = 16
+# ══ r12: THE CANARY THAT EVERY REPORT PASTES CANNOT BE RUN. ══════════════════
+# COMMENT ONLY — not one executable line below this block changed, and
+# PROBE_VERSION is deliberately NOT bumped, because nothing measurable moved.
+#
+# Every round since r5 has pasted this canary as proof the suite was untouched:
+#     clip shots/r5/05-cut+500ms.png  ->  mask_px 9490 / pct_R_ge_255 5.227
+# `shots/r5/` is in .gitignore (see its "historical round frames" block) and is
+# not in the tree. It has not been in the tree for six rounds. The canary was
+# therefore being quoted from earlier reports rather than re-run — the exact
+# failure mode this project's rules exist to prevent, in the instrument whose
+# job is to prevent it.
+#
+# TWO REPLACEMENT CANARIES, BOTH ON FRAMES THAT ARE VERSIONED AND WILL STAY:
+#     clip shots/r10/05-cut+500ms.png  ->  mask_px 10340 / pct_R_ge_255 4.333
+#     clip shots/r9/05-cut+500ms.png   ->  mask_px 10057 / pct_R_ge_255 2.197
+# Run BOTH. Two frames from two different rounds catch a change that happens to
+# be a fixed point of one of them. The r5 line is left in the notices below as
+# the historical record of what each version was checked against; do not delete
+# it, and do not paste it as if you had run it.
 # ── v15 -> v16 (round 11 builder, stage) ─────────────────────────────────────
 # LOUD NOTICE, AS THE RULES REQUIRE. I bumped PROBE_VERSION 15 -> 16.
 #

@@ -25,10 +25,58 @@
  *
  * Usage:
  *   node tools/shoot.mjs --out shots/r1 --device desktop [--scale 0.5]
- *                        [--deadline 420] [--hero] [--gl]
+ *                        [--deadline 420] [--hero] [--gl] [--seed 1]
+ *                        [--cpu-repeats 3]
+ *
+ * ── r12 HARDENING. Four rounds asked for these; all four asks are in the ─────
+ * ── reports and none of them had landed. Each one below is a specific ────────
+ * ── failure that already cost a round, named with the round that paid. ───────
+ *
+ *  H1. UNKNOWN FLAGS ARE NOW A FATAL ERROR (r10 + r11 asked, twice).
+ *      `--portrait` IS NOT A FLAG. It parses as an unknown argument, is
+ *      silently ignored, and shoots DESKTOP. A round brief got this wrong and
+ *      nearly shipped five pieces of "portrait" measurement taken in landscape.
+ *      The device switch is `--device iphone`. A harness that silently accepts
+ *      a misspelling produces confidently mislabelled evidence, which is worse
+ *      than producing none.
+ *
+ *  H2. A ZERO-LUMA FRAME IS NEVER WRITTEN (r10 paid for this once).
+ *      The harness wrote a fully black 1280x720 frame silently to disk, once in
+ *      six runs, on the `--hero` path. Every frame is now luma-checked BEFORE
+ *      it reaches the disk; a black frame is retried once and then recorded as
+ *      a failed beat. A missing file is a visible problem. A black file is an
+ *      invisible one that a critic will happily measure.
+ *
+ *  H3. THE PAGE'S Math.random IS SEEDED (asked FOUR times, r9-r11).
+ *      `liveBodies` swung 25 / 29 / 40 / 51 across four runs in round 11 alone,
+ *      and half of what every builder steers by is spawn noise. An init script
+ *      installs a seeded xorshift as `Math.random` before any page script runs,
+ *      so spawn positions, cut heights and `slicer.js`'s half-spin are
+ *      reproducible. `--seed 0` restores the real `Math.random`.
+ *      ⚠ THIS CHANGES EVERY RUN. Numbers taken after r12 are comparable to each
+ *      other and NOT to r0-r11's. That is the point: they were not comparable
+ *      to each other either, they only looked it.
+ *
+ *  H4. THE CPU PROBE IS REPEATED AND `max` IS NOT A HEADLINE (r10 retracted a
+ *      published number over this). `cpu.max` swung 2.4 -> 12.6 ms on ONE
+ *      build's own code. The probe now runs `--cpu-repeats` times (default 3)
+ *      and reports the MEDIAN and SPREAD of the per-run p50 and p95. `max` is
+ *      still recorded per run, under a key that says not to quote it.
+ *
+ *  H5. THE BROWSER IS RESOLVED EXPLICITLY, AND IT MUST NOT BE headless_shell.
+ *      Playwright's default executable is `chromium_headless_shell`, which has
+ *      NO `navigator.gpu` at all — `!!navigator.gpu` is false there even with
+ *      `--enable-unsafe-webgpu`. The full `chromium-*` build has it. And
+ *      `--use-gl=angle --use-angle=swiftshader`, which this file passed since
+ *      round 0, CRASHES the renderer process in Chromium 151 the moment
+ *      `requestAdapter()` is called: the page dies, `page.evaluate` hangs, and
+ *      the run looks like a boot failure with no error anywhere. Both flags are
+ *      gone. Measured on this machine, same build, same scene:
+ *          headless_shell + angle=swiftshader   boot TIMED OUT at 300 s
+ *          full chromium, no angle flags        boot 1.98 s, grab 3.1 s
  */
 import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, existsSync, readdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import http from 'http';
@@ -42,6 +90,32 @@ const arg = (k, d) => {
   const v = argv[i + 1];
   return v === undefined || v.startsWith('--') ? true : v;
 };
+
+// H1. Every flag this file understands, and nothing else is tolerated. The
+// value `true` means "boolean, takes no argument", so a stray value after one
+// is caught too. See the H1 block in the header for the round this cost.
+const FLAGS = {
+  out: 'string', device: 'string', scale: 'number', deadline: 'number',
+  seed: 'number', 'cpu-repeats': 'number', hero: 'bool', gl: 'bool',
+};
+{
+  const bad = [];
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i];
+    if (!tok.startsWith('--')) continue;
+    const k = tok.slice(2);
+    if (!(k in FLAGS)) { bad.push(tok); continue; }
+    if (FLAGS[k] !== 'bool') i++;   // consume its value
+  }
+  if (bad.length) {
+    console.error(`shoot.mjs: unknown flag(s): ${bad.join(', ')}`);
+    console.error(`  known: ${Object.keys(FLAGS).map((k) => '--' + k).join(' ')}`);
+    if (bad.some((b) => /portrait|iphone|ipad|phone|mobile/i.test(b))) {
+      console.error('  ⚠ --portrait IS NOT A FLAG. The device switch is `--device iphone`.');
+    }
+    process.exit(3);
+  }
+}
 
 // Layout sizes are deliberately modest. These are COMPOSITION references, not
 // fidelity references — the critics judge framing, form, colour and fluid
@@ -59,6 +133,10 @@ const SCALE = Math.max(0.25, Math.min(1, Number(arg('scale', 0.5)) || 0.5));
 const DEADLINE_S = Number(arg('deadline', 420)) || 420;
 const WANT_HERO = !!arg('hero', false);
 const FORCE_GL = !!arg('gl', false);
+// H3. Default 1, not 0: an unseeded harness is the fourth-most-requested fix in
+// this project's reports. `--seed 0` opts back out to the real Math.random.
+const SEED = Number(arg('seed', 1)) || 0;
+const CPU_REPEATS = Math.max(1, Math.min(9, Number(arg('cpu-repeats', 3)) || 3));
 const outDir = join(root, String(arg('out', 'shots/latest')));
 mkdirSync(outDir, { recursive: true });
 
@@ -131,19 +209,55 @@ server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const PORT = server.address().port;
 
-// Prefer the newest Chromium present; fall back to whatever exists.
-const CHROMES = [
-  '/opt/pw-browsers/chromium-1234/chrome-linux64/chrome',
-  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-];
-const exe = CHROMES.find((p) => existsSync(p));
+// H5. Resolve a FULL Chromium, never `chromium_headless_shell`. See the header.
+// The search is a glob rather than a fixed list because the playwright revision
+// changes under us: the old hard-coded /opt/pw-browsers pair silently fell
+// through to `undefined`, which hands the launch to playwright's default — and
+// playwright's default IS the headless shell.
+const chromeCandidates = () => {
+  const roots = [
+    '/opt/pw-browsers',
+    join(process.env.HOME || '/root', '.cache/ms-playwright'),
+  ];
+  const out = [];
+  for (const r of roots) {
+    let entries = [];
+    try { entries = readdirSync(r); } catch (e) { continue; }
+    // `chromium-1234` yes; `chromium_headless_shell-1234` NO. Newest revision first.
+    const dirs = entries.filter((d) => /^chromium-\d+$/.test(d))
+      .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]));
+    for (const d of dirs) {
+      for (const sub of ['chrome-linux64/chrome', 'chrome-linux/chrome']) {
+        const c = join(r, d, sub);
+        if (existsSync(c)) out.push(c);
+      }
+    }
+  }
+  return out;
+};
+const exe = chromeCandidates()[0];
+if (!exe) {
+  const msg = 'no full Chromium found (playwright\'s default is chromium_headless_shell, '
+    + 'which has no navigator.gpu). Run: npx playwright install chromium';
+  state.errors.push(msg); flush();
+  console.error('shoot.mjs: ' + msg);
+  process.exit(1);
+}
 
 log(`launching ${devName} layout ${dev.width}x${dev.height} -> render ${W}x${H} (scale ${SCALE}), deadline ${DEADLINE_S}s`);
+log(`chromium: ${exe}`);
+state.chromium = exe;
+state.seed = SEED;
 
 browser = await chromium.launch({
   executablePath: exe,
   args: [
-    '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+    // ⚠ `--use-gl=angle` and `--use-angle=swiftshader` are NOT here, and must
+    // not be re-added. In Chromium 151 they kill the renderer process on the
+    // first requestAdapter(); the symptom is a boot that never completes and no
+    // error on any channel. `--enable-unsafe-swiftshader` stays: it is what
+    // permits the software WebGL2 path this harness actually captures through.
+    '--enable-unsafe-swiftshader',
     '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader', '--enable-features=Vulkan',
     '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required',
     '--no-sandbox', '--disable-dev-shm-usage',
@@ -156,6 +270,28 @@ const page = await browser.newPage({
   hasTouch: devName !== 'desktop',
   isMobile: devName !== 'desktop',
 });
+
+// H3. Seed the page BEFORE any script on it runs. This covers three separate
+// sources of the run-to-run swing that four reports have now filed:
+//   1. this file's own probes (`(Math.random()-0.5)*8` spawn positions, and the
+//      random cut heights that decide WHICH fruit a probe stroke hits),
+//   2. `slicer.js:117`'s per-half spin, which is what a cut half's pose is,
+//   3. `blade.js`'s streak phase.
+// `fluid.js` was already seeded internally (`makeRng(20260806)`), which is
+// exactly why the juice numbers were the STEADIEST thing in every report — the
+// fix is to give the rest of the page the same property.
+// xorshift32: same generator the game's own `makeRng` uses, so nothing in the
+// page sees a distribution it was not already written against.
+if (SEED) {
+  await page.addInitScript((seed) => {
+    let x = seed >>> 0 || 1;
+    Math.random = () => {
+      x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
+      return x / 4294967296;
+    };
+  }, SEED);
+  log(`page Math.random seeded with ${SEED} (--seed 0 to disable)`);
+}
 page.on('pageerror', (e) => state.errors.push('pageerror: ' + String(e).slice(0, 300)));
 page.on('console', (m) => { if (m.type() === 'error') state.errors.push('console: ' + m.text().slice(0, 300)); });
 page.on('crash', () => state.errors.push('PAGE CRASHED'));
@@ -183,10 +319,42 @@ await bounded('setTier', 20000, () => page.evaluate((t) => { window.ZS.pause(); 
 // never let it be unbounded.
 const RENDER_MS = 90000;
 
+// H2. Nothing reaches the disk until it is known not to be black. The harness
+// wrote a fully black 1280x720 frame silently once in six runs, and a black
+// frame is far more dangerous than a missing one: `probes.py` will measure it,
+// return a plausible-looking mask of 0 px, and a critic will report the number.
+// The floor is deliberately very low (mean luma 0.35/255 over the whole frame,
+// with the game's own letterbox black counted in): this is a "did the readback
+// return anything at all" gate, NOT a brightness judgement. `12-idle-blade` and
+// `01-whole-watermelon` are legitimately dark frames and must still pass.
+const LUMA_FLOOR = 0.35;
+const frameLuma = async (buf) => {
+  const { default: sharp } = await import('sharp');
+  const st = await sharp(buf).stats();
+  const [r, g, b] = st.channels;
+  return 0.2126 * r.mean + 0.7152 * g.mean + 0.0722 * b.mean;
+};
+const grabChecked = async (name) => {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const data = await page.evaluate(() => window.ZS.grab());
+    if (!data || data.length < 2000) {
+      if (attempt) throw new Error('empty capture (canvas readback returned nothing)');
+      continue;
+    }
+    const buf = Buffer.from(data.split(',')[1], 'base64');
+    let luma = NaN;
+    try { luma = await frameLuma(buf); }
+    catch (e) { return buf; }   // no decoder is not a reason to lose the frame
+    if (luma >= LUMA_FLOOR) { (state.luma ||= {})[name] = +luma.toFixed(3); return buf; }
+    log(`  !! ${name}: mean luma ${luma.toFixed(4)} < ${LUMA_FLOOR} — BLACK FRAME, re-rendering`);
+    (state.blackFrames ||= []).push({ name, luma: +luma.toFixed(4), attempt });
+    await page.evaluate(() => window.ZS.advance(0));
+  }
+  throw new Error(`BLACK FRAME after 2 attempts — refusing to write ${name}.png`);
+};
 const shot = (name) => bounded(`shot:${name}`, RENDER_MS, async () => {
-  const data = await page.evaluate(() => window.ZS.grab());
-  if (!data || data.length < 2000) throw new Error('empty capture (canvas readback returned nothing)');
-  writeFileSync(join(outDir, `${name}.png`), Buffer.from(data.split(',')[1], 'base64'));
+  const buf = await grabChecked(name);
+  writeFileSync(join(outDir, `${name}.png`), buf);
   return true;
 });
 // advance() simulates dark and renders only the final frame, so its cost is
@@ -259,28 +427,55 @@ await run('stage-idle', () => {
 await adv(0.05); await shot('12-idle-blade');
 
 // ── CPU-only probe: the real 120fps predictor, and it costs no pixels ────────
-log('cpu probe');
-state.cpu = await bounded('cpu', 90000, () => page.evaluate(() => {
-  const ZS = window.ZS;
-  ZS.clear();
-  const ids = ['watermelon', 'pineapple', 'orange', 'apple', 'kiwi', 'strawberry'];
-  const samples = [];
-  for (let i = 0; i < 400; i++) {
-    if (i % 10 === 0) {
-      const f = ZS.spawn(ids[i % ids.length]);
-      f.pos.set((Math.random() - 0.5) * 8, -7, (Math.random() - 0.5) * 3);
-      f.vel.set(0, 12, 0);
-    }
-    if (i % 8 === 3) { ZS.newStroke(); ZS.swipe(-0.9, Math.random() - 0.5, 0.9, Math.random() - 0.5, 10, 6.0); }
-    const s = performance.now();
-    ZS.step(1 / 120, 1, false);
-    samples.push(performance.now() - s);
+// H4. RUN IT N TIMES. A single run of this probe is not a measurement: round 10
+// published a headline off `cpu.max` and the SIGN REVERSED on re-shoot, and the
+// round-11 juice owner measured the SAME BUILD's max at 2.4 / 3.8 / 7.9 / 12.6
+// ms across four runs. What follows reports the median and the full spread of
+// the per-run p50 and p95, and files `max` under a key that says not to quote
+// it. A gate quoted to more digits than the harness can reproduce is not a gate.
+log(`cpu probe (${CPU_REPEATS} repeats)`);
+{
+  const runs = [];
+  for (let n = 0; n < CPU_REPEATS; n++) {
+    const r = await bounded(`cpu:${n}`, 90000, () => page.evaluate(() => {
+      const ZS = window.ZS;
+      ZS.clear();
+      const ids = ['watermelon', 'pineapple', 'orange', 'apple', 'kiwi', 'strawberry'];
+      const samples = [];
+      for (let i = 0; i < 400; i++) {
+        if (i % 10 === 0) {
+          const f = ZS.spawn(ids[i % ids.length]);
+          f.pos.set((Math.random() - 0.5) * 8, -7, (Math.random() - 0.5) * 3);
+          f.vel.set(0, 12, 0);
+        }
+        if (i % 8 === 3) { ZS.newStroke(); ZS.swipe(-0.9, Math.random() - 0.5, 0.9, Math.random() - 0.5, 10, 6.0); }
+        const s = performance.now();
+        ZS.step(1 / 120, 1, false);
+        samples.push(performance.now() - s);
+      }
+      samples.sort((a, b) => a - b);
+      const pct = (p) => +(samples[Math.floor(samples.length * p)] || 0).toFixed(3);
+      return { median: pct(0.5), p95: pct(0.95), max: +samples[samples.length - 1].toFixed(3), frames: samples.length };
+    }));
+    if (r) runs.push(r);
   }
-  samples.sort((a, b) => a - b);
-  const pct = (p) => +(samples[Math.floor(samples.length * p)] || 0).toFixed(3);
-  return { median: pct(0.5), p95: pct(0.95), max: +samples[samples.length - 1].toFixed(3), frames: samples.length };
-}));
-if (state.cpu) log(`cpu/frame: median ${state.cpu.median}ms p95 ${state.cpu.p95}ms max ${state.cpu.max}ms`);
+  if (runs.length) {
+    const med = (a) => { const b = [...a].sort((x, y) => x - y); return +(b[b.length >> 1]).toFixed(3); };
+    const p50s = runs.map((r) => r.median), p95s = runs.map((r) => r.p95);
+    state.cpu = {
+      repeats: runs.length,
+      median: med(p50s), p95: med(p95s),
+      median_spread: [Math.min(...p50s), Math.max(...p50s)],
+      p95_spread: [Math.min(...p95s), Math.max(...p95s)],
+      // ⚠ NOT A HEADLINE. Kept only so a future round can re-derive the spread
+      // that made it unusable. See H4.
+      max_do_not_quote: runs.map((r) => r.max),
+      runs,
+    };
+    log(`cpu/frame: p50 ${state.cpu.median}ms (spread ${state.cpu.median_spread.join('-')}) `
+      + `p95 ${state.cpu.p95}ms (spread ${state.cpu.p95_spread.join('-')}) over ${runs.length} runs`);
+  }
+}
 
 // ── GPU complexity probe: a handful of real renders only ────────────────────
 log('complexity probe');
@@ -323,9 +518,10 @@ if (WANT_HERO) {
     window.ZS.newStroke(); window.ZS.swipe(-0.85, 0.16, 0.85, -0.10, 12, 5.0);
   });
   await bounded('hero:adv', 240000, () => page.evaluate(() => window.ZS.advance(0.25)));
+  // H2 applies here MOST of all: the black frame that started this was on the
+  // --hero path, and 00-hero.png is the frame every round's critic opens first.
   await bounded('hero:shot', 240000, async () => {
-    const d = await page.evaluate(() => window.ZS.grab());
-    if (d && d.length > 2000) writeFileSync(join(outDir, '00-hero.png'), Buffer.from(d.split(',')[1], 'base64'));
+    writeFileSync(join(outDir, '00-hero.png'), await grabChecked('00-hero'));
   });
 }
 
