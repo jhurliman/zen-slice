@@ -249,3 +249,12 @@ shots/r11-bleachcheck*/
 tmp/
 __pycache__/
 *.pyc
+
+# ── round 12 working captures ────────────────────────────────────────────────
+# Same rule as every other per-agent A/B dir: -shapeD/ is the control (shape D,
+# r11 juice), -mix/ and -mix-iphone/ are the new mix, -ctrl-iphone/ is the
+# portrait control shot with juice+slicer stashed. The round's CANONICAL frames
+# are shots/r12/ and shots/r12-iphone/, which are versioned.
+shots/r12-shapeD/
+shots/r12-mix*/
+shots/r12-ctrl*/

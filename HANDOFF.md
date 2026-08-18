@@ -99,10 +99,17 @@ call the *same* code, so a target cannot be hit by choosing a friendlier instrum
    comparing to a native-resolution plate; mask-matched it is 43-46% too NARROW.
 
 **Discipline: ADD probes, NEVER modify them.** Bump `PROBE_VERSION` with a loud notice, and
-verify the canary before and after:
+verify the canary before and after.
+
+⚠ **The canary every round pasted could not be run.** `shots/r5/` is gitignored and has not been in
+the tree for six rounds, so `clip shots/r5/05-cut+500ms.png -> mask_px 9490 / pct_R_ge_255 5.227`
+was being quoted from earlier reports rather than executed — the exact failure the rules exist to
+prevent, in the instrument whose job is to prevent it. **Run BOTH of these instead; they are on
+versioned frames:**
 
 ```
-python3 tools/probes.py clip shots/r5/05-cut+500ms.png   ->  mask_px 9490 / pct_R_ge_255 5.227
+python3 tools/probes.py clip shots/r10/05-cut+500ms.png  ->  mask_px 10340 / pct_R_ge_255 4.333
+python3 tools/probes.py clip shots/r9/05-cut+500ms.png   ->  mask_px 10057 / pct_R_ge_255 2.197
 ```
 
 Paste the canary in every report. Multiple agents edit this file concurrently; re-read, re-apply
@@ -135,13 +142,25 @@ auditor was a different agent with a mandate to break it. Keep doing this.
 - **`clip` on `08-citrus-caps` does not measure a fixed thing** — its ellipse is fitted from the
   frame's own second moments, so two runs of one build gave mask 5,046 vs 10,182 px and 1.13% vs
   4.96% clipped. Needs an explicit window. Do not steer on it.
-- **`--portrait` IS NOT A FLAG** in `tools/shoot.mjs`. The device switch is **`--device iphone`**.
-  `--portrait` parses as an unknown argument and is silently ignored, shooting desktop. A round
-  brief got this wrong and nearly shipped five pieces of "portrait" measurement taken in
-  landscape. **Make the harness reject unknown flags** — this is still an open TODO.
-- **The harness once wrote a fully black 1280x720 frame silently to disk** (once in six runs,
-  `--hero` path). Verify mean luma before versioning frames; there is a check in the round-10
-  commit you can copy.
+- ✅ **FIXED r12 — `--portrait` IS NOT A FLAG.** The device switch is **`--device iphone`**.
+  `shoot.mjs` now rejects any unknown flag with `exit 3` and names the right switch.
+- ✅ **FIXED r12 — the black-frame hazard.** Every frame is luma-checked before it reaches the
+  disk, retried once, then recorded as a failed beat. `report.json` carries a per-frame `luma` map
+  and a `blackFrames` list.
+- ✅ **FIXED r12 — the harness is seeded.** `--seed` (default 1) installs a seeded xorshift as the
+  page's `Math.random` before any page script runs. ⚠ **Numbers from r12 onward are comparable to
+  each other and NOT to r0-r11's.**
+- ✅ **FIXED r12 — `cpu` repeats.** `--cpu-repeats` (default 3); reports median and spread of the
+  per-run p50/p95, and files `max` under `max_do_not_quote`.
+- ⚠ **`shoot.mjs` needs a FULL Chromium and must not get `chromium_headless_shell`,** which has no
+  `navigator.gpu` at all. It now globs for `chromium-*` and refuses to start without one. And
+  **`--use-gl=angle --use-angle=swiftshader` crashes the renderer in Chromium 151** — they were
+  passed since round 0 and are now gone. Symptom was a boot that never completed with no error on
+  any channel. Do not re-add them.
+- ⚠ **`00-hero.png` IS NOT A CONTROLLED MEASUREMENT AND NEVER WAS.** One build, one beat:
+  630 px / 6 blobs from `shoot.mjs` and **57,347 px / 219 blobs** from a bench that stages it
+  identically. It is captured last, after 17 beats, a viewport resize and 1,200 probe steps, and it
+  is downstream of the first-slice defect below. **Grade on the review-raster beats, not the hero.**
 
 ---
 
@@ -207,8 +226,8 @@ ever ran** — the player's feedback arrived first and superseded it, so it is r
   reduced from 10,908 loose vertices to <=48 exact support points first — naive was 34 ms.
   Draw calls *fell* to 33/53. ⚠ **Bundle 1.1MB -> 3.94MB** from inlined WASM; splitting is open.
 - ✅ **stage** — specular and DOF pulled back, staged as three attributable captures.
-- ⏸ **shape bake-off** — `rounds/reports/r11-shape-bakeoff.png`. **AWAITING HIS COLUMN CHOICE.
-  Do not choose for him.** Its control column T (shipped mesh, +72% triangles, nothing else
+- ✅ **shape bake-off** — `rounds/reports/r11-shape-bakeoff.png`. **He chose D on 2026-08-17;
+  round 12 shipped it.** Its control column T (shipped mesh, +72% triangles, nothing else
   changed) is indistinguishable from shipped: **the polygon count was never the problem, the
   spikes were**, and the spikes are ours from three rounds of critics demanding outline events.
   Variant D is *cheaper* (1.20x vs B's 1.71x) because removing spikes removes mesh.
@@ -234,22 +253,59 @@ moved it 0.008, so the flare decay is no longer the dominant lever — and the b
 confounded anyway, since r11's juice puts 268 blobs in the hero where r10 had 8. **Left for a
 critic rather than tuned by eye.**
 
+## 5b. Round 12 — COMPLETE (`rounds/reports/r12-juice-mix.md`)
+
+Worked the two things r11 left: the player's column choice, and his juice-mix note.
+
+- ✅ **fruit shape** — **he picked column D, premium smooth.** `SHAPE_DEFAULT = 'D'` in
+  `geometry.js`. A/T/B/C are kept and `?shape=A` still reproduces r10's mesh bit for bit, so every
+  frame in `shots/r9`, `shots/r10` stays reproducible. Orange `hull_concave_frac_pct` 25.39 -> 0.00
+  and kiwi 37.89 -> 2.34, which is the CORRECT outcome — those are controls, never targets.
+- ✅ **the juice mix is a law** — `fast` is now `we/(1+we)` with `we = (S/V_CRIT)^2`, so the
+  atomised fraction goes as **v squared** near the origin and never reaches 0 or 1 at either end.
+  Range and endpoints preserved deliberately, so every downstream constant keeps eight rounds of
+  calibration and **only the shape of the transition moved**.
+- 🔴 **AND THE REASON IT NEVER WORKED ON HIS PHONE, which is the round's real finding:**
+  **`slicer.js` computed `worldSpeed` with no aspect-ratio term.** Measured on the live bus, the
+  identical gesture read **2.16x faster in portrait** — the orientation he plays in — and the two
+  orientations were **3.85x apart**. Every ordinary swipe on his phone was already past the old
+  law's saturation point, so `filmness` was 0, the sheet never fired and every cut was aerosol.
+  Spray share of on-screen juice area for one ordinary cut: landscape 17.3%, **portrait 63.4%**.
+  It also pinned `sep` and `amount` at their ceilings on every portrait cut.
+- ✅ **`V_CRIT` is stated as a swipe rate, and the report says why** — the Weber derivation spans
+  29x on the choice of density alone, so it fixes the law's SHAPE exactly and its crossover only to
+  an order of magnitude. `CROSS_NDC = 9.0` ndc/s. **The mix is now orientation-invariant by
+  construction, which is a feel decision and is flagged as the one un-derived number.**
+- ✅ **harness hardening** — all four standing asks landed (§3), plus the harness could not produce
+  a single frame at all when this round started (wrong Chromium, and two launch flags that crash
+  Chromium 151).
+- ✅ **the canary was unrunnable** and now has two replacements on versioned frames (§3).
+
 ### Open work, roughly in priority order
 
-0. **The player's column choice for fruit shape** — blocking, and deliberately so.
-1. **The velocity-dependent juice mix** — the player's latest note, spec'd in
-   `rounds/reports/r11-PLAYER-NOTE-juice-mix.md` as the Weber number (`We = rho v^2 d / sigma`).
-   Not yet implemented; his note arrived minutes after the juice agent finished. Spray fraction
-   should rise with **v squared**, atomised droplet size should fall with speed, blob size should
-   be roughly speed-independent, and **both populations must always be present**.
-2. **Harness hardening** — reject unknown flags, refuse to write a zero-luma frame, seed the cpu
-   loop and report p95, give `clip` an explicit window on `08-citrus-caps`.
-3. **Framedrop when fruit split** — `cutGeometry` allocates fresh BufferGeometry per half on the
+0. 🔴 **THE FIRST SLICE OF A SESSION DRAWS NO JUICE.** `node tools/.r12first.mjs`: three identical
+   cuts on one page, one build, seeded RNG — cut 0 renders the halves and **not one droplet**;
+   cuts 1 and 2 render the full splash. The pool reports 1850 / 1829 / 1829 emitted instances in
+   all three, so **the droplets exist and are not drawn**. Rendering the same state a second frame
+   brings the *sheet* in and still no droplets. Reproduces on the pre-r12 build, so it is not r12's.
+   Player-visible, in the exact system he filed a note about. A primer droplet at `api.init` was
+   tried and **reverted because it did not work** — `ZS.clear()` -> `api.reset()` sets
+   `drops.head = 0` and therefore `instanceCount = 0` again, so the hypothesis is untested rather
+   than disproved. Re-emit the primer *after* reset and try again.
+1. **Framedrop when fruit split** — `cutGeometry` allocates fresh BufferGeometry per half on the
    main thread at the exact moment the player is looking. He asked whether web workers are the
-   answer.
-4. **Portrait framing auto-fail** (§4).
-5. **Characterise capture nondeterminism** with N repeats so gates stop being quoted to more
-   digits than the harness can reproduce.
+   answer. Note r12's cpu probe reads p50 0.1 ms / p95 0.3 ms steady-state, so this is a **cut
+   spike**, not a steady-state cost — measure the spike, not the mean.
+2. **The bundle is 3.94MB** from inlined Rapier WASM (r11). Splitting is open.
+3. **`clip` on `08-citrus-caps` needs an explicit window** — the one harness ask r12 did NOT do,
+   because it is an ADD to `probes.py` and deserves its own change with its own canary.
+4. **Portrait framing auto-fail** (§4) — fruit occupy 18.45% of frame height against a 25% floor.
+   Note that shape D *helps*: on-screen fruit area rose 15-21% on the smooth species.
+5. **The watermelon's ground spot** should move to albedo in `species.js`. Variant D sets
+   `facets: null`, so the plane cut that used to make it is gone. A real melon's ground spot is a
+   colour and always was.
+6. **Characterise capture nondeterminism** with N repeats. r12 seeded the page, which removes the
+   spawn-noise half of it; what remains is unmeasured.
 
 ---
 

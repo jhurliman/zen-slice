@@ -1,0 +1,381 @@
+{
+  "device": "desktop",
+  "viewport": {
+    "width": 1280,
+    "height": 720,
+    "tier": 3
+  },
+  "renderSize": {
+    "width": 640,
+    "height": 360,
+    "scale": 0.5
+  },
+  "beats": [
+    {
+      "label": "goto",
+      "ms": 1959,
+      "ok": true
+    },
+    {
+      "label": "boot",
+      "ms": 763,
+      "ok": true
+    },
+    {
+      "label": "backend",
+      "ms": 166,
+      "ok": true
+    },
+    {
+      "label": "setTier",
+      "ms": 173,
+      "ok": true
+    },
+    {
+      "label": "run:reset",
+      "ms": 4,
+      "ok": true
+    },
+    {
+      "label": "run:spawn-melon",
+      "ms": 350,
+      "ok": true
+    },
+    {
+      "label": "adv:0.3",
+      "ms": 162,
+      "ok": true
+    },
+    {
+      "label": "shot:01-whole-watermelon",
+      "ms": 1551,
+      "ok": true
+    },
+    {
+      "label": "run:cut-melon",
+      "ms": 5045,
+      "ok": true
+    },
+    {
+      "label": "adv:0.033",
+      "ms": 7,
+      "ok": true
+    },
+    {
+      "label": "shot:02-cut+33ms",
+      "ms": 393,
+      "ok": true
+    },
+    {
+      "label": "adv:0.067",
+      "ms": 4,
+      "ok": true
+    },
+    {
+      "label": "shot:03-cut+100ms",
+      "ms": 403,
+      "ok": true
+    },
+    {
+      "label": "adv:0.15",
+      "ms": 3,
+      "ok": true
+    },
+    {
+      "label": "shot:04-cut+250ms",
+      "ms": 784,
+      "ok": true
+    },
+    {
+      "label": "adv:0.25",
+      "ms": 5,
+      "ok": true
+    },
+    {
+      "label": "shot:05-cut+500ms",
+      "ms": 1235,
+      "ok": true
+    },
+    {
+      "label": "adv:0.5",
+      "ms": 5,
+      "ok": true
+    },
+    {
+      "label": "shot:06-cut+1000ms",
+      "ms": 2352,
+      "ok": true
+    },
+    {
+      "label": "run:stage-citrus",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "label": "adv:0.3",
+      "ms": 301,
+      "ok": true
+    },
+    {
+      "label": "run:cut-citrus",
+      "ms": 1511,
+      "ok": true
+    },
+    {
+      "label": "adv:0.12",
+      "ms": 4,
+      "ok": true
+    },
+    {
+      "label": "shot:07-citrus-cut",
+      "ms": 702,
+      "ok": true
+    },
+    {
+      "label": "adv:0.35",
+      "ms": 4,
+      "ok": true
+    },
+    {
+      "label": "shot:08-citrus-caps",
+      "ms": 1650,
+      "ok": true
+    },
+    {
+      "label": "run:stage-fast",
+      "ms": 1,
+      "ok": true
+    },
+    {
+      "label": "adv:0.2",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "label": "run:flick",
+      "ms": 9,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 931,
+      "ok": true
+    },
+    {
+      "label": "shot:15-fast-flick+50ms",
+      "ms": 324,
+      "ok": true
+    },
+    {
+      "label": "run:stage-slow",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "label": "adv:0.2",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "label": "run:slowcut",
+      "ms": 8,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 933,
+      "ok": true
+    },
+    {
+      "label": "shot:16-slow-cleave+50ms",
+      "ms": 300,
+      "ok": true
+    },
+    {
+      "label": "run:stage-combo",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "label": "adv:0.35",
+      "ms": 504,
+      "ok": true
+    },
+    {
+      "label": "run:cut-combo",
+      "ms": 1801,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 5,
+      "ok": true
+    },
+    {
+      "label": "shot:09-combo+50ms",
+      "ms": 398,
+      "ok": true
+    },
+    {
+      "label": "adv:0.15",
+      "ms": 4,
+      "ok": true
+    },
+    {
+      "label": "shot:10-combo+200ms",
+      "ms": 788,
+      "ok": true
+    },
+    {
+      "label": "adv:0.35",
+      "ms": 3,
+      "ok": true
+    },
+    {
+      "label": "shot:11-combo+550ms",
+      "ms": 1689,
+      "ok": true
+    },
+    {
+      "label": "run:stage-idle",
+      "ms": 6,
+      "ok": true
+    },
+    {
+      "label": "adv:0.05",
+      "ms": 2,
+      "ok": true
+    },
+    {
+      "label": "shot:12-idle-blade",
+      "ms": 320,
+      "ok": true
+    },
+    {
+      "label": "cpu:0",
+      "ms": 113,
+      "ok": true
+    },
+    {
+      "label": "cpu:1",
+      "ms": 15142,
+      "ok": true
+    },
+    {
+      "label": "cpu:2",
+      "ms": 15209,
+      "ok": true
+    },
+    {
+      "label": "perf",
+      "ms": 15058,
+      "ok": true
+    },
+    {
+      "label": "shot:13-load",
+      "ms": 2744,
+      "ok": true
+    },
+    {
+      "label": "hero:resize",
+      "ms": 4,
+      "ok": true
+    },
+    {
+      "label": "run:hero:stage",
+      "ms": 9,
+      "ok": true
+    },
+    {
+      "label": "hero:adv",
+      "ms": 1444,
+      "ok": true
+    },
+    {
+      "label": "hero:shot",
+      "ms": 1674,
+      "ok": true
+    },
+    {
+      "label": "hud",
+      "ms": 2773,
+      "ok": true
+    }
+  ],
+  "perf": {
+    "peakDrawCalls": 33,
+    "peakTriangles": 87411,
+    "programs": 0,
+    "geometries": 23,
+    "textures": 18,
+    "liveBodies": 16,
+    "score": 2189
+  },
+  "cpu": {
+    "repeats": 3,
+    "median": 0.1,
+    "p95": 0.3,
+    "median_spread": [
+      0.1,
+      0.1
+    ],
+    "p95_spread": [
+      0.2,
+      0.3
+    ],
+    "max_do_not_quote": [
+      0.5,
+      1,
+      0.5
+    ],
+    "runs": [
+      {
+        "median": 0.1,
+        "p95": 0.3,
+        "max": 0.5,
+        "frames": 400
+      },
+      {
+        "median": 0.1,
+        "p95": 0.3,
+        "max": 1,
+        "frames": 400
+      },
+      {
+        "median": 0.1,
+        "p95": 0.2,
+        "max": 0.5,
+        "frames": 400
+      }
+    ]
+  },
+  "errors": [],
+  "timedOut": false,
+  "complete": true,
+  "chromium": "/home/jhurliman/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
+  "seed": 1,
+  "backend": "webgl2",
+  "luma": {
+    "01-whole-watermelon": 6.728,
+    "02-cut+33ms": 15.963,
+    "03-cut+100ms": 18.856,
+    "04-cut+250ms": 14.719,
+    "05-cut+500ms": 8.813,
+    "06-cut+1000ms": 4.362,
+    "07-citrus-cut": 15.519,
+    "08-citrus-caps": 8.306,
+    "15-fast-flick+50ms": 14.031,
+    "16-slow-cleave+50ms": 16.862,
+    "09-combo+50ms": 23.627,
+    "10-combo+200ms": 23.222,
+    "11-combo+550ms": 12.51,
+    "12-idle-blade": 31.385,
+    "13-load": 14.309,
+    "00-hero": 12.586
+  },
+  "slowestBeats": [
+    "cpu:2 15.2s",
+    "cpu:1 15.1s",
+    "perf 15.1s"
+  ]
+}
