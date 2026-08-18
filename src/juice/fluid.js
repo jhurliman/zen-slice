@@ -517,7 +517,10 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     turbScale: uniform(0.85),
     turbDamp: uniform(7.0),
     turbFlow: uniform(0),
-    dispMax: uniform(1.25),
+    // r14: 1.25 -> 0.34. This is the hard clamp on total turbulent displacement
+    // and it is the number that decides whether a droplet's path is its own or
+    // the wind's. See the block at `turbAmp` in api.quality.
+    dispMax: uniform(0.34),
     wakeOrg: uniform(new THREE.Vector3()),
     wakeAxis: uniform(new THREE.Vector3(1, 0, 0)),
     wakeT: uniform(-9),
@@ -2015,7 +2018,25 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // 2.16x faster in PORTRAIT — the orientation he plays in — and pinned this
     // whole law at the aerosol end on his device. See the long block above
     // `axisScale` in slicer.js. A law is only as good as the number under it.
-    const CROSS_NDC = 9.0;
+    // ══ r14: 9.0 WAS STILL FAR TOO LOW. ═════════════════════════════════════
+    // THE PLAYER, 2026-08-18, playing r12 on the phone: "I am getting almost
+    // all white spray and little blobby fluid at normal swipe velocities on
+    // iPhone."
+    //
+    // r12 set this by measuring the SPRAY SHARE OF DROPLET AREA and reading the
+    // curve. That statistic is not wrong, but it is not what he sees, and the
+    // gap between them is the whole error: the mist class emits 1000-1500
+    // grains against rim's 300, so at an area share of even 35% the FRAME IS
+    // COUNTABLY MOSTLY WHITE GRAINS. Area says "a third"; the eye counts
+    // objects and says "almost all". A 50/50 crossover at 9.0 ndc/s therefore
+    // reads as spray-dominant well below 9.
+    //
+    // 16.0 puts the 50/50 point at a swipe crossing the whole frame in 0.125 s
+    // — a genuine flick — and leaves the entire ordinary range blob-dominant,
+    // which is what he asked for in the r11 note and has now asked for twice.
+    // Paired with the mist quota cut in api.quality, which is the other half:
+    // moving the crossover alone would still leave the fast end a white wall.
+    const CROSS_NDC = 16.0;
     frameAt(e.at.z);                          // FB.w / FB.h at this cut's depth
     const halfW = FB.w / EXIT_MARGIN;         // the TRUE visible half-width
     const V_CRIT = CROSS_NDC * halfW;
@@ -2100,13 +2121,44 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // r4: the heavy end goes 0.90 -> 1.18 rad. A skirt that opens IN the cut
     // plane is what carries a cleave's beads clear of the fruit's own
     // silhouette; ejection along ±N just drives them into the other half.
-    B.crown = 0.40 + 0.78 * filmness;
-    B.lean = 0.18 + 0.45 * cl(S / 70, 0, 1);  // bias along blade travel
+    // ══ r14: THE SPRAY HAD TO BECOME A CONE ALONG THE BLADE ═════════════════
+    // THE PLAYER: "the spray should be more directional, where the majority is
+    // a sort of cone shape along the direction of the swipe. Right now it's
+    // more like a confetti explosion in all directions on impact."
+    //
+    // He is right and the reason is structural, not a constant. Every class is
+    // aimed at `_wax`, and `_wax` was built as `N + D*lean` with lean maxing at
+    // 0.63 — which is `atan(0.63)` = **32 degrees off the CUT NORMAL**, i.e.
+    // still essentially perpendicular to the swipe. The cone was pointing out
+    // of the cut faces the whole time and no `lean` in that formula could ever
+    // point it along travel, because `lean` would have to run to infinity.
+    //
+    // So `_wax` is now an explicit ANGULAR blend between the two axes rather
+    // than an unbounded additive bias, and the blend is a function of speed:
+    // a slow cleave opens off the faces (which is what a cleaver does, and it
+    // is what plate-01 shows), a fast flick is dragged along the blade.
+    //   aimD 0.30 -> 23 deg off the normal   (slow cleave, unchanged in spirit)
+    //   aimD 0.92 -> 85 deg off the normal = 5 deg off blade travel (flick)
+    // ⚠ THE FLOOR IS 0.55 AND IT MUST NOT RIDE ON `fast`. My first attempt at
+    // his directionality note tied this to the Weber mix — and then raising
+    // CROSS_NDC for his FIRST note dropped `fast` to 0.09 at an ordinary swipe,
+    // which silently undid it. Rendered them together and the cone was gone.
+    // The two notes are about different physics: the mix is about whether a
+    // ligament survives, this is about the blade DRAGGING fluid along with it,
+    // which happens at every speed. So it gets a high floor and a gentle slope.
+    //   aimD 0.55 -> 29 deg off blade travel   (ordinary swipe: a clear cone)
+    //   aimD 0.92 -> 5 deg off blade travel    (flick: a jet)
+    const aimD = 0.55 + 0.37 * fast;
+    // crown is the ejection cone's half-angle. Its FAST floor comes down too:
+    // 0.40 rad is 23 degrees of spread on a class that is supposed to read as a
+    // directed jet, and spread is exactly what makes a cone read as confetti.
+    B.crown = 0.26 + 0.86 * filmness;
+    B.lean = 0.22 + 0.85 * fast;   // bias of the crown TABLE along blade travel
     buildTable();
     // the wedge axis the droplet classes are aimed onto: the cut normal, tilted
     // downstream. Keeping the lean in here is what stops `aimWedge` from
     // collapsing the fan into two axial jets.
-    _wax.copy(B.N).addScaledVector(B.D, B.lean);
+    _wax.copy(B.N).multiplyScalar(1 - aimD).addScaledVector(B.D, aimD);
     if (_wax.lengthSq() > 1e-8) _wax.normalize(); else _wax.copy(B.N);
 
     // Droplet ballistics are specified by their ASYMPTOTE, not their launch
@@ -2156,7 +2208,28 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // 2.80x puts the median asymptote at 5.6-6.1 units, which the sideways
     // fraction crosses outright and the rest converts into hang-time that
     // gravity then finishes (see the drag note at kB).
-    const beadReach = 2.80 * R * (0.40 + 0.30 * fast + 4.40 * filmness) * (0.85 + 0.25 * amt);
+    // ══ r14: THE BLOBS HAVE TO FALL WHERE HE CAN SEE THEM ═══════════════════
+    // THE PLAYER: "the blobby fluid is still disappearing from screen too
+    // quickly, I want to see it falling more."
+    //
+    // This is r11's fix overshooting, and the overshoot is visible in r11's own
+    // table: it took the median rim asymptote from 2.20 units to 6.15 to get
+    // droplets OFF the screen, because they were dying of old age in mid-air.
+    // At r12's corrected stroke speeds a melon cleave now reaches ~13 units of
+    // asymptotic travel against a portrait half-width of 3.90 — so the beads
+    // leave sideways, fast, and the fall he wants to watch never happens. The
+    // exit is real (r11's `%out-before-death` is honest) but it is the WRONG
+    // EXIT: they go out the sides in a few hundred ms instead of arcing over
+    // and dropping out of the bottom.
+    //
+    // 2.80 -> 1.55 and the filmness term 4.40 -> 2.60 puts the melon cleave at
+    // ~5.3 units — still comfortably past r11's 2.20 "cannot reach the edge at
+    // any lifetime" failure, and now BELOW the frame half-width in landscape,
+    // so gravity gets to dominate the second half of the arc. The droplets
+    // still exit, and `lifeOf` still derives their lifetime from a real exit
+    // time; they exit through the FLOOR, which is the direction he asked to
+    // watch. Nothing about the derived-lifetime mechanism changes.
+    const beadReach = 1.55 * R * (0.40 + 0.30 * fast + 2.60 * filmness) * (0.85 + 0.25 * amt);
     // ⚠ r7 (B5): THE CLEAVE'S MIST NEVER LEFT THE FRUIT, AND THAT IS WHY THE
     // SIZE-TO-TINT LAW COULD NOT BE MEASURED ON IT. `mistReach` was the one
     // reach constant with no `filmness` term, so for a heavy cleave it read
@@ -2391,7 +2464,11 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     for (let i = 0; i < nRim; i++) {
       const ai = (rng() * NA) | 0, vv = rr(0.74, 1.0), del = rr(0.002, 0.020);
       filmAt(ai, vv, del, _o, _v);
-      aimWedge(_v, 0.08 + 0.20 * fast);
+      // r14: 0.08..0.28 left the rim beads essentially on the raw crown ring,
+      // which is the "confetti in all directions" the player named. 0.34..0.76
+      // pulls them onto the wedge axis hard enough to read as one throw, while
+      // the residual keeps the ring's shape so it is not a laser.
+      aimWedge(_v, 0.45 + 0.34 * fast);
       // ══ r11: EVERY DRAG CONSTANT IN THIS FILE WAS 5-20x TOO HIGH ═════════
       // Under linear drag the TERMINAL FALL SPEED is exactly g/k, and g here is
       // 14 dm/s^2. At r10's kB = 9.25..17.25 a rim bead's terminal speed was
@@ -2418,7 +2495,13 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // k = 2.5 it still has 54% of it. The `beadReach` 2.80x above is what
       // puts the launch speed back (median |v0| 26.7 -> 15.3 units/s: SLOWER
       // at the instant of the cut, and 9x faster than r10 by +250 ms).
-      const kB = rr(1.10 + 0.70 * filmness, 2.60 + 1.60 * filmness);
+      // r14: lower still. Terminal fall is exactly g/k with g = 14, so
+      // kB = 0.85..2.9 is 4.8..16.5 units/s of sink against a portrait frame
+      // 8.45 units tall — about a second of visible fall for a mid-range bead,
+      // which is the "I want to see it falling" he asked for. Lower drag also
+      // means the bead KEEPS more of its launch velocity, so the arc is a real
+      // parabola rather than a decelerating stub.
+      const kB = rr(0.85 + 0.55 * filmness, 1.90 + 1.00 * filmness);
       _v.multiplyScalar(beadReach * kB * TBL[ai * 7 + 6] * rr(0.14, 1.30)).add(B.inh);
       _j.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(beadReach * kB * 0.13);
       _v.add(_j);
@@ -2451,7 +2534,30 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // changes nothing on any measured frame and only weakens the law at a
       // 2x-DPR raster where it would finally bind. `szW` is what `cls()` sees
       // (physical volume decides colour); `sz` is what gets drawn.
-      const szW = (0.017 + 0.123 * Math.pow(u, 4.4)) * szScale;
+      // ══ r14: 60% OF THE *BLOB* CLASS WAS RENDERING WHITE ════════════════
+      // This is the real cause of "almost all white spray and little blobby
+      // fluid", and it is not the mist class at all. `cls()` makes a droplet
+      // juice-coloured only above `small` = 0.030*szScale, and r9 deliberately
+      // pushed the bulk of THIS law below that line to match plate-01's median
+      // blob area — "most beads piled small (and, being below `small` = 0.031,
+      // reading WHITE as the plate's fine drops do)". It worked: on a melon at
+      // szScale 0.84 the median rim bead was 0.0192 against a 0.0252 crossover,
+      // so the class the player thinks of as "the blobs" was 60% ACHROMATIC.
+      // He was not describing the mist. He was describing the rim.
+      //
+      // Floor 0.017 -> 0.026 and power 4.4 -> 2.6 takes the share above the
+      // crossover from 40.0% to 72.5% and the median from 0.0192 to 0.0378,
+      // measured at the melon-cleave szScale. The heavy tail is untouched —
+      // the top of the draw is 0.115+0.026 against the old 0.140, so the fat
+      // beads r8/r9 built are still there and `area_p95_over_median` still has
+      // its range; what moves is the PILE, upward, across the colour line.
+      //
+      // ⚠ THIS PARTLY REVERSES r9, KNOWINGLY, AND THE FROZEN SUITE WILL SAY SO.
+      // `droplets median_area_px` was matched to a scale-matched plate at 24-25
+      // and will rise. That trade is the player's to make and he has now made
+      // it twice — the plate is a still photograph of a DIFFERENT splash, and
+      // r9 chose it as the target. He is the target.
+      const szW = (0.026 + 0.115 * Math.pow(u, 2.6)) * szScale;
       const sz = Math.max(szW, gFloor * (0.80 + 0.45 * rng()));
       // It gets the widest morphology spread in the file: heavy outline
       // lumping, a thickness that runs from flattened lens to tall bead, and a
@@ -2504,7 +2610,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     for (let i = 0; i < nSpr; i++) {
       const ai = (rng() * NA) | 0, vv = rr(0.05, 0.72), del = rr(0.0, 0.008);
       filmAt(ai, vv, del, _o, _v);
-      aimWedge(_v, 0.12 + 0.28 * fast);
+      aimWedge(_v, 0.52 + 0.36 * fast);   // r14: the directed class, see rim
       // r11: same argument as kB above, one class finer, so the drag is a
       // little higher. Terminal fall 3.9-8.8 units/s for a cleave.
       const kS = rr(1.60 + 1.20 * filmness, 3.60 + 2.60 * filmness);
@@ -2649,7 +2755,9 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       } else {
         const vv = rr(0.0, 0.42), del2 = rr(0.0, 0.009);
         filmAt(ai, vv, del2, _o, _v);
-        aimWedge(_v, 0.15 + 0.25 * fast);
+        // r14: the aerosol is the class he is describing as confetti, because
+        // it is by far the most numerous. It gets pulled onto the axis hardest.
+        aimWedge(_v, 0.58 + 0.34 * fast);
         const u = rng();
         _v.multiplyScalar(mistReach * kM * TBL[ai * 7 + 6] * (0.28 + 1.25 * u * u)).add(B.inh);
       }
@@ -2845,13 +2953,43 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // It is already the largest loop in the file and the fast flick's aerosol
       // is the one thing this piece owns; raising it is 4000 more iterations on
       // a combo frame for a class that is not the measured gap.
-      rim: [64, 132, 222, 300][t],
+      // ══ r14: THE OTHER HALF OF "ALMOST ALL WHITE SPRAY" ═════════════════
+      // Moving the Weber crossover changes WHEN the mix tips. It does not
+      // change the fact that at tier 2 — the tier his iPhone runs — the emitter
+      // puts 1000 white grains on screen against 222 juice-coloured beads, so
+      // even a blob-weighted mix is countably mostly grains. The eye counts
+      // objects; the area statistic r12 steered on does not.
+      // mist -35%, rim +13%. Both classes are still present at both ends of the
+      // speed law, which is the property he asked for and which r12's
+      // `we/(1+we)` guarantees by construction.
+      // ⚠ This is the FIRST time `mist` has been lowered. r6 declined to raise
+      // it (cost), r10 declined again (not the measured gap) — nobody had a
+      // reason to cut it until he named the symptom.
+      rim: [72, 150, 250, 340][t],
       spray: [40, 90, 150, 210][t],
-      mist: [130, 480, 1000, 1500][t],
+      mist: [90, 320, 650, 980][t],
       cling: [0, 26, 60, 84][t],
     };
     // turbulence is the first thing to go on a weak device
-    U.turbAmp.value = t >= 3 ? 46.0 : t >= 2 ? 34.0 : 22.0;
+    // ══ r14: THE WIND WAS DRIVING, NOT DECORATING ═══════════════════════════
+    // THE PLAYER: "there is some wind or turbulence effect applied to the
+    // particles which is a nice touch but it's too strong. Make it much more
+    // subtle so particles primarily travel based on their initial force vector
+    // not 'where the wind takes them', primarily."
+    //
+    // That is a precise statement of the right relationship and the old numbers
+    // inverted it. `resp = smoothstep(0.9, 6.5, drag) * turbAmp` feeds an
+    // acceleration into the per-droplet turbulence velocity, and at 46 the
+    // curl field could push a grain the full `dispMax` of 1.25 world units —
+    // against a rim bead's whole median asymptotic travel. The noise was
+    // comparable to the ballistics it was supposed to perturb.
+    //
+    // 11 / 8 / 5.5 is a quarter of that, and `dispMax` drops 1.25 -> 0.34 so
+    // the HARD CEILING on how far the wind can ever move a droplet is now
+    // ~9% of a fruit radius rather than 90%. The kernel is unchanged; only its
+    // authority is. Keep the tier ordering: turbulence is still the first thing
+    // to go on a weak device.
+    U.turbAmp.value = t >= 3 ? 11.0 : t >= 2 ? 8.0 : 5.5;
     computeWanted = t >= 1;
     if (!computeWanted) U.turbMix.value = 0;
     else if (computeOK) U.turbMix.value = 1;

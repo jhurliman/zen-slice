@@ -139,22 +139,52 @@ export function createSlicer() {
     if (!res || !res.pos || !res.neg) return;
 
     const halves = [];
-    const sep = clamp(0.7 + stroke.speed * 0.045, 0.8, 3.2);
+    // ══ r14: THE CUT WAS THROWING THE HALVES OFF SCREEN ══════════════════════
+    // THE PLAYER, 2026-08-18: "too much force is being applied to the fruit
+    // parts when I swipe and cut them. I want a little but right now a swipe is
+    // sending the two parts flying off screen."
+    //
+    // Three terms push the halves and ALL THREE scale with stroke speed, so
+    // they compound: this separation impulse along the cut normal, the lateral
+    // kick along the blade below, and the spin. On top of that r11 put the
+    // halves on Rapier bodies, which no longer damp the way the old ad-hoc
+    // integrator did, and r12's aspect fix changed what `stroke.speed` even
+    // reads. Nobody re-checked the constants after either change.
+    //
+    // `0.7 + S*0.045` clamped at 3.2 saturates at S = 55.6 — i.e. an ordinary
+    // swipe was pinned at the CEILING, and every swipe above that felt
+    // identical and maximal. The new law reaches its ceiling at S = 103, which
+    // is a hard flick, so the whole ordinary range is now expressive instead of
+    // clipped. Peak separation impulse is more than halved (3.2 -> 1.45).
+    // He asked for "a little", not none: the floor is unchanged in spirit, a
+    // cleave still opens.
+    const sep = clamp(0.45 + stroke.speed * 0.0097, 0.5, 1.45);
     for (const [geom, sign] of [[res.pos, +1], [res.neg, -1]]) {
       const off = recenter(geom);
       off.applyQuaternion(f.quat);
       const pos = f.pos.clone().add(off);
       const vel = f.vel.clone()
         .addScaledVector(stroke.plane.n, sign * sep)
-        .addScaledVector(stroke.dir, stroke.speed * 0.06);
+        // the lateral kick along the blade. At r12's corrected speeds a 14 ndc/s
+        // flick is S ~ 97, so 0.06 was adding 5.8 units/s of sideways travel to
+        // a half on a playfield whose visible half-width is 3.90 in portrait —
+        // it cleared the frame in well under a second on its own, before the
+        // separation impulse or gravity did anything. 0.021 puts that at
+        // 2.0 units/s, which reads as "the blade shoved it" and still leaves
+        // the arc legible.
+        .addScaledVector(stroke.dir, stroke.speed * 0.021);
       const mesh = new THREE.Mesh(geom, f.mesh.material);
       mesh.frustumCulled = false;
       geom.computeBoundingSphere();
       const h = {
         id: nextId(), species: f.species, mesh, pos, vel,
         quat: f.quat.clone(),
+        // Tumble reads as force too, and it was the third term nobody counted.
+        // 1.2..2.8 rad/s on a half that is only on screen for a second is more
+        // than a full rotation before it lands — which makes the cut FACE, the
+        // one thing r10 spent a round on, face away for most of its flight.
         spin: f.spin.clone().multiplyScalar(0.7)
-          .addScaledVector(stroke.dir, sign * (1.2 + Math.random() * 1.6)),
+          .addScaledVector(stroke.dir, sign * (0.55 + Math.random() * 0.85)),
         radius: geom.boundingSphere.radius,
         generation: f.generation + 1, dead: false, bornAt: 0, lastStroke: strokeId,
       };
