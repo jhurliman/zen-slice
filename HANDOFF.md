@@ -283,15 +283,17 @@ Worked the two things r11 left: the player's column choice, and his juice-mix no
 
 ### Open work, roughly in priority order
 
-0. 🔴 **THE FIRST SLICE OF A SESSION DRAWS NO JUICE.** `node tools/.r12first.mjs`: three identical
-   cuts on one page, one build, seeded RNG — cut 0 renders the halves and **not one droplet**;
-   cuts 1 and 2 render the full splash. The pool reports 1850 / 1829 / 1829 emitted instances in
-   all three, so **the droplets exist and are not drawn**. Rendering the same state a second frame
-   brings the *sheet* in and still no droplets. Reproduces on the pre-r12 build, so it is not r12's.
-   Player-visible, in the exact system he filed a note about. A primer droplet at `api.init` was
-   tried and **reverted because it did not work** — `ZS.clear()` -> `api.reset()` sets
-   `drops.head = 0` and therefore `instanceCount = 0` again, so the hypothesis is untested rather
-   than disproved. Re-emit the primer *after* reset and try again.
+0. ⛔ **"THE FIRST SLICE OF A SESSION DRAWS NO JUICE" IS RETRACTED — it was a harness artefact.**
+   See `rounds/reports/r13-retraction.md`. The measurement reproduces; the conclusion was wrong.
+   `ZS.advance()` simulates dark and renders only the last frame; a player renders every frame.
+   Same page, same cut, one variable: first cut via `advance()` = **0 blobs**, first cut with every
+   frame rendered = **86 blobs**, and the juice is present on the very frame after the cut and
+   grows monotonically. The `instanceCount` primer fix proposed here was **built and refuted** —
+   priming through `api.reset` so the count is never 0 leaves cut 0 just as empty. What remains is
+   a dark-simulate artefact on the first cut of a page: it costs the harness, not the player, and a
+   warm-up shifts `03`/`04` by ~25-30% while *lowering* `02`, which is too mixed to act on. **Do
+   not spend a round on this before re-reading the retraction.**
+
 1. **Framedrop when fruit split** — `cutGeometry` allocates fresh BufferGeometry per half on the
    main thread at the exact moment the player is looking. He asked whether web workers are the
    answer. Note r12's cpu probe reads p50 0.1 ms / p95 0.3 ms steady-state, so this is a **cut

@@ -190,6 +190,30 @@ orientation; portrait and desktop now agree, which they never did.
 
 ## 4. ⚠ A DEFECT I FOUND, DID NOT CAUSE, AND COULD NOT FIX — THE FIRST SLICE OF A SESSION HAS NO JUICE
 
+> ## ⛔ RETRACTED, 2026-08-18, BY ITS OWN AUTHOR. READ `r13-retraction.md`.
+>
+> **The measurement below is real and reproduces. The conclusion drawn from it —
+> that this is player-visible — is WRONG, and I drew it without running the one
+> experiment that discriminates.** A player renders every frame; `ZS.advance()`
+> simulates dark and renders only the last one. Rendering every frame from the
+> instant of the first cut shows juice on the very next frame and growing
+> steadily after it (123 px / 2 blobs at +8 ms, 2797 px / 40 blobs at +117 ms).
+> Same page, same cut, one variable:
+>
+> | | dark-advance (harness) | render every frame (player) |
+> |---|---|---|
+> | **first** cut of the page | **0 blobs** | **86 blobs** |
+> | second cut of the page | 101 blobs | 82 blobs |
+>
+> So it is a **harness-path artefact on a cold page**, not a defect in the game,
+> and the section below overstates it. §8's own warning — "a bit-exact capture of
+> a probe that rewards deleting an appendage still rewards deleting an
+> appendage" — applies to me: I had a reproducible measurement and I reported
+> what I assumed it meant. The rest of this section stands as the record of the
+> measurement; the headline does not.
+
+
+
 **This is the most important thing in this report after §0, and it should be the next round's
 first item.**
 
