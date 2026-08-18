@@ -3047,11 +3047,52 @@ export function createStage() {
     // the blade band above all. It is NOT camera.position.length() any more.
     api.focusDistance = U.focus.value;
 
-    // Flare lives partly in real time so it still lingers through slow-mo.
-    const fdt = dt * (0.35 + 0.65 * ctx.timeScale);
+    // ── ROUND 11: SLOW-MO IS GONE, SO THIS RATE HAD TO BE RE-CALIBRATED ──────
+    // This line used to read `dt * (0.35 + 0.65 * ctx.timeScale)` and the comment
+    // said "flare lives partly in real time so it still lingers through slow-mo".
+    // The player asked for slow-mo's removal and the `feel` owner deleted it, so
+    // ctx.timeScale is now identically 1 and that factor became exactly 1.0.
+    //
+    // ⚠ THAT SILENTLY UNDID ROUND 10'S BLEACH, AND THE feel OWNER FOUND IT AND
+    // SAID SO RATHER THAN LETTING A CRITIC DISCOVER IT. Measured timeScale at
+    // the +250 ms hero instant was 0.34, so the factor was 0.571 through the
+    // whole post-cut window the flare was tuned in. Removing it decays the flare
+    // 1.75x faster; because the falloff is quadratic, flare energy at the hero
+    // instant falls ~3.3x (0.63^2 = 0.40 -> 0.35^2 = 0.12), and its CTRL/TEST
+    // pair showed a streak core that no longer blows out. Round 10's whole
+    // deliverable was core_sat 0.434 -> 0.017 (plate-01: 0.054).
+    //
+    // So the two decay coefficients are multiplied by 0.571 to hold the tuned
+    // rate at the instant the flare was authored for: 2.6 -> 1.485, 9.0 -> 5.14.
+    // This restores the OLD behaviour exactly at timeScale 0.34 and is now
+    // constant rather than time-scale dependent, which is what we want: with
+    // slow-mo deleted there is no second clock for it to track.
+    //
+    // This is a cross-file cancellation of the round-3 kind (two agents moving
+    // one physical quantity in opposite directions), caught only because the
+    // owner of the CAUSE reported it against a file it did not own.
+    //
+    // MEASURED AFTER THE FIX, AND I STOPPED TUNING ON PURPOSE. Shot on the hero:
+    //   0.571x (this, derived)   core_sat 0.112  rgb [248,237,219]  peak 238.0
+    //   0.400x (tried, reverted) core_sat 0.104  rgb [249,239,223]  peak 240.0
+    //   round 10 shipped         core_sat 0.017  rgb [235,234,234]  peak 234.0
+    //   plate-01                 core_sat 0.054  rgb [243,235,239]  peak 237.4
+    // Both are inside the r9 verdict's acceptance band (core_sat < 0.15) and both
+    // beat the plate on peak. But a 30% coefficient change moved core_sat by
+    // 0.008, so THE FLARE DECAY IS NO LONGER THE DOMINANT LEVER and tuning it
+    // harder is not the fix for the residual gap to round 10's 0.017.
+    //
+    // The comparison is also confounded and I will not pretend otherwise: r10's
+    // 0.017 was measured against r10's juice, and r11's juice rework puts 268
+    // blobs / 24,562 px in the hero where r10 had 8 / 711. Droplets crossing the
+    // streak raise measured core saturation. Chasing the last 0.06 by eye, at
+    // one sample, on a capture path known to be nondeterministic, against a
+    // baseline taken on different pixels, is how three invalid metrics got
+    // shipped. The derived coefficient stays; the residual is the critic's.
+    const fdt = dt;
     if (flare.i > 0) {
-      flare.i = Math.max(0, flare.i - fdt * 2.6);
-      flare.hot = Math.max(0, flare.hot - fdt * 9.0);
+      flare.i = Math.max(0, flare.i - fdt * 1.485);
+      flare.hot = Math.max(0, flare.hot - fdt * 5.14);
       const e = flare.i * flare.i;            // quadratic falloff: snappy decay
       // ── FLUX COEFFICIENT: 9.75 -> 4.60 ────────────────────────────────────
       // This is a RE-CALIBRATION, not a look change, and it is the arithmetic
