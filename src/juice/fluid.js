@@ -278,6 +278,58 @@
  *      28.81% (median IoU 0.8399 against the plate's 0.8228).
  *      Numbers and both baseline runs: rounds/reports/r8-juice.md.
  *
+ * ── ROUND 11: THE PLAYER PLAYED IT, AND THIS FILE'S FIRST NOTE IS HIS ───────
+ *  Nine rounds of numbers went up. Then a human played the build and wrote:
+ *
+ *      "the juice disappears way too quickly, ideally i don't see it fade at
+ *       all but it instead sprays off the screen"
+ *
+ *  He is describing a defect THIS PROJECT'S MEASUREMENT LOOP MANUFACTURED, and
+ *  the receipt is in item (g) above: the r3 verdict said "the lifetime constant
+ *  is roughly 4x too long" and every lifetime and birth delay in this file was
+ *  cut 3-4x to satisfy it. That bar came from matching plate-01 — a STILL
+ *  PHOTOGRAPH, a frozen instant, in which juice has no need to persist because
+ *  time is not passing. Optimising still-frame similarity to a photograph
+ *  taught the simulation to delete juice as fast as it could. No still image
+ *  can express the property he is asking for, because it is a MOTION property.
+ *
+ *   y) LIFETIME IS NOT AN AUTHORABLE CONSTANT. It is DERIVED now: at emit time
+ *      every droplet's own ballistic path is solved for the instant it crosses
+ *      the frame (`exitTime`, closed form, the same p(t) the vertex shader
+ *      evaluates), and its life is that instant x 1.16 with the whole alpha
+ *      ramp packed into the last 14% — which is spent OFF-SCREEN. The player
+ *      does not see the fade because the fade happens where he is not looking.
+ *      A per-class constant cannot do this: within ONE burst the correct answer
+ *      varies by a factor of 40 between one droplet and its neighbour.
+ *
+ *   z) IT WAS A VELOCITY BUG BEFORE IT WAS A LIFETIME BUG, and the measurement
+ *      is in the report. A melon cleave's rim bead had a median ASYMPTOTIC
+ *      travel of 2.20 units against a landscape half-width of 6.93: it could
+ *      not reach the edge of the frame at any lifetime whatsoever. And under
+ *      linear drag terminal fall speed is exactly g/k, so at kB = 9.25..17.25
+ *      a bead sank at 0.8-1.5 units/s and needed 4.6 SECONDS to clear the
+ *      bottom of frame. Measured over 2000 droplets in three bursts and both
+ *      orientations, the share of each class that got out of frame before its
+ *      life ended was: rim 4.8%, spray 7.0%, MIST 0.0%. Everything else faded
+ *      in place, in the middle of the picture. Every drag constant in the file
+ *      is 3-20x lower now (a 1.7-14 mm drop is not an aerosol; kM = 34..62 is
+ *      drag for a 30 um fog droplet and nothing here is 30 um), every reach is
+ *      2.4-2.8x longer to put the launch speed back, and the same measurement
+ *      now reads rim 96%, spray 74-80%, mist 56-64% in landscape.
+ *
+ *  aa) RULE 3 IS RETIRED as a lifetime constraint, deliberately, and only
+ *      because r10 closed the seam it was standing in for: `bus.on('reset')`
+ *      now retires the whole field between harness stagings, so two test frames
+ *      can no longer contaminate each other however long juice lives. RULE 3
+ *      was never a statement about the game. In a game, a combo's second cut
+ *      SHOULD land in the first cut's spray.
+ *
+ *  ⚠ ONE CLASS STILL FADES AND IT IS SAID PLAINLY: mist. A decelerating grain
+ *  with a 1.7-unit asymptote inside a frame 8.45 units tall has nowhere to go
+ *  but down, slowly; in portrait only ~18% of it gets out. Its fade is 12-20x
+ *  longer than r10's, starts at 16% of life instead of 30%, and runs on a grain
+ *  that is still visibly moving. That is dispersal. It is not deletion.
+ *
  * ── The lens boundary ───────────────────────────────────────────────────────
  * Round 5 added `stage.lens`, and this file defocuses its own sprites through
  * it. Every number comes from stage.js (`_lens.sprite(r0px, dist)` -> grow,
@@ -453,7 +505,12 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     wL2: uniform(new THREE.Vector3().copy(L2)),
     key: uniform(new THREE.Vector3().copy(KEY)),
     cam: uniform(new THREE.Vector3()),
-    maxAge: uniform(1.9),
+    // r11: 1.9 -> 2.7. This is the compute kernel's "long dead, stop
+    // integrating turbulence for it" threshold (:556) and it MUST stay above
+    // the longest life the emitter can hand out (rim's 2.30 s ceiling), or a
+    // live droplet has its swirl hard-reset to zero mid-flight and visibly
+    // snaps back onto the analytic path.
+    maxAge: uniform(2.7),
     // turbulence / wake (compute)
     turbMix: uniform(0),                             // 0 until compute has run
     turbAmp: uniform(46.0),
@@ -574,11 +631,23 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         // and decaying fast. This is what drags mist behind the trailing edge.
         const rel = P.sub(U.wakeOrg).toVar();
         const wAge = max(U.T.sub(U.wakeT), 0.0);
-        const wFall = exp(dot(rel, rel).mul(-0.16)).mul(exp(wAge.mul(-7.0)));
+        // r11: -7.0 -> -3.6. The wake decayed with a 143 ms time constant,
+        // authored when the longest-lived grain in the file was 100 ms. The
+        // grains it is supposed to drag now live 1.9 s.
+        const wFall = exp(dot(rel, rel).mul(-0.16)).mul(exp(wAge.mul(-3.6)));
         F.addAssign(cross(U.wakeAxis, rel).mul(wFall.mul(U.wakeAmp)));
 
         // air responsiveness, read off the drag coefficient (see the note above)
-        const resp = smoothstep(2.5, 20.0, v.w).mul(U.turbAmp);
+        // r11: the window is 2.5..20 no more. Every drag constant in this file
+      // fell 3-20x this round (see the kB block in api.burst), so the OLD
+      // window mapped the entire population onto resp ~ 0 and silently
+      // switched the turbulence off — a 1-line regression that would have cost
+      // the aerosol its billow while every other number looked fine. The
+      // window is re-derived from the new spread it has to separate:
+      //   rim 1.1-4.2 | ligament 1.8-4.2 | spray 1.6-6.2 | mist 2.6-6.4
+      // so 0.9..6.5 keeps the same ordering (fat beads ballistic, fine grains
+      // dragged bodily by the air) across the range that now exists.
+      const resp = smoothstep(0.9, 6.5, v.w).mul(U.turbAmp);
         W.addAssign(F.mul(resp).sub(W.mul(U.turbDamp)).mul(U.dt));
         D.addAssign(W.mul(U.dt));
 
@@ -655,7 +724,13 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         .add(clamp(sp.mul(aP2.z), 0.0, 1.70)).toVar();
       const rt = sqrt(st).toVar();
 
-      const s0 = aP.x.mul(float(1.0).sub(smoothstep(0.55, 1.0, a01).mul(0.30))).toVar();
+      // r11: 0.55 -> 0.80. This is a SHRINK over the tail of life, which at
+      // r10's 0.13 s lifetimes was invisible and at r11's derived lifetimes
+      // would be a droplet visibly evaporating over half a second in the middle
+      // of the frame — a fade by another name, and the exact thing the player
+      // asked to stop seeing. Pushed into the same last fifth of life the alpha
+      // ramp now lives in, which for an exiting droplet is off-screen.
+      const s0 = aP.x.mul(float(1.0).sub(smoothstep(0.80, 1.0, a01).mul(0.30))).toVar();
 
       // Sub-pixel floor with energy alpha compensation. Real mist is sub-pixel;
       // without this it aliases into nothing and the aerosol simply is not
@@ -1493,7 +1568,14 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const a = float(1.0).sub(exp(thick.mul(-2.4)))
         .mul(float(0.40).add(fres.mul(0.78)))
         .mul(aC.x)
-        .mul(float(1.0).sub(smoothstep(0.70, 1.0, age)));
+        // r11: 0.70 -> 0.88. The header of this file has claimed since round 1
+        // that the sheet "dies by TEARING ... never by a global fade", and then
+        // multiplied its alpha by a global fade over the last 30% of its life.
+        // At a 0.10 s life that was 30 ms and nobody could see it; at r11's
+        // 0.20-0.34 s life it would be a 90 ms dissolve, which is precisely the
+        // thing the player named. The lacunar tear field and the retreating
+        // torn edge do the killing; this term now only cleans up the last 12%.
+        .mul(float(1.0).sub(smoothstep(0.88, 1.0, age)));
       return vec4(col, clamp(a, 0.0, 0.94));
     });
 
@@ -1538,6 +1620,107 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     N: new THREE.Vector3(), D: new THREE.Vector3(), inh: new THREE.Vector3(),
     R: 1, seed: 0, spd: 60, crown: 1.0, lean: 0.4, k: 40,
   };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  ROUND 11 — BALLISTIC EXIT, AND WHY THIS IS THE ONLY HONEST WAY TO SET A
+  //  LIFETIME
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  The player's note is a MOTION property: "ideally i don't see it fade at
+  //  all but it instead sprays off the screen". Restated as physics, a droplet
+  //  must leave the frame because it FLEW OUT OF IT, not because its alpha
+  //  reached zero. That makes the lifetime a DERIVED quantity, not an authored
+  //  one: a droplet's life should be the time it takes ITS OWN launch velocity
+  //  to carry it past the frame edge, plus a small margin so the last of the
+  //  fade happens off-screen where nobody can see it.
+  //
+  //  Nine rounds authored `life` as a constant per class, tuned against a
+  //  STILL photograph, and the r3 verdict cut every one of them 3-4x. That is
+  //  how a simulation learns to delete juice as fast as possible. There is no
+  //  constant that can be right here, because the correct answer differs by a
+  //  factor of ~40 between one droplet and the next in the SAME burst.
+  //
+  //  The path is the same closed form the vertex shader evaluates (:632):
+  //      p(t) = o + v*(1-e^-kt)/k + g*(t - (1-e^-kt)/k)/k
+  //  so `exitTime` is exact for x (one log) and two Newton steps for y, whose
+  //  large-t behaviour y ~ o.y + (v.y - g/k)/k + (g/k)*t is a linear asymptote
+  //  and therefore a very good Newton seed.
+  //
+  //  ⚠ ONLY the bottom edge and the two side edges are solved. A droplet that
+  //  would leave through the TOP is rare (the crown opens off the cut plane,
+  //  not straight up) and missing one only makes its life LONGER, which is the
+  //  direction the player asked for. Solving it would cost a third root-find
+  //  on every droplet for a case that barely exists.
+  const EXIT_MARGIN = 1.30;    // the box is 30% bigger than the frustum, so a
+  // droplet is never retired while a corner of it is still on screen. 1.30 is
+  // not a fudge: it is chosen so the slack (1.17 world units on the shortest
+  // edge, landscape's 3.90-unit half-height) EXCEEDS the compute kernel's own
+  // turbulence clamp `dispMax` = 1.25... it does not, quite, so see the note
+  // in the report; at 1.30 the slack is 1.17 and a worst-case fully-saturated
+  // swirl on a grain that has just crossed the edge can pull it 0.08 units
+  // back inside. That is 4 device pixels on a 1-px grain at 1% alpha.
+  const FB = { w: 7.9, h: 4.45, cx: 0, cy: 0.6 };
+  /** The visible rectangle, in WORLD units, at the depth the cut happened.
+   *  main.js CONTAIN-fits STAGE.halfExtent, so this is 6.93 x 3.90 in
+   *  landscape and 3.90 x 8.45 in portrait — a 2.17x difference on the axis
+   *  gravity works along, which is why every number below is reported twice. */
+  function frameAt(z) {
+    const vf = Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
+    const d = Math.max(0.5, camera.position.z - z);
+    FB.h = vf * d * EXIT_MARGIN;
+    FB.w = FB.h * (camera.aspect || 1.7778);
+    FB.cx = camera.position.x; FB.cy = camera.position.y;
+  }
+  /** Seconds from birth until this droplet is outside FB. Infinity if never. */
+  function exitTime(ox, oy, vx, vy, k) {
+    k = Math.max(k, 0.05);
+    let t = Infinity;
+    // ── sides. x(t) = ox + vx*E, E = (1-e^-kt)/k, monotone, sup = 1/k ───────
+    if (vx !== 0) {
+      const kE = k * (((vx > 0 ? FB.cx + FB.w : FB.cx - FB.w) - ox) / vx);
+      // kE >= 1 means the asymptote |vx|/k does not reach the edge at all: no
+      // amount of lifetime gets this droplet off the side. No log is taken.
+      if (kE > 0 && kE < 1) t = -Math.log(1 - kE) / k;
+      else if (kE <= 0) t = 0;
+    }
+    // ── floor. y(t) = oy + (vy - a)*E + a*t, a = g/k = terminal fall speed ──
+    const a = GRAVITY / k;
+    const edge = FB.cy - FB.h;
+    let s = (edge - oy - (vy - a) / k) / a;         // linear-asymptote seed
+    if (s > 0 && s < 1e4) {
+      for (let i = 0; i < 2; i++) {
+        const ex = Math.exp(-k * s);
+        const f = oy + (vy - a) * (1 - ex) / k + a * s - edge;
+        const df = vy * ex + a * (1 - ex);
+        if (df > -1e-6) break;                      // not descending yet
+        s -= f / df;
+        if (!(s > 0)) { s = 1e-3; break; }
+      }
+      if (s > 0 && s < t) t = s;
+    } else if (oy < edge) t = 0;
+    return t;
+  }
+  /** life, and whether the droplet gets off-screen before it runs out.
+   *  `LIFE_SLACK` is what guarantees the tail of the fade is spent outside the
+   *  frame: at 1.16 the last 14% of life (where `fadePow` 0.86 puts the whole
+   *  ramp) begins after the droplet has already crossed the edge. */
+  const LIFE_SLACK = 1.16;
+  const LF = { life: 0, out: false, fade: 0.86 };
+  function lifeOf(o, v, k, lo, hi, hangFade) {
+    const te = exitTime(o.x, o.y, v.x, v.y, k) * LIFE_SLACK;
+    if (te <= hi) {
+      LF.life = te < lo ? lo : te;
+      // it leaves the frame: put the entire ramp in the last 14% of life, i.e.
+      // off-screen. The player never sees this droplet fade, by construction.
+      LF.out = true; LF.fade = 0.86;
+    } else {
+      // it never gets out (a hanging grain, a bead thrown into the frame's
+      // long axis). It has to dissolve, so make the dissolve SLOW — spread
+      // across most of the life rather than cliffed at the end, which is what
+      // reads as dispersal instead of deletion.
+      LF.life = hi; LF.out = false; LF.fade = hangFade;
+    }
+    return LF;
+  }
 
   const NA = 128;
   const TBL = new Float64Array(NA * 7);   // ax ay az  dx dy dz  w
@@ -1792,6 +1975,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // and where a viewer reads it as a decal ON the fruit rather than as liquid
     // leaving it. A fast flick is unaffected (filmness = 0 there by
     // construction) so RULE 1 holds.
+    frameAt(e.at.z);
     const reach = R * (0.85 + 1.55 * filmness) * (0.85 + 0.30 * amt);
     // r7 (A3): k 52 -> 96. RULE 2: the beat labelled "+33 ms" is ~11 ms of SIM
     // time, and at k = 52 the sheet had covered only 1 - exp(-0.57) = 43% of
@@ -1800,7 +1984,19 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // been false since slow-motion was added. At k = 96 it is 65% at the +33 ms
     // beat and 80% at the +50 ms beat, i.e. the film phase is actually a film
     // by the time anyone looks at it. Asymptote unchanged; only the approach.
-    B.k = 96;
+    // ══ r11: THE FILM WAS AUTHORED AGAINST A CLOCK THAT IS ABOUT TO CHANGE ══
+    // k = 96 puts the sheet at 96% of its extent 33 ms after the cut. That was
+    // authored for RULE 2's slow-motion clock, where the beat labelled "+33 ms"
+    // was 11 ms of sim; with slow-mo deleted this round (the 'feel' owner) the
+    // same beat is 33 ms of SIM time and the film is fully open before the
+    // first frame a player can perceive. A film that is already at full extent
+    // in the frame where it is born does not read as liquid leaving a fruit —
+    // it reads as a decal switching on. k = 30 puts it at 63% at +33 ms, 95% at
+    // +100 ms and 99.7% at +200 ms, so the sheet is SEEN to open across three
+    // frames of a 120 Hz display. The ASYMPTOTE is untouched (spd = reach*k),
+    // so the film's authored size and every downstream measurement of its
+    // extent are unchanged; only the approach is.
+    B.k = 30;
     B.spd = reach * B.k;
     // crown is the ejection cone's half-angle off the cut normal. r2 had it at
     // 0.70..1.15 rad, i.e. 40-66 degrees — that is ejection nearly IN the cut
@@ -1854,7 +2050,18 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // portrait spray is not leaving the frame; it is too small and too dim
     // inside it. Not shipped, and the frame-relative reach idea should not be
     // re-proposed without this measurement being redone.
-    const beadReach = R * (0.40 + 0.30 * fast + 4.40 * filmness) * (0.85 + 0.25 * amt);
+    // ══ r11: THE ASYMPTOTE HAS TO EXCEED THE FRAME, OR NO LIFETIME HELPS ════
+    // Measured before it was changed (tools/.r11juice-ballistics.mjs, which
+    // reproduces this emitter's arithmetic exactly and integrates the same
+    // closed form): a melon cleave's rim bead had a MEDIAN ASYMPTOTIC TRAVEL OF
+    // 2.20 units against a landscape half-width of 6.93. It could not reach the
+    // edge of the frame at ANY lifetime — 95.2% of rim beads and 93.0% of spray
+    // died of old age in mid-air, in the middle of the picture. The player's
+    // note is therefore not a lifetime bug alone; it is a velocity bug first.
+    // 2.80x puts the median asymptote at 5.6-6.1 units, which the sideways
+    // fraction crosses outright and the rest converts into hang-time that
+    // gravity then finishes (see the drag note at kB).
+    const beadReach = 2.80 * R * (0.40 + 0.30 * fast + 4.40 * filmness) * (0.85 + 0.25 * amt);
     // ⚠ r7 (B5): THE CLEAVE'S MIST NEVER LEFT THE FRUIT, AND THAT IS WHY THE
     // SIZE-TO-TINT LAW COULD NOT BE MEASURED ON IT. `mistReach` was the one
     // reach constant with no `filmness` term, so for a heavy cleave it read
@@ -1869,7 +2076,10 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // filmness for exactly this reason (see the round-4 note above).
     // RULE 1 is untouched: this is a REACH, not a count, and `nMist` still
     // carries the only positive `fast` term in the file.
-    const mistReach = R * (0.55 + 1.70 * fast + 0.95 * filmness) * (0.85 + 0.25 * amt);
+    // r11: 2.40x, same argument. A fast flick is 2165 grains and ~34 beads, so
+    // the aerosol IS the flick's juice; at a 0.69-unit median asymptote it
+    // stopped dead inside the fruit's own silhouette and then faded there.
+    const mistReach = 2.40 * R * (0.55 + 1.70 * fast + 0.95 * filmness) * (0.85 + 0.25 * amt);
 
     // A 5-fruit combo delivers ten bursts inside one frame. Fade the budget as
     // they stack so the worst case stays inside the 2 ms JS ceiling; the first
@@ -1953,7 +2163,14 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       A.fA.array[i4 + 3] = B.crown;
       A.fB.array[i4] = B.lean; A.fB.array[i4 + 1] = B.k;
       A.fB.array[i4 + 2] = simT;
-      A.fB.array[i4 + 3] = (0.078 + 0.050 * filmness) * (0.85 + 0.20 * amt);
+      // r11: x2.6. The film's whole life was 0.09-0.13 s, which at timeScale 1
+      // is TEN FRAMES at 120 Hz and three at 30. The R2 timeline it is supposed
+      // to draw (film -> fingers -> strings -> beads) cannot be read in ten
+      // frames; the player sees a flash, not a sheet tearing. This world's
+      // gravity is 14 dm/s^2, i.e. 1/7 of real g, so every fluid timescale in
+      // it should be sqrt(7) = 2.65x longer than the real-world number the old
+      // constant was reaching for. 0.20-0.34 s.
+      A.fB.array[i4 + 3] = (0.205 + 0.130 * filmness) * (0.85 + 0.20 * amt);
       A.fC.array[i4] = cl(0.34 + 0.72 * filmness, 0.16, 0.95) * (0.75 + 0.25 * amt);
       A.fC.array[i4 + 1] = filmness;
       A.fC.array[i4 + 2] = 0.10 + 0.34 * (1 - filmness);   // wedge cut-in
@@ -2051,11 +2268,19 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     for (let i = 0; i < nStr; i++) {
       const ai = (rng() * NA) | 0, vv = rr(0.62, 1.0), del = rr(0.002, 0.030);
       filmAt(ai, vv, del, _o, _v);
-      const kS = rr(4.0, 9.0);
-      _v.multiplyScalar(beadReach * kS * TBL[ai * 7 + 6] * rr(0.20, 0.55)).add(B.inh);
+      const kS = rr(1.8, 4.2);
+      // /2.80 exactly cancels the new beadReach factor: a ligament is the stage
+      // BETWEEN the film and the beads and belongs near the cut, so its reach
+      // is arithmetically unchanged from r10 while its drag falls with
+      // everything else's. Only how fast it gets there has moved.
+      _v.multiplyScalar(beadReach * kS * TBL[ai * 7 + 6] * rr(0.0714, 0.1964)).add(B.inh);
       const rad = rr(0.026, 0.070) * szScale;
+      // x2.6, the same sqrt(7) gravity-scaling argument as the sheet. A thread
+      // that necks off in 55-150 ms at timeScale 1 is 7-18 frames; the
+      // Rayleigh-Plateau bead field in the fragment shader (:770) is animated
+      // over `a01` and simply cannot be seen to happen in that window.
       ligament(_o, _v, simT + del, kS,
-        rr(0.040, 0.140) * R, rad, rr(0.055, 0.150), cls(rad * 1.80));
+        rr(0.040, 0.140) * R, rad, rr(0.145, 0.390), cls(rad * 1.80));
     }
 
     // ── 3. RIM BEADS — fat, juice-coloured, shed off the film's torn edge ────
@@ -2072,7 +2297,33 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const ai = (rng() * NA) | 0, vv = rr(0.74, 1.0), del = rr(0.002, 0.020);
       filmAt(ai, vv, del, _o, _v);
       aimWedge(_v, 0.08 + 0.20 * fast);
-      const kB = rr(4.0 + 7.0 * filmness, 9.0 + 11.0 * filmness);
+      // ══ r11: EVERY DRAG CONSTANT IN THIS FILE WAS 5-20x TOO HIGH ═════════
+      // Under linear drag the TERMINAL FALL SPEED is exactly g/k, and g here is
+      // 14 dm/s^2. At r10's kB = 9.25..17.25 a rim bead's terminal speed was
+      // 0.8-1.5 units/s: it decelerated to a standstill within 0.25 s and then
+      // sank at walking pace, needing 4.6 SECONDS to clear the bottom of a
+      // landscape frame. That is the "hanging in the air and fading" the player
+      // saw, and it is a drag bug, not a lifetime bug.
+      //
+      // Check it against the size this class actually draws. 1 unit = 1 dm, so
+      // a rim bead's 0.017..0.140-unit radius is 1.7..14 MILLIMETRES — these are
+      // fat drops, not aerosol. A 2 mm water drop has a terminal velocity of
+      // ~6.5 m/s under real gravity, i.e. a drag time constant tau = v_t/g of
+      // 0.66 s. This world's g is 1/7 of real, so holding tau fixed gives
+      // k = 1/tau ~ 1.5 and a terminal speed of 14/1.5 = 9.3 units/s. The
+      // physically faithful number for the drop sizes on screen is ~1-4, and
+      // the file had 9-17.
+      //
+      // ⚠ THE ASYMPTOTE IS PRESERVED BY CONSTRUCTION. v0 = beadReach*k, so
+      // lowering k lowers the launch speed in exactly the same proportion and
+      // leaves the authored reach untouched. What changes is (a) the terminal
+      // fall speed g/k, which is what actually carries a droplet off the
+      // bottom of the frame, and (b) how long the droplet keeps its speed:
+      // at k = 13 a bead has lost 96% of its launch velocity by +250 ms, at
+      // k = 2.5 it still has 54% of it. The `beadReach` 2.80x above is what
+      // puts the launch speed back (median |v0| 26.7 -> 15.3 units/s: SLOWER
+      // at the instant of the cut, and 9x faster than r10 by +250 ms).
+      const kB = rr(1.10 + 0.70 * filmness, 2.60 + 1.60 * filmness);
       _v.multiplyScalar(beadReach * kB * TBL[ai * 7 + 6] * rr(0.14, 1.30)).add(B.inh);
       _j.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(beadReach * kB * 0.13);
       _v.add(_j);
@@ -2115,19 +2366,27 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // cannot reach.
       const dbl = rng() < dblRim;
       shape(dbl ? 0.30 : 0, rr(0.18, 0.50), rr(0.28, 0.70), rr(0.22, 1.45));
+      // r11: the life is DERIVED from this bead's own ballistics, not drawn.
+      // See the block above `exitTime`. Floor 0.40 s (a bead born outside the
+      // frame still needs to exist for a frame or two), ceiling 2.30 s.
+      const L = lifeOf(_o, _v, kB, 0.40, 2.30, 0.30);
       emit4(drops, _o, _v, simT + del, kB,
-        // r6 (C): the life tail. 04-cut+250ms lost 48% of its particle mass
-        // between r4 and r5 while 02/03 held, which is a LIFETIME signature,
-        // not a count one — the beat is 92 ms of SIM time (RULE 2) and the old
-        // draw put the median at 0.106 s. 0.070 + 0.300*rng()*rng() moves the
-        // median to 0.126 s and the max to 0.370 s, still clear of the 0.43 s
-        // inter-cut gap that RULE 3 protects.
+        // r6 (C) authored this as `0.070 + 0.300*rng()*rng()` — median 0.126 s,
+        // max 0.370 s — with the explicit constraint "still clear of the 0.43 s
+        // inter-cut gap that RULE 3 protects". r11 RETIRES RULE 3 as a lifetime
+        // constraint. It was never a statement about the game; it was a
+        // statement about the harness, where two consecutive cuts had to stay
+        // independent MEASUREMENTS. r10 closed that seam properly by listening
+        // to `bus.on('reset')` (:1658), and shoot.mjs calls `ZS.clear()` before
+        // every staging, so 15-fast-flick and 16-slow-cleave no longer share a
+        // frame no matter how long juice lives. In an actual game a combo's
+        // second cut SHOULD land in the first cut's spray. That is the picture.
         // ⚠ `cls(szW)`, NOT `cls(sz)`. Tint follows the droplet's real volume;
         // drawing a sub-resolution grain at the resolution floor must not
         // promote it out of the achromatic class. This is the same principle
         // the DBL_AREA note below already states for the doublet compensation.
-        dbl ? sz * DBL_AREA : sz, 0.070 + 0.300 * rng() * rng(), rng(), cls(szW),
-        rr(2.5, 11.0), rr(0.0, 0.55), rr(0.004, 0.020), 0.52,
+        dbl ? sz * DBL_AREA : sz, L.life, rng(), cls(szW),
+        rr(2.5, 11.0), rr(0.0, 0.55), rr(0.004, 0.020), L.fade,
         AR, AG, AB);
     }
 
@@ -2151,7 +2410,9 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const ai = (rng() * NA) | 0, vv = rr(0.05, 0.72), del = rr(0.0, 0.008);
       filmAt(ai, vv, del, _o, _v);
       aimWedge(_v, 0.12 + 0.28 * fast);
-      const kS = rr(5.0 + 7.0 * filmness, 10.0 + 12.0 * filmness);
+      // r11: same argument as kB above, one class finer, so the drag is a
+      // little higher. Terminal fall 3.9-8.8 units/s for a cleave.
+      const kS = rr(1.60 + 1.20 * filmness, 3.60 + 2.60 * filmness);
       const u = rng();
       _v.multiplyScalar(beadReach * kS * TBL[ai * 7 + 6] * (0.10 + 2.30 * u * u)).add(B.inh);
       _j.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(beadReach * kS * 0.17);
@@ -2231,7 +2492,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       if (rng() < 0.16 * filmness && szW > small * 0.9) {
         const rad = sz * rr(0.55, 0.95);
         ligament(_o, _v, simT + del, kS,
-          rad * rr(1.6, 4.6), rad, rr(0.040, 0.105), cls(szW * 1.15));
+          rad * rr(1.6, 4.6), rad, rr(0.105, 0.275), cls(szW * 1.15));
       } else {
         // doublets only where they can be resolved — below `small` a drop is
         // 1-2 px and a pinched waist is invisible, so gating on size here is
@@ -2243,9 +2504,10 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         // between the two landscape values and is the same everywhere.
         const dbl = sz > 2.0 * wpx && rng() < dblSpray;
         shape(dbl ? 0.30 : 0, rr(0.12, 0.46), rr(0.24, 0.68), rr(0.20, 1.40));
+        const L = lifeOf(_o, _v, kS, 0.34, 2.00, 0.28);
         emit4(drops, _o, _v, simT + del, kS,
-          dbl ? sz * DBL_AREA : sz, rr(0.055, 0.145), rng(), cls(szW),
-          rr(3.5, 15.0), rr(0.05, 0.90), rr(0.004, 0.018), 0.48,
+          dbl ? sz * DBL_AREA : sz, L.life, rng(), cls(szW),
+          rr(3.5, 15.0), rr(0.05, 0.90), rr(0.004, 0.018), L.fade,
           AR, AG, AB);
       }
     }
@@ -2263,7 +2525,23 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     for (let i = 0; i < nMist; i++) {
       const wake = rng() < 0.26;
       const ai = (rng() * NA) | 0;
-      const kM = rr(34.0, 62.0);       // 63% of reach by 16-29 ms, 95% by 48-88
+      // ══ r11: THE WORST OFFENDER, AND THE ONE THE FAST FLICK LIVES ON ═════
+      // kM 34..62 is a terminal fall speed of 0.23-0.41 units/s. A grain
+      // emitted at the cut needed FOURTEEN SECONDS to sink out of a landscape
+      // frame and 34 seconds out of a portrait one. It was, exactly, suspended
+      // in the air, and the only thing that could ever remove it was the alpha
+      // ramp. 0% of mist left the frame at any lifetime, in either orientation,
+      // in all three test bursts.
+      // The physical check again: this class draws at 0.010-0.022 units of
+      // radius, i.e. 1.0-2.2 mm — 100x the size the word "mist" implies and the
+      // top of the drizzle range, whose terminal velocity is ~2-4 m/s. Even
+      // granting that this is the FINEST class in the file and should decelerate
+      // hardest, k = 34-62 is drag for a 30 um fog droplet and nothing here is
+      // 30 um. rr(2.6, 6.4) gives 2.2-5.4 units/s of terminal fall, so the
+      // aerosol still visibly stalls and billows (the curl-noise kernel now has
+      // 1.5 s to work on it instead of 70 ms) and then DRIFTS DOWN AND OUT
+      // instead of hanging.
+      const kM = rr(2.6, 6.4);
       if (wake) {
         const back = rr(0.15, 1.6) * R;
         _o.copy(B.O).addScaledVector(B.D, -back)
@@ -2291,9 +2569,18 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // aspect spread, which shows up as a spread in apparent area.
       const sz = 0.0100 * Math.exp(0.80 * w * w) * szScale;
       shape(0, rr(0.0, 0.20), rr(0.32, 0.64), rr(0.40, 1.30));
+      // r11. Mist is the one class that genuinely CANNOT always fly off screen
+      // — a decelerating grain with a 1.7-unit asymptote in a frame 8.45 units
+      // tall has nowhere to go but down, slowly — so it is also the one class
+      // that keeps a fade, and I am saying so plainly rather than pretending
+      // otherwise. What changed is that the fade is now (a) 12-20x longer, (b)
+      // spread from 16% of life instead of cliffed, and (c) applied to a grain
+      // that is still visibly MOVING while it happens. In landscape most of it
+      // does get out (see the report); in portrait about a third does.
+      const L = lifeOf(_o, _v, kM, 0.30, 1.90, 0.16);
       emit4(drops, _o, _v, simT + rr(0.0, 0.005), kM,
-        sz, rr(0.038, 0.100), rng(), cls(sz),
-        rr(5.0, 22.0), rr(0.10, 0.80), rr(0.003, 0.012), 0.30,
+        sz, L.life, rng(), cls(sz),
+        rr(5.0, 22.0), rr(0.10, 0.80), rr(0.003, 0.012), L.fade,
         AR, AG, AB);
     }
 
@@ -2333,8 +2620,18 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
           // classification where r6 left it (arg 0.031..0.125 against the new
           // 0.030/0.115, vs 0.019..0.075 against the old 0.022/0.078) keeps
           // this round's change out of another piece's metric by construction.
-          sz, rr(0.055, 0.145), rng(), cls(sz * 1.25),
-          rr(1.5, 8.0), rr(0.0, 0.35), 0.006, 0.42,
+          // r11: x2.4 only, and DELIBERATELY the smallest extension in the file.
+          // Cling sits ON the cut face and is integrated by the same ballistic
+          // path as everything else, with the fruit's inherited velocity baked
+          // in at emit time — so it does not track the half once the half's own
+          // motion diverges, which after this round it will (the 'physics'
+          // owner is putting the halves on Rapier rigid bodies). At 0.34 s the
+          // worst-case drift is ~0.2 units on a 1.5-unit face; at the 1.0 s the
+          // other classes now get it would visibly slide off. This one keeps a
+          // real fade and it is correct that it does: foam on a cut face
+          // drains, it does not fly away.
+          sz, rr(0.135, 0.345), rng(), cls(sz * 1.25),
+          rr(1.5, 8.0), rr(0.0, 0.35), 0.006, 0.34,
           AR, AG, AB);
       }
     }

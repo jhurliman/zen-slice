@@ -1,0 +1,253 @@
+{
+  "device": "desktop",
+  "rows": [
+    {
+      "label": "01-whole-watermelon (pre-cut 300ms)",
+      "wall_ms": 300,
+      "sim_ms": 300,
+      "ratio": 1,
+      "timeScale_before": 1,
+      "timeScale_after": 1
+    },
+    {
+      "label": "02-cut+33ms",
+      "wall_ms": 33,
+      "sim_ms": 16.7,
+      "ratio": 0.505,
+      "timeScale_before": 1,
+      "timeScale_after": 0.503
+    },
+    {
+      "label": "03-cut+100ms",
+      "wall_ms": 67,
+      "sim_ms": 25,
+      "ratio": 0.373,
+      "timeScale_before": 0.503,
+      "timeScale_after": 0.35
+    },
+    {
+      "label": "04-cut+250ms",
+      "wall_ms": 150,
+      "sim_ms": 50,
+      "ratio": 0.333,
+      "timeScale_before": 0.35,
+      "timeScale_after": 0.34
+    },
+    {
+      "label": "05-cut+500ms",
+      "wall_ms": 250,
+      "sim_ms": 150,
+      "ratio": 0.6,
+      "timeScale_before": 0.34,
+      "timeScale_after": 0.83
+    },
+    {
+      "label": "06-cut+1000ms",
+      "wall_ms": 500,
+      "sim_ms": 475,
+      "ratio": 0.95,
+      "timeScale_before": 0.83,
+      "timeScale_after": 0.993
+    },
+    {
+      "label": "citrus settle",
+      "wall_ms": 300,
+      "sim_ms": 300,
+      "ratio": 1,
+      "timeScale_before": 0.993,
+      "timeScale_after": 0.999
+    },
+    {
+      "label": "07-citrus-cut (+120ms)",
+      "wall_ms": 120,
+      "sim_ms": 50,
+      "ratio": 0.417,
+      "timeScale_before": 0.999,
+      "timeScale_after": 0.295
+    },
+    {
+      "label": "08-citrus-caps (+350ms)",
+      "wall_ms": 350,
+      "sim_ms": 108.3,
+      "ratio": 0.31,
+      "timeScale_before": 0.295,
+      "timeScale_after": 0.487
+    },
+    {
+      "label": "fast settle",
+      "wall_ms": 200,
+      "sim_ms": 141.7,
+      "ratio": 0.708,
+      "timeScale_before": 0.487,
+      "timeScale_after": 0.86
+    },
+    {
+      "label": "15-fast-flick+50ms",
+      "wall_ms": 50,
+      "sim_ms": 25,
+      "ratio": 0.5,
+      "timeScale_before": 0.86,
+      "timeScale_after": 0.404
+    },
+    {
+      "label": "slow settle",
+      "wall_ms": 200,
+      "sim_ms": 75,
+      "ratio": 0.375,
+      "timeScale_before": 0.404,
+      "timeScale_after": 0.34
+    },
+    {
+      "label": "16-slow-cleave+50ms",
+      "wall_ms": 50,
+      "sim_ms": 16.7,
+      "ratio": 0.333,
+      "timeScale_before": 0.34,
+      "timeScale_after": 0.34
+    },
+    {
+      "label": "combo settle",
+      "wall_ms": 350,
+      "sim_ms": 133.3,
+      "ratio": 0.381,
+      "timeScale_before": 0.34,
+      "timeScale_after": 0.655
+    },
+    {
+      "label": "09-combo+50ms",
+      "wall_ms": 50,
+      "sim_ms": 25,
+      "ratio": 0.5,
+      "timeScale_before": 0.655,
+      "timeScale_after": 0.379
+    },
+    {
+      "label": "10-combo+200ms",
+      "wall_ms": 150,
+      "sim_ms": 50,
+      "ratio": 0.333,
+      "timeScale_before": 0.379,
+      "timeScale_after": 0.34
+    },
+    {
+      "label": "11-combo+550ms",
+      "wall_ms": 350,
+      "sim_ms": 208.3,
+      "ratio": 0.595,
+      "timeScale_before": 0.34,
+      "timeScale_after": 0.87
+    }
+  ],
+  "melonCutBeats": {
+    "+33ms": 16.7,
+    "+100ms": 41.7,
+    "+250ms": 91.7,
+    "+500ms": 241.7,
+    "+1000ms": 716.7
+  },
+  "comboCutBeats": {
+    "+50ms": 25,
+    "+200ms": 75,
+    "+550ms": 283.3
+  },
+  "cadences": [
+    {
+      "level": 0,
+      "slice_every_real_s": 2.5,
+      "real_s": 24,
+      "sim_s": 22.84,
+      "sim_per_real": 0.952,
+      "spawns": 10,
+      "slices": 4,
+      "spawns_per_real_min": 25,
+      "mean_combo": 1,
+      "mean_bodies": 1.5,
+      "peak_bodies": 4,
+      "mean_draw_calls": 16.1,
+      "peak_draw_calls": 21,
+      "steps_per_tick": [
+        139,
+        2741,
+        0,
+        0,
+        0
+      ],
+      "pct_ticks_0_steps": 4.8,
+      "pct_ticks_ge2_steps": 0
+    },
+    {
+      "level": 0,
+      "slice_every_real_s": 1.2,
+      "real_s": 24,
+      "sim_s": 22.58,
+      "sim_per_real": 0.941,
+      "spawns": 10,
+      "slices": 5,
+      "spawns_per_real_min": 25,
+      "mean_combo": 1,
+      "mean_bodies": 1.6,
+      "peak_bodies": 3,
+      "mean_draw_calls": 16.2,
+      "peak_draw_calls": 19,
+      "steps_per_tick": [
+        170,
+        2710,
+        0,
+        0,
+        0
+      ],
+      "pct_ticks_0_steps": 5.9,
+      "pct_ticks_ge2_steps": 0
+    },
+    {
+      "level": 5,
+      "slice_every_real_s": 1.2,
+      "real_s": 24,
+      "sim_s": 22.28,
+      "sim_per_real": 0.928,
+      "spawns": 36,
+      "slices": 8,
+      "spawns_per_real_min": 90,
+      "mean_combo": 1.6,
+      "mean_bodies": 4.9,
+      "peak_bodies": 10,
+      "mean_draw_calls": 22.7,
+      "peak_draw_calls": 33,
+      "steps_per_tick": [
+        206,
+        2674,
+        0,
+        0,
+        0
+      ],
+      "pct_ticks_0_steps": 7.2,
+      "pct_ticks_ge2_steps": 0
+    },
+    {
+      "level": 5,
+      "slice_every_real_s": 0.5,
+      "real_s": 24,
+      "sim_s": 20.23,
+      "sim_per_real": 0.843,
+      "spawns": 32,
+      "slices": 19,
+      "spawns_per_real_min": 80,
+      "mean_combo": 1.73,
+      "mean_bodies": 5.8,
+      "peak_bodies": 10,
+      "mean_draw_calls": 24.7,
+      "peak_draw_calls": 33,
+      "steps_per_tick": [
+        453,
+        2427,
+        0,
+        0,
+        0
+      ],
+      "pct_ticks_0_steps": 15.7,
+      "pct_ticks_ge2_steps": 0
+    }
+  ],
+  "score": 755,
+  "best": 3
+}
