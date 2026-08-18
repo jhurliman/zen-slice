@@ -234,6 +234,7 @@ shots/r11-juice*/
 shots/r11-physics*/
 shots/r11-stage*/
 shots/r11-shape*/
+shots/latest/
 shots/r10-stage-CTRL*/
 shots/r10-cutter*/
 shots/r10-juice*/
@@ -242,6 +243,7 @@ shots/r11-juice*/
 shots/r11-physics*/
 shots/r11-stage*/
 shots/r11-shape*/
+shots/latest/
 tmp/
 __pycache__/
 *.pyc

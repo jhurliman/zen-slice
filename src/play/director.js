@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { GRAVITY, STAGE, BUDGET, MAX_GENERATION, nextId, makeRng, rr, clamp } from '../core/contract.js';
 import { SPECIES_LIST, SPECIES } from '../fruit/species.js';
 import { makeFruitGeometry } from '../fruit/geometry.js';
+import { createPhysics } from './physics.js';
 
 export const LEVELS = [
   { name: 'Still Water', pool: ['orange', 'apple'], every: [1.9, 2.6], burst: 1, need: 6 },
@@ -29,6 +30,16 @@ export function createDirector({ seed = 20260806 } = {}) {
   const rng = makeRng(seed);
   const api = { live: [], level: 0, sliced: 0 };
   let ctx, geoCache = new Map(), matCache = new Map();
+  // ── ROUND 11: RIGID BODIES ────────────────────────────────────────────────
+  // The player asked for real contacts between fruit. src/play/physics.js owns
+  // Rapier; this file owns WHO EXISTS. The whole coupling is four lines — add,
+  // remove, one call at the top of the integrate loop, and the ctx handle — and
+  // the direction of authority is deliberate: physics mirrors the registry, the
+  // registry never mirrors physics, so nothing the budget governor retires can
+  // come back. If Rapier is not up yet (its WASM loads asynchronously) or is
+  // switched off with ?nophys=1, `physics.step()` returns false and the
+  // ballistic integrator below runs exactly as it did in round 10.
+  const physics = createPhysics();
   let nextSpawn = 1.2;
   let t = 0;
   // running triangle total of the live population, maintained incrementally by
@@ -50,6 +61,8 @@ export function createDirector({ seed = 20260806 } = {}) {
   api.init = (c) => {
     ctx = c;
     ctx.fruits = api;
+    ctx.physics = physics;
+    physics.init(c);
     // warm the caches so the first slice never hitches
     for (const sp of SPECIES_LIST) { geomFor(sp, ctx.quality.fruitSegments); matsFor(sp); }
   };
@@ -77,10 +90,12 @@ export function createDirector({ seed = 20260806 } = {}) {
     liveTris += f._tris;
     api.live.push(f);
     ctx.scene.add(f.mesh);
+    physics.addBody(f);
   };
   api.remove = (f) => {
     const i = api.live.indexOf(f);
     if (i >= 0) { api.live.splice(i, 1); liveTris -= f._tris || 0; }
+    physics.removeBody(f);
     ctx.scene.remove(f.mesh);
     if (f.generation > 0) f.mesh.geometry.dispose(); // halves own their geometry
     f.dead = true;
@@ -239,16 +254,23 @@ export function createDirector({ seed = 20260806 } = {}) {
       }
     }
 
-    // integrate
+    // integrate. Rapier does it if it is up (and then f.pos/f.quat/f.vel/f.spin
+    // are already this step's values when we get here); otherwise the original
+    // ballistic scheme runs per body below. Both are semi-implicit Euler at the
+    // same sdt, so a fruit that touches nothing flies the same arc either way.
+    const stepped = physics.step(sdt);
+
     for (let i = api.live.length - 1; i >= 0; i--) {
       const f = api.live[i];
-      f.vel.y += GRAVITY * sdt;
-      f.pos.addScaledVector(f.vel, sdt);
-      const w = f.spin;
-      const ang = w.length() * sdt;
-      if (ang > 1e-7) {
-        _q.setFromAxisAngle(_ax.copy(w).normalize(), ang);
-        f.quat.premultiply(_q);
+      if (!stepped) {
+        f.vel.y += GRAVITY * sdt;
+        f.pos.addScaledVector(f.vel, sdt);
+        const w = f.spin;
+        const ang = w.length() * sdt;
+        if (ang > 1e-7) {
+          _q.setFromAxisAngle(_ax.copy(w).normalize(), ang);
+          f.quat.premultiply(_q);
+        }
       }
       f.mesh.position.copy(f.pos);
       f.mesh.quaternion.copy(f.quat);
@@ -289,16 +311,26 @@ export function createDirector({ seed = 20260806 } = {}) {
   // ⚠ AND ALSO IN THE FRAME PHASE, WHICH IS NOT BELT-AND-BRACES — IT IS THE
   // ONLY PLACE THAT IS ACTUALLY GUARANTEED TO RUN BEFORE A RENDER, AND LEAVING
   // IT OUT COST ME A WHOLE MEASUREMENT PASS. `api.fixed` runs inside main.js's
-  // `while (acc >= SIM_DT)` accumulator. Slow-motion scales the accumulator:
-  // score.js emits `slowmo` at scale 0.16..0.34 on EVERY cut, so for the ~0.3 s
-  // after a slice a 1/120 s tick advances the accumulator by as little as
-  // 1/750 s and FIVE OR SIX CONSECUTIVE TICKS RUN NO FIXED STEP AT ALL. Those
-  // ticks still render. Measured, isolated build, portrait: with enforcement in
-  // `fixed` only, the complexity probe screenshotted 59 live bodies against a
-  // cap of 51 — 13 + 2*59 = 131 draw calls, still over the R4 ceiling, and the
-  // number swung 113..165 between runs purely on whether a fixed step happened
-  // to land on the render tick. The frame phase runs exactly once per tick, so
-  // this is the one hook that cannot be skipped.
+  // `while (acc >= SIM_DT)` accumulator, and NOTHING guarantees that loop runs
+  // a step on any given tick.
+  //
+  // ── R11 UPDATE: THE REASON GOT SMALLER, THE RULE DID NOT ──────────────────
+  // This used to read "slow-motion scales the accumulator: score.js emits
+  // `slowmo` at scale 0.16..0.34 on EVERY cut, so five or six consecutive
+  // ticks run no fixed step at all". Round 11 DELETED slow-mo (score.js), so
+  // that specific mechanism is gone and the budget governor no longer has a 3x
+  // clock working against it. Measured then, portrait, with enforcement in
+  // `fixed` only: 59 live bodies against a cap of 51 — 13 + 2*59 = 131 draw
+  // calls, over the R4 ceiling, swinging 113..165 between runs purely on
+  // whether a fixed step landed on the render tick.
+  //
+  // Keep the frame hook anyway, because the residual case is real and
+  // permanent: SIM_DT is 1/120 s and a 60 Hz display ticks at 1/60 s, so `acc`
+  // is chronically out of phase with the render and any tick whose dt lands
+  // fractionally under SIM_DT runs zero steps and still draws. MAX_SUBSTEPS is
+  // 4, so a stall also dumps the accumulator and skips steps outright. The
+  // frame phase runs exactly once per tick; it is the only hook that cannot be
+  // skipped, and that was always the actual argument.
   // Cost when under budget: `updateVisibleBox` is memoised on (dist, aspect)
   // and `enforceBudget` is two comparisons against an incrementally maintained
   // total. No allocation, no scan.
