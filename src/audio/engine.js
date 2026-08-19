@@ -94,16 +94,18 @@ export function createEngine() {
       return { lpf, gain, pan, send, src: null, until: 0 };
     };
     const mkSwish = () => {
-      // r17: lowpass, not bandpass — the raw white-noise bandpass burst read
-      // as tearing paper. The swish buffers are pink-shaded and pre-enveloped;
-      // this filter just tracks velocity and sweeps darker through the sound.
+      // r18: highpass INTO lowpass. The r17 chain let the buffer's low-mid
+      // energy through and the player heard "a ruler slapped against a trash
+      // can" — the 350 Hz highpass removes the bin, the lowpass still tracks
+      // velocity and sweeps darker through the sound.
+      const hp = mk(actx.createBiquadFilter()); hp.type = 'highpass'; hp.frequency.value = 350; hp.Q.value = 0.4;
       const lp = mk(actx.createBiquadFilter()); lp.type = 'lowpass'; lp.Q.value = 0.5;
       const gain = mk(actx.createGain()); gain.gain.value = 0.0;
       const pan = mk(actx.createStereoPanner());
-      lp.connect(gain); gain.connect(pan); pan.connect(eng.dry);
-      const send = mk(actx.createGain()); send.gain.value = 0.3;
+      hp.connect(lp); lp.connect(gain); gain.connect(pan); pan.connect(eng.dry);
+      const send = mk(actx.createGain()); send.gain.value = 0.35;
       pan.connect(send); send.connect(eng.reverbIn);
-      return { lp, gain, pan, src: null, until: 0 };
+      return { hp, lp, gain, pan, src: null, until: 0 };
     };
     const mkThump = () => {
       const gain = mk(actx.createGain()); gain.gain.value = 0.0;
@@ -176,21 +178,27 @@ export function createEngine() {
     v.src = src; v.until = t + dur;
   };
 
-  /** The cut: a pre-rendered swish buffer (pink-shaded, self-enveloped),
-   *  rate-varied so no two cuts are identical, through a velocity-tracked
-   *  lowpass that sweeps darker over the sound's life. */
+  /** The cut: a pre-rendered swish buffer (self-enveloped texture),
+   *  rate-varied so no two cuts are identical, through a highpass + a
+   *  velocity-tracked lowpass. Overlapping swishes DUCK each other — the
+   *  gain divides by the count already sounding, so a flurry of strokes
+   *  reads as one continuous breeze instead of a clatter. */
   eng.playSwish = (buffer, rate, when, loud, cutoffHz, pan) => {
     const actx = eng.actx;
+    const t0 = Math.max(when, actx.currentTime);
+    let active = 0;
+    for (const s of shhkPool) if (s.until > t0) active++;
     const v = acquire(shhkPool, shhkPool.length, when);
-    const t = Math.max(when, actx.currentTime);
+    const t = t0;
     const src = actx.createBufferSource();
     src.buffer = buffer; src.playbackRate.value = rate;
-    src.connect(v.lp);
+    src.connect(v.hp);
     v.lp.frequency.cancelScheduledValues(t);
     v.lp.frequency.setValueAtTime(cutoffHz, t);
-    v.lp.frequency.exponentialRampToValueAtTime(Math.max(300, cutoffHz * 0.35), t + 0.18);
+    v.lp.frequency.exponentialRampToValueAtTime(Math.max(400, cutoffHz * 0.35), t + 0.2);
     v.gain.gain.cancelScheduledValues(t);
-    v.gain.gain.setValueAtTime(loud, t);
+    v.gain.gain.setValueAtTime(0, t);
+    v.gain.gain.linearRampToValueAtTime(loud / (1 + 0.7 * active), t + 0.008);
     v.pan.pan.setValueAtTime(pan, t);
     src.start(t);
     const dur = buffer.duration / rate;
@@ -216,8 +224,10 @@ export function createEngine() {
     if (eng.master) eng.master.gain.setTargetAtTime(v, eng.now(), tau);
   };
 
-  eng.resume = () => { eng.actx?.resume?.(); };
-  eng.suspend = () => { eng.actx?.suspend?.(); };
+  /** Safe to call any time, from any path — resume() rejections are expected
+   *  on iOS outside a gesture and simply mean "try again from the next tap". */
+  eng.resume = () => { try { eng.actx?.resume?.()?.catch?.(() => { }); } catch (_) { /* */ } };
+  eng.suspend = () => { try { eng.actx?.suspend?.()?.catch?.(() => { }); } catch (_) { /* */ } };
   eng.dispose = () => { try { eng.actx?.close?.(); } catch (_) { /* */ } };
 
   return eng;

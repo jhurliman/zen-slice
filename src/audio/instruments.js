@@ -29,10 +29,22 @@ import { semisToFreq } from './harmony.js';
 // sample centers, semitones from A3 = 220 Hz: A1 … D#6
 export const PIANO_CENTERS = [-24, -18, -12, -6, 0, 6, 12, 18, 24, 30];
 
-export async function renderPianoKit(sampleRate) {
+/**
+ * r18: rendered at 24 kHz, with a real yield between notes. The r17 version
+ * fired ten OfflineAudioContext renders back-to-back at unlock and the player
+ * measured the consequence on the phone: "a good 15+ seconds before any audio
+ * plays" — the offline renders were starving the LIVE context's media thread
+ * at exactly the moment it was trying to start. 24 kHz is free quality-wise
+ * (the piano is lowpassed at ≤7 kHz at play time and BufferSource resamples
+ * automatically) and the 60 ms gaps let the live thread breathe. The caller
+ * additionally delays the whole render until after first sound.
+ */
+export async function renderPianoKit() {
+  const sampleRate = 24000;
   const kit = [];
   for (let i = 0; i < PIANO_CENTERS.length; i++) {
     kit.push(await renderPianoNote(sampleRate, semisToFreq(PIANO_CENTERS[i]), i));
+    await new Promise((r) => setTimeout(r, 60));
   }
   return kit;
 }
@@ -119,33 +131,72 @@ async function renderPianoNote(sr, f0, idx) {
 }
 
 /**
- * The cut sound, pre-rendered: three variant "swish" buffers so no two cuts
- * are the same grain. r17 — the r16 cut was raw white noise through a
- * bandpass with a 6 ms attack, and the player heard exactly what that is:
- * "quickly tearing paper". What reads as a blade through wet fruit instead:
- * pink-shaded noise (one-pole lowpass whose coefficient DARKENS over the
- * sound's life — falling brightness is the "swish"), a soft 14 ms rise, and
- * a ~110 ms breathy decay. Synchronous JS math, ~50k samples total.
+ * The cut sound, pre-rendered. r18 — the r17 swish still read as "a ruler
+ * slapped against a trash can": too loud (×3.0 make-up gain), too much
+ * low-mid body, and one per FRUIT so combos clattered. The redesign is a
+ * texture, not a hit — something "sprinkled on top of the soundscape":
+ *
+ *  · four RECIPES, one flavor of air per part of the day, two variants each:
+ *      breath  — slow dark exhale (dawn, and the Deep Calm coda)
+ *      wind    — a soft passing gust (morning light, noon, golden hour)
+ *      rain    — grain-modulated mist, a soft shaker of droplets (dew, rain)
+ *      leaves  — tighter dry grains, high-passed (summer, dusk, night)
+ *  · every recipe is quiet (peak amplitudes normalized to 1, played at a
+ *    fraction of the old level), rises slowly (35–60 ms), and carries its
+ *    high-pass character IN the buffer (first-difference for the grain
+ *    recipes) so no low-mid "bin" energy exists to slap;
+ *  · one swish per STROKE, ducked when stacked — that lives in audio.js and
+ *    the engine.
+ *
+ * Synchronous JS math, 8 buffers × ~0.45 s ≈ 170k samples — trivial.
  */
+const SWISH_RECIPES = {
+  breath: { attack: 0.060, decay: 0.30, dur: 0.55, k0: 0.10, k1: 0.04, grainHz: 0, hp: false },
+  wind: { attack: 0.035, decay: 0.22, dur: 0.45, k0: 0.22, k1: 0.07, grainHz: 0, hp: false },
+  rain: { attack: 0.040, decay: 0.24, dur: 0.45, k0: 0.26, k1: 0.10, grainHz: 30, hp: true },
+  leaves: { attack: 0.030, decay: 0.18, dur: 0.40, k0: 0.30, k1: 0.12, grainHz: 70, hp: true },
+};
+
+/** level index (the 10-level day arc) → swish recipe name */
+export const SWISH_FOR_LEVEL = [
+  'breath', 'wind', 'rain', 'rain', 'wind',
+  'leaves', 'wind', 'leaves', 'leaves', 'breath',
+];
+
 export function makeSwishBank(actx) {
-  const sr = actx.sampleRate, dur = 0.38;
-  const bank = [];
-  for (let vnt = 0; vnt < 3; vnt++) {
-    const len = (sr * dur) | 0;
-    const buf = actx.createBuffer(1, len, sr);
-    const d = buf.getChannelData(0);
-    let lp = 0, lp2 = 0;
-    const seed = 0.9 + vnt * 0.12;
-    for (let i = 0; i < len; i++) {
-      const t = i / sr;
-      // brightness falls from open to closed across the sound
-      const k = (0.30 - 0.24 * Math.min(1, t / (0.22 * seed))) / seed;
-      lp += ((Math.random() * 2 - 1) - lp) * k;
-      lp2 += (lp - lp2) * 0.5;             // second pole: kills the papery top
-      const env = Math.min(1, t / 0.014) * Math.exp(-t / (0.11 * seed));
-      d[i] = lp2 * env * 3.0;
-    }
-    bank.push(buf);
+  const sr = actx.sampleRate;
+  const bank = {};
+  for (const name of Object.keys(SWISH_RECIPES)) {
+    const r = SWISH_RECIPES[name];
+    bank[name] = [0, 1].map((vnt) => {
+      const seed = 0.92 + vnt * 0.16;
+      const len = (sr * r.dur) | 0;
+      const buf = actx.createBuffer(1, len, sr);
+      const d = buf.getChannelData(0);
+      let lp = 0, lp2 = 0, prev = 0;
+      const grainPhase = Math.random() * Math.PI * 2;
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        // brightness falls from open to closed across the sound
+        const k = (r.k0 - (r.k0 - r.k1) * Math.min(1, t / (r.decay * 1.6 * seed))) / seed;
+        lp += ((Math.random() * 2 - 1) - lp) * k;
+        lp2 += (lp - lp2) * 0.5;
+        let s = lp2;
+        if (r.hp) { const hp = s - prev; prev = s; s = hp * 3.0; }   // in-buffer highpass
+        let env = Math.min(1, t / (r.attack * seed)) * Math.exp(-t / (r.decay * seed));
+        if (r.grainHz) {
+          // raised-cosine grain train: the shaker/rain character
+          env *= 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(2 * Math.PI * r.grainHz * seed * t + grainPhase));
+        }
+        d[i] = s * env;
+      }
+      // normalize so every recipe plays at a predictable level
+      let peak = 1e-6;
+      for (let i = 0; i < len; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
+      const g = 1.0 / peak;
+      for (let i = 0; i < len; i++) d[i] *= g;
+      return buf;
+    });
   }
   return bank;
 }

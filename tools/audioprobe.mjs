@@ -34,14 +34,21 @@ const ok = (cond, label) => { if (!cond) failures.push(label); return !!cond; };
 
 // ── PART 1: the harmonic field's laws, checked in pure node ─────────────────
 const { createHarmony } = await import(join(root, 'src/audio/harmony.js'));
-const { MOTIFS, BASSES } = await import(join(root, 'src/audio/conductor.js'));
+const { MOTIFS, BASSES, PAD_COUNT } = await import(join(root, 'src/audio/conductor.js'));
+const { SWISH_FOR_LEVEL } = await import(join(root, 'src/audio/instruments.js'));
 const SPECIES = ['watermelon', 'pineapple', 'orange', 'apple', 'kiwi', 'strawberry'];
 const E2 = -17;
+const N_LEVELS = 10;   // the r18 day arc — director.LEVELS is index-matched
+ok(MOTIFS.length === N_LEVELS, `MOTIFS has ${MOTIFS.length} levels, expected ${N_LEVELS}`);
+ok(BASSES.length === N_LEVELS, `BASSES has ${BASSES.length} levels, expected ${N_LEVELS}`);
+ok(PAD_COUNT.length === N_LEVELS, `PAD_COUNT has ${PAD_COUNT.length} levels, expected ${N_LEVELS}`);
+ok(SWISH_FOR_LEVEL.length === N_LEVELS, `SWISH_FOR_LEVEL has ${SWISH_FOR_LEVEL.length} levels, expected ${N_LEVELS}`);
 {
   const h = createHarmony();
   let chordsChecked = 0;
-  for (let level = 0; level <= 5; level++) {
+  for (let level = 0; level < N_LEVELS; level++) {
     h.setLevel(level); h.advance();            // palette lands on the advance
+    ok(h.level() === level, `harmony has no palette for level ${level} (clamped to ${h.level()})`);
     const seen = new Set();
     for (let step = 0; step < 8; step++) {
       const chord = h.chord();
@@ -150,11 +157,12 @@ const chordProbe = await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 60)); // let a frame land the spawns
   let slices = 0;
   const off = ctx.bus.on('slice', () => slices++);
+  const swishesBefore = ZS.audio.state().swishes;
   ZS.newStroke();
   ZS.swipe(-0.9, 0.03, 0.9, 0.03, 14, 6.0);
   const atSwipe = ZS.audio.state();
   off();
-  return { slices, pendingAtSwipe: atSwipe.pending };
+  return { slices, pendingAtSwipe: atSwipe.pending, swishesFired: atSwipe.swishes - swishesBefore };
 });
 // the flush runs in audio's frame hook, and under software GL the game's rAF
 // loop ticks at ~1 fps (each render is ~1 s in SwiftShader — see simbeats.mjs)
@@ -169,6 +177,8 @@ chordProbe.chord = afterFlush.chord;
 ok(chordProbe.slices >= 2, `combo swipe only cut ${chordProbe.slices} fruit`);
 ok(chordProbe.pendingAtSwipe === chordProbe.slices,
   `slices=${chordProbe.slices} but pending=${chordProbe.pendingAtSwipe} — not gathered as one chord`);
+ok(chordProbe.swishesFired === 1,
+  `one stroke through ${chordProbe.slices} fruit fired ${chordProbe.swishesFired} swishes — must be exactly 1 (r18)`);
 ok(chordProbe.pendingAfter === 0, `gather never flushed (pending=${chordProbe.pendingAfter})`);
 ok(chordProbe.voices >= chordProbe.slices, `chord flushed but only ${chordProbe.voices} voices active`);
 

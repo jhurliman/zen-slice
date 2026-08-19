@@ -17,13 +17,36 @@ import { SPECIES_LIST, SPECIES } from '../fruit/species.js';
 import { makeFruitGeometry } from '../fruit/geometry.js';
 import { createPhysics } from './physics.js';
 
+/**
+ * ── r18: THE 30-MINUTE DAY ARC ──────────────────────────────────────────────
+ * The r17 table advanced on slice counts alone (6/10/14/18/24), and the player
+ * measured the consequence: "we quickly blow through all the levels and then
+ * sit in the last level for the majority of gameplay time. I want this game to
+ * be around 30 minutes of content."
+ *
+ * Ten levels now form a dawn→night arc, and a level needs BOTH its `dur`
+ * seconds of sim time AND its `need` slices. Time is the pacer (predictable
+ * ~90s early ramping to ~4min late, 27 minutes to the coda); the slice gate
+ * just proves you are playing — idling never advances, which keeps the
+ * founding "advance on participation" philosophy. The advance itself still
+ * fires from noteSlice(), never from the clock, so a level never changes
+ * under an idle player mid-stillness.
+ *
+ * Each level also has a musical identity (palette/motif/cut-timbre) owned by
+ * src/audio/ — the arrays there are index-matched to this table.
+ */
 export const LEVELS = [
-  { name: 'Still Water', pool: ['orange', 'apple'], every: [1.9, 2.6], burst: 1, need: 6 },
-  { name: 'First Light', pool: ['orange', 'apple', 'kiwi'], every: [1.6, 2.2], burst: 1, need: 10 },
-  { name: 'Orchard Rain', pool: ['orange', 'apple', 'kiwi', 'strawberry'], every: [1.3, 1.9], burst: 2, need: 14 },
-  { name: 'Summer Weight', pool: ['watermelon', 'orange', 'kiwi', 'strawberry'], every: [1.2, 1.7], burst: 2, need: 18 },
-  { name: 'Golden Hour', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [1.0, 1.5], burst: 2, need: 24 },
-  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.35], burst: 3, need: 999 },
+  { name: 'Still Water', pool: ['orange', 'apple'], every: [1.9, 2.6], burst: 1, need: 12, dur: 90 },
+  { name: 'First Light', pool: ['orange', 'apple', 'kiwi'], every: [1.7, 2.3], burst: 1, need: 20, dur: 120 },
+  { name: 'Morning Dew', pool: ['apple', 'kiwi', 'strawberry'], every: [1.5, 2.1], burst: 1, need: 30, dur: 150 },
+  { name: 'Orchard Rain', pool: ['orange', 'apple', 'kiwi', 'strawberry'], every: [1.3, 1.9], burst: 2, need: 40, dur: 180 },
+  { name: 'Noon Bloom', pool: ['watermelon', 'orange', 'apple', 'strawberry'], every: [1.2, 1.8], burst: 2, need: 45, dur: 180 },
+  { name: 'Summer Weight', pool: ['watermelon', 'pineapple', 'orange', 'kiwi'], every: [1.2, 1.7], burst: 2, need: 50, dur: 210 },
+  { name: 'Golden Hour', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [1.0, 1.6], burst: 2, need: 50, dur: 210 },
+  { name: 'Dusk Ember', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [1.0, 1.5], burst: 2, need: 55, dur: 240 },
+  { name: 'Night Jasmine', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.9, 1.4], burst: 3, need: 55, dur: 240 },
+  // the endless coda — the journey arrives here and stays
+  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.35], burst: 3, need: Infinity, dur: Infinity },
 ];
 
 export function createDirector({ seed = 20260806 } = {}) {
@@ -42,6 +65,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   const physics = createPhysics();
   let nextSpawn = 1.2;
   let t = 0;
+  let levelT = 0;   // sim seconds in the current level (the r18 time gate)
   // running triangle total of the live population, maintained incrementally by
   // add()/remove() so the budget check is two comparisons and not an O(n) sum
   // every fixed step (R4: zero steady-state allocation, and no per-step scan we
@@ -237,6 +261,7 @@ export function createDirector({ seed = 20260806 } = {}) {
 
   api.fixed = (sdt) => {
     t += sdt;
+    levelT += sdt;
     const L = LEVELS[api.level];
     updateVisibleBox();
 
@@ -342,15 +367,20 @@ export function createDirector({ seed = 20260806 } = {}) {
   api.noteSlice = () => {
     api.sliced++;
     const L = LEVELS[api.level];
-    if (api.sliced >= L.need && api.level < LEVELS.length - 1) {
-      api.level++; api.sliced = 0;
+    // Both gates (r18): the level has run its course in TIME and the player
+    // has proven participation in SLICES. Checked only here — the clock never
+    // advances a level on its own, so the world cannot change under an idle
+    // player mid-stillness; the slice that finally satisfies both is the one
+    // that turns the page.
+    if (api.sliced >= L.need && levelT >= L.dur && api.level < LEVELS.length - 1) {
+      api.level++; api.sliced = 0; levelT = 0;
       ctx.bus.emit('level', { level: api.level, name: LEVELS[api.level].name });
     }
   };
 
   api.reset = () => {
     for (let i = api.live.length - 1; i >= 0; i--) api.remove(api.live[i]);
-    api.level = 0; api.sliced = 0; nextSpawn = 0.8; liveTris = 0;
+    api.level = 0; api.sliced = 0; levelT = 0; nextSpawn = 0.8; liveTris = 0;
     // ⚠ ROUND 10, FOR THE JUICE PIECE — READ THIS. The r9 juice verdict's open
     // item (1) is that `api.reset` retires the bodies but nothing retires the
     // live beads/grains/strands/sheets, so shots/*/00-hero.png carries eleven

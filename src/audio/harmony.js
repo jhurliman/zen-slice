@@ -40,28 +40,56 @@ const PALETTES = [
     { name: 'F#m11', bass: 9, tones: [9, 0, 4, 7], color: 2 },
     { name: 'Esus4(9)', bass: 7, tones: [7, 0, 2], color: 9 },
   ],
-  // 2 Orchard Rain — descending bass A→G#→F#→D, the ballad turnaround
+  // 2 Morning Dew — sus2 glisten, everything slightly open
+  [
+    { name: 'Asus2', bass: 0, tones: [0, 7, 2], color: 9 },
+    { name: 'E/G#', bass: 11, tones: [7, 11, 2], color: 9 },
+    { name: 'F#m9', bass: 9, tones: [9, 0, 4, 7], color: 11 },
+    { name: 'Dadd9', bass: 5, tones: [5, 9, 0], color: 7 },
+  ],
+  // 3 Orchard Rain — descending bass A→G#→F#→D, the ballad turnaround
   [
     { name: 'A', bass: 0, tones: [0, 4, 7], color: 2 },
     { name: 'E/G#', bass: 11, tones: [7, 11, 2], color: 9 },
     { name: 'F#m7', bass: 9, tones: [9, 0, 4, 7], color: 7 },
     { name: 'Dmaj9', bass: 5, tones: [5, 9, 0, 4], color: 7 },
   ],
-  // 3 Summer Weight — weight shifts to the subdominant, D-lydian color
+  // 4 Noon Bloom — the brightest, most diatonic motion of the day
+  [
+    { name: 'Dmaj7', bass: 5, tones: [5, 9, 0, 4], color: 7 },
+    { name: 'A/C#', bass: 4, tones: [0, 4, 7], color: 2 },
+    { name: 'Esus4(9)', bass: 7, tones: [7, 0, 2], color: 9 },
+    { name: 'Aadd9', bass: 0, tones: [0, 4, 7], color: 2 },
+  ],
+  // 5 Summer Weight — weight shifts to the subdominant, D-lydian color
   [
     { name: 'Dmaj9(#11)', bass: 5, tones: [5, 9, 0, 4], color: 11 },
     { name: 'A/C#', bass: 4, tones: [0, 4, 7], color: 2 },
     { name: 'Bm9', bass: 2, tones: [2, 5, 9, 0], color: 4 },
     { name: 'Esus4(9)', bass: 7, tones: [7, 0, 2], color: 9 },
   ],
-  // 4 Golden Hour — ♭VII mixolydian warmth, the one borrowed tone (G♮)
+  // 6 Golden Hour — ♭VII mixolydian warmth, the one borrowed tone (G♮)
   [
     { name: 'Aadd9', bass: 0, tones: [0, 4, 7], color: 2 },
     { name: 'G6/9', bass: 10, tones: [10, 2, 5, 7], color: 0 },
     { name: 'D/F#', bass: 9, tones: [5, 9, 0], color: 7 },
     { name: 'Esus4(9)', bass: 7, tones: [7, 0, 2], color: 9 },
   ],
-  // 5 Deep Calm — home again, richest voicings, slowest harmonic rhythm
+  // 7 Dusk Ember — vi-centered, the day cooling into F# minor
+  [
+    { name: 'F#m9', bass: 9, tones: [9, 0, 4, 7], color: 11 },
+    { name: 'Dmaj7', bass: 5, tones: [5, 9, 0, 4], color: 7 },
+    { name: 'Bm7', bass: 2, tones: [2, 5, 9, 0], color: 4 },
+    { name: 'E7sus4', bass: 7, tones: [7, 0, 2, 5], color: 9 },
+  ],
+  // 8 Night Jasmine — the darkest palette, minor iii under the pedal
+  [
+    { name: 'F#m11', bass: 9, tones: [9, 0, 4, 7], color: 2 },
+    { name: 'C#m7', bass: 4, tones: [4, 7, 11, 2], color: 9 },
+    { name: 'Dmaj9#11', bass: 5, tones: [5, 9, 0, 4], color: 11 },
+    { name: 'Esus4(9)', bass: 7, tones: [7, 0, 2], color: 9 },
+  ],
+  // 9 Deep Calm — home again, richest voicings, slowest harmonic rhythm
   [
     { name: 'Amaj9', bass: 0, tones: [0, 4, 7, 11], color: 2 },
     { name: 'F#m11', bass: 9, tones: [9, 0, 4, 7], color: 2 },
@@ -70,8 +98,8 @@ const PALETTES = [
   ],
 ];
 
-// L0/L5 double the harmonic rhythm for stillness
-const BARS_PER_CHORD = [4, 2, 2, 2, 2, 4];
+// dawn and the coda double the harmonic rhythm for stillness; night slows too
+const BARS_PER_CHORD = [4, 2, 2, 2, 2, 2, 2, 2, 3, 4];
 
 /**
  * Species → role in the current chord. `kind` picks which pitch classes are
@@ -224,11 +252,13 @@ export function createHarmony() {
      *  register widening with level. Returns semitones from A3, ascending. */
     padNotes(count) {
       const chord = palette[idx];
-      const lowLift = level >= 4 ? 0 : level >= 2 ? -3 : -5;
+      // register widens across the 10-level day: dawn sits low and close,
+      // evening opens up (thresholds rescaled from the old 6-level table)
+      const lowLift = level >= 6 ? 0 : level >= 3 ? -3 : -5;
       const out = [place(chord.bass, -12 + lowLift), place((chord.bass + 7) % 12, -5)];
       const uppers = chord.tones.slice(1).concat([chord.color]);
       for (let i = 0; out.length < count && i < uppers.length; i++) {
-        out.push(place(uppers[i], 4 + i * 4 + (level >= 4 ? 3 : 0)));
+        out.push(place(uppers[i], 4 + i * 4 + (level >= 6 ? 3 : 0)));
       }
       out.length = Math.min(out.length, count);
       return out;
