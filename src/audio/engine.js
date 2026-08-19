@@ -46,7 +46,12 @@ export function createEngine() {
     if (eng.actx) return true;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return false;
-    const actx = (eng.actx = new AC());
+    // r22: latencyHint 'interactive' is the default on paper, but say it out
+    // loud — the slice sound's whole job is immediacy. Legacy webkit
+    // constructors may reject an options bag; fall back bare.
+    let actx;
+    try { actx = new AC({ latencyHint: 'interactive' }); } catch (_) { actx = new AC(); }
+    eng.actx = actx;
     eng.nodesCreated = 0;
     const mk = (n) => { eng.nodesCreated++; return n; };
 
@@ -206,6 +211,12 @@ export function createEngine() {
     const dur = buffer.duration / rate;
     src.stop(t + dur + 0.02);
     v.src = src; v.until = t + dur;
+  };
+
+  /** Diagnostic: seconds of remaining life per piano voice (negative = idle). */
+  eng.voiceDebug = () => {
+    const now = eng.now();
+    return pianoPool.map((v) => +(v.until - now).toFixed(2));
   };
 
   eng.voicesActive = () => {

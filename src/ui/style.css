@@ -242,6 +242,26 @@ html, body {
   touch-action: manipulation;
 }
 
+/* r22 — the phrase whisper: a sustained run of chained cuts, acknowledged
+ * once when it ends, in the hint's quiet voice just above it */
+.zs-phrase {
+  position: absolute;
+  bottom: max(58px, calc(env(safe-area-inset-bottom) + 46px));
+  left: 50%; transform: translateX(-50%);
+  font-size: 12px; letter-spacing: 0.40em; text-transform: lowercase;
+  color: rgba(200, 220, 255, 0);
+  text-shadow: 0 0 22px rgba(140, 190, 255, 0.35);
+  white-space: nowrap;
+  opacity: 0;
+}
+.zs-phrase.show { animation: zsPhrase 3.4s ease-in-out forwards; }
+@keyframes zsPhrase {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; color: rgba(200, 220, 255, 0.75); }
+  72%  { opacity: 1; color: rgba(200, 220, 255, 0.75); }
+  100% { opacity: 0; color: rgba(200, 220, 255, 0); }
+}
+
 /* the once-per-session personal-best whisper, under the score */
 .zs-best {
   position: absolute;

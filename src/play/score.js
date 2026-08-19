@@ -88,6 +88,16 @@ export function createScore() {
   // and announced ONCE per session the moment it is first exceeded, so the
   // HUD can whisper 'personal best' exactly when it happens.
   let lastBestSave = -1e9, announcedBest = false;
+  // ══ r22: HARMONY vs PHRASE — two concepts this file used to conflate ══════
+  // HARMONY is one stroke through several fruit: the sound engine already
+  // gathers those cuts into one rolled chord, and the callout now names what
+  // it plays — DYAD/TRIAD/CHORD/FLOURISH. Grouped here by e.strokeId (stamped
+  // at hit time in slicer.js); a group closes 150 ms after its last cut,
+  // which covers r19-perf's one-cut-per-fixed-step drain.
+  // PHRASE is the 0.55 s cross-stroke chain below — the score multiplier,
+  // unchanged in every number — acknowledged with one whisper only when a
+  // run of 6+ ends naturally (not on a rockhit: the stone owns that moment).
+  let hStrokeId = -1, hSize = 0, hGain = 0, hAt = null, hCloseT = -1e9;
 
   api.init = (c) => {
     ctx = c;
@@ -123,17 +133,27 @@ export function createScore() {
         if (now - lastBestSave > 5) { lastBestSave = now; savePref('bestScore', api.bestScore); }
       }
 
-      // The one combo signal on the bus. Payload widened this round so the
-      // pieces that CAN answer a combo visually — hud.js's callout, blade.js's
-      // streak, audio.js's chime — have something to scale by without any of
-      // them reaching into ctx.score. `count` and `at` are unchanged, so every
-      // existing consumer keeps working untouched.
+      // The chain signal on the bus — PHRASE semantics (r22): audio's shimmer
+      // and chord-clock nudge are sustained-play cues, so they keep consuming
+      // this unchanged. The event keeps its historical internal name; nothing
+      // player-facing renders it any more (hud renders 'harmony'/'phrase').
       //   mult  the live score multiplier, 1.5 at 2x, 2.0 at 3x, ...
       //   gain  points this cut actually awarded (what the score pop is worth)
-      //   peak  true only on a cut that sets a new best combo for the session
+      //   peak  true only on a cut that sets a new best chain for the session
       if (api.combo >= 2) {
         c.bus.emit('combo', { count: api.combo, at: e.stroke.at.clone(), mult, gain, peak });
       }
+
+      // harmony accumulator (r22): group this stroke's cuts
+      if (e.strokeId !== hStrokeId) {
+        flushHarmony();
+        hStrokeId = e.strokeId ?? -1;
+        hSize = 0; hGain = 0;
+      }
+      hSize++;
+      hGain += gain;
+      hAt = e.stroke.at;
+      hCloseT = nowSec() + 0.15;
     });
     c.bus.on('level', (e) => { api.level = e.level; api.levelName = e.name; });
 
@@ -154,6 +174,9 @@ export function createScore() {
       api.level = 0; api.levelName = 'Still Water';
       lastSliceT = -1e9;
       announcedBest = false;
+      // discard (not flush) any open harmony group — a reset mid-stroke
+      // must not emit a callout into the fresh session
+      hStrokeId = -1; hSize = 0; hGain = 0; hAt = null; hCloseT = -1e9;
     });
 
     // ══ r20: THE ROCK PENALTY ═══════════════════════════════════════════════
@@ -172,8 +195,23 @@ export function createScore() {
     });
   };
 
+  /** Close the open harmony group; strokes of 2+ become a callout. */
+  function flushHarmony() {
+    if (hSize >= 2 && hAt) {
+      ctx.bus.emit('harmony', { size: hSize, gain: hGain, at: hAt.clone(), flourish: hSize >= 5 });
+    }
+    hStrokeId = -1; hSize = 0; hGain = 0; hAt = null; hCloseT = -1e9;
+  }
+
   api.frame = () => {
-    if (api.combo && nowSec() - lastSliceT > COMBO_WINDOW) api.combo = 0;
+    const now = nowSec();
+    if (api.combo && now - lastSliceT > COMBO_WINDOW) {
+      // a sustained run ending on its own terms earns the phrase whisper —
+      // a chain broken by a rock does not (see the rockhit handler)
+      if (api.combo >= 6) ctx.bus.emit('phrase', { length: api.combo });
+      api.combo = 0;
+    }
+    if (hSize && now > hCloseT) flushHarmony();
   };
 
   return api;

@@ -117,33 +117,53 @@ export function createHud() {
     // break that or add its bytes to a bundle that is already 3.9MB. The look
     // is built out of a heavy system stack plus layered CSS instead; see the
     // `.zs-combo` block in style.css for how the bevel and the gold are made.
-    c.bus.on('combo', (e) => {
+    // ══ r22: THE HARMONY CALLOUT ═════════════════════════════════════════════
+    // Named for what the sound engine actually plays: one stroke through
+    // several fruit is gathered and voiced as one rolled chord, so the
+    // callout is its music-theory name — DYAD, TRIAD, CHORD, FLOURISH · n —
+    // with the stroke's points below. No "FRUIT COMBO" anywhere. The
+    // cross-stroke chain (the PHRASE) still drives the score multiplier
+    // silently and gets its own whisper below when a long run ends.
+    c.bus.on('harmony', (e) => {
       const el = document.createElement('div');
-      el.className = 'zs-combo' + (e.peak ? ' peak' : '');
+      el.className = 'zs-combo' + (e.flourish ? ' peak' : '');
       // `data-t` is what draws the dark outline: a ::before pseudo-element
       // stroked and painted BEHIND the gradient fill, because -webkit-text-stroke
       // and background-clip:text cannot both live on one element.
-      const l1 = `${e.count} FRUIT COMBO`;
-      const l2 = `+${Math.max(1, Math.round(e.gain ?? e.count))}`;
+      const l1 = e.size === 2 ? 'DYAD'
+        : e.size === 3 ? 'TRIAD'
+          : e.size === 4 ? 'CHORD'
+            : `FLOURISH · ${e.size}`;
+      const l2 = `+${Math.max(1, Math.round(e.gain ?? e.size))}`;
       el.innerHTML =
         `<span class="zs-c1" data-t="${l1}">${l1}</span>`
         + `<span class="zs-c2" data-t="${l2}">${l2}</span>`;
 
-      // Position over the cut, then KEEP IT ON SCREEN — and clamp in PIXELS
-      // against the callout's own MEASURED width, not in percent. A percentage
-      // clamp cannot know how wide "5 FRUIT COMBO" is, and portrait is only 430
-      // CSS px across: the first version put the text 12 px from the left edge
-      // and cut the glow off. This is the same class of mistake as r10's
-      // GRAIN_PX note — state the bound in the unit the thing is measured in.
+      // Position over the cut, then KEEP IT ON SCREEN — placeFloat carries the
+      // measured-pixel clamp lessons (fit against the pop, reserve the travel).
       const fit = placeFloat(el, e.at, c, 1);
 
       // A small deterministic tilt so it reads as hand-placed rather than
-      // pasted on. Derived from the count, NOT from Math.random(), so that a
+      // pasted on. Derived from the size, NOT from Math.random(), so that a
       // captured frame is reproducible — r12 seeded the harness precisely so
       // that frames could be compared byte for byte, and a random rotation here
       // would put that back.
-      const tilt = ((e.count * 37) % 11) - 5;
+      const tilt = ((e.size * 37) % 11) - 5;
       floats.push({ el, t: 0, tilt, fit, riseK: 1, life: 1.15 });
+    });
+
+    // the phrase whisper (r22): a sustained run of 6+ chained cuts, ended on
+    // its own terms — one thin lowercase line above the hint, then gone
+    let phraseEl = null;
+    c.bus.on('phrase', (e) => {
+      if (phraseEl) phraseEl.remove();
+      phraseEl = document.createElement('div');
+      phraseEl.className = 'zs-phrase';
+      phraseEl.textContent = `phrase · ${e.length}`;
+      root.appendChild(phraseEl);
+      requestAnimationFrame(() => phraseEl && phraseEl.classList.add('show'));
+      const el2 = phraseEl;
+      setTimeout(() => { el2.remove(); if (phraseEl === el2) phraseEl = null; }, 3400);
     });
 
     // ══ r20: THE PENALTY CALLOUT ═════════════════════════════════════════════
@@ -326,8 +346,9 @@ export function createHud() {
         try {
           const st = window.ZS?.audio?.state?.();
           const dir = c.fruits;
+          const lat = st && st.outputLatency != null ? ` · lat ${(st.outputLatency * 1000) | 0}ms` : '';
           const txt = st
-            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · bloom ${st.bloom}`
+            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · bloom ${st.bloom}${lat}`
             : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}`;
           if (debugTxt.textContent !== txt) debugTxt.textContent = txt;
         } catch (_) { /* diagnostic only */ }

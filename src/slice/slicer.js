@@ -319,7 +319,11 @@ export function createSlicer() {
     // steady-state. Averaging a cut into the steady-state is exactly how a
     // spike disappears into a good-looking mean.
     ctx.__zsCutThisFrame = true;
-    ctx.bus.emit('slice', { stroke, fruit: f, halves });
+    // r22: strokeId comes from f.lastStroke, which was stamped AT HIT TIME —
+    // the module-level counter may have advanced by the time a queued cut
+    // drains, so this is the only value that correctly groups a stroke's cuts.
+    // score.js gathers slices by it into the HARMONY (one stroke, one chord).
+    ctx.bus.emit('slice', { stroke, fruit: f, halves, strokeId: f.lastStroke });
   }
 
   return api;

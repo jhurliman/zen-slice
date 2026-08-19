@@ -95,7 +95,9 @@ export function createHaptics() {
     if (api.backend === 'none') return;   // inert — listeners would be dead weight
 
     c.bus.on('slice', (e) => pulse(6 + Math.round(vel(e.stroke.speed) * 10)));
-    c.bus.on('combo', (e) => { if (e.count >= 3) pattern([12, 30, 12]); });
+    // r22: the double-tap keys to the HARMONY (fruit in one stroke) — one
+    // gesture, one feel — not the cross-stroke phrase chain
+    c.bus.on('harmony', (e) => { if (e.size >= 3) pattern([12, 30, 12]); });
     c.bus.on('rockhit', () => pulse(40));
     c.bus.on('level', () => pulse(18));
     c.bus.on('pref', (e) => { if (e.key === 'haptics') enabled = !!e.value; });

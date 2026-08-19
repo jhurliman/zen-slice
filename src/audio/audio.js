@@ -36,7 +36,7 @@ import { createEngine } from './engine.js';
 import { createHarmony } from './harmony.js';
 import { createConductor } from './conductor.js';
 import {
-  renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank, makeTickBuffer, SWISH_FOR_LEVEL,
+  renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank, makeSnickBuffer, SWISH_FOR_LEVEL,
   playPluck, playRiser, playSigh, playBloom,
 } from './instruments.js';
 
@@ -51,7 +51,7 @@ export function createAudio() {
   const conductor = createConductor(engine, harmony);
 
   let ctxRef = null, started = false;
-  let pianoKit = null, thumpBuf = null, swishBank = null, tickBuf = null;
+  let pianoKit = null, thumpBuf = null, swishBank = null, snickBuf = null;
   let pending = [];            // gathered notes of the current stroke
   let pendingAt = -1;          // engine time of the stroke's first cut
   let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9;
@@ -110,7 +110,7 @@ export function createAudio() {
     engine.setMaster(masterLevel(), 0.25);   // audible within ~0.5 s, not ~2.5
     thumpBuf = makeThumpBuffer(engine.actx);
     swishBank = makeSwishBank(engine.actx);
-    tickBuf = makeTickBuffer(engine.actx);
+    snickBuf = makeSnickBuffer(engine.actx);
     conductor.start(playNote);
     conductor.setCaps(caps);
     engine.setPianoCap(caps.voices);
@@ -185,11 +185,13 @@ export function createAudio() {
         0.92 + v * 0.22 + Math.random() * 0.08,
         t, 0.14 + v * 0.12, 1100 + v * 2400, pan);
     }
-    // the CONTACT (r20, the latency fix): a ~15 ms tick per fruit at the
-    // exact cut instant. The swish is a texture and the piano waits out the
-    // chord gather — this is the sound that says "the blade touched it NOW".
-    engine.playThump(tickBuf, 0.9 + v * 0.3, t, 0.05 + v * 0.07);
-    // the wet weight under it, slightly firmer than r18
+    // the CONTACT — the SNICK (r22): per fruit, unconditional, at the exact
+    // cut instant, loud enough to BE the slice sound. The swish is air behind
+    // it, the piano waits out the chord gather; this owns the first frame.
+    // Heavy fruit snick lower via playbackRate.
+    engine.playThump(snickBuf, Math.min(1.22, Math.max(0.8, 1.25 - mass * 0.12)),
+      t, 0.16 + v * 0.14);
+    // the wet weight under it
     engine.playThump(thumpBuf, Math.min(2.2, Math.max(0.8, 0.8 + 0.5 / mass)),
       t, 0.10 * Math.min(1.4, mass * 0.5));
 
@@ -356,6 +358,10 @@ export function createAudio() {
     started, pianoReady: !!pianoKit,
     muted: !soundOn,
     actxState: engine.actx ? engine.actx.state : 'none',
+    // hardware truth for the latency conversation: seconds from "we scheduled
+    // it" to "the speaker moves". Read these off the device via ?debug.
+    baseLatency: engine.actx?.baseLatency ?? null,
+    outputLatency: engine.actx?.outputLatency ?? null,
     bpm: Math.round(conductor.bpm * 10) / 10,
     chord: harmony.chordName(),
     level: harmony.level(),
@@ -365,6 +371,7 @@ export function createAudio() {
     voicesActive: engine.ready ? engine.voicesActive() : 0,
     nodesCreated: engine.nodesCreated,
     pending: pending.length,
+    voiceDebug: engine.ready ? engine.voiceDebug() : [],
     swishes: swishCount,
     errors: api.errors,
   });
