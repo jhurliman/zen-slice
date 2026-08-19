@@ -200,6 +200,100 @@ html, body {
 .zs-hint.gone { opacity: 0; }
 @keyframes zsPulse { 0%,100%{opacity:.22} 50%{opacity:.55} }
 
+/* ══ r21: THE SETTINGS THAT BARELY EXIST ═════════════════════════════════════
+ * One glyph, top-right, in the hint's typographic voice, present only when
+ * the fingertip has been still for a while (hud.js owns the timing). Tapping
+ * it unfolds three thin rows. Nothing boxed, nothing chunky — a settings
+ * SCREEN would argue with the game's whole thesis. */
+.zs-settings {
+  position: absolute;
+  top: max(18px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  text-align: right;
+  pointer-events: none;
+}
+.zs-gear {
+  /* hit-testable ONLY while visible — an opacity-0 button that still takes
+   * pointer events would swallow swipes starting in the top-right corner */
+  pointer-events: none;
+  background: none; border: none;
+  font: inherit;
+  font-size: 22px; letter-spacing: 0.1em;
+  color: rgba(255,255,255,0.30);
+  padding: 6px 10px;
+  opacity: 0; transition: opacity 1.2s ease;
+  touch-action: manipulation;
+}
+.zs-gear.show { opacity: 1; pointer-events: auto; }
+.zs-panel {
+  display: none;
+  margin-top: 6px;
+}
+.zs-panel.open { display: block; }
+.zs-panel button {
+  pointer-events: auto;
+  display: block; width: 100%;
+  background: none; border: none;
+  font: inherit;
+  font-size: 13px; letter-spacing: 0.28em; text-transform: uppercase;
+  text-align: right;
+  color: rgba(255,255,255,0.55);
+  padding: 10px 10px;
+  touch-action: manipulation;
+}
+
+/* r22 — the phrase whisper: a sustained run of chained cuts, acknowledged
+ * once when it ends, in the hint's quiet voice just above it */
+.zs-phrase {
+  position: absolute;
+  bottom: max(58px, calc(env(safe-area-inset-bottom) + 46px));
+  left: 50%; transform: translateX(-50%);
+  font-size: 12px; letter-spacing: 0.40em; text-transform: lowercase;
+  color: rgba(200, 220, 255, 0);
+  text-shadow: 0 0 22px rgba(140, 190, 255, 0.35);
+  white-space: nowrap;
+  opacity: 0;
+}
+.zs-phrase.show { animation: zsPhrase 3.4s ease-in-out forwards; }
+@keyframes zsPhrase {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; color: rgba(200, 220, 255, 0.75); }
+  72%  { opacity: 1; color: rgba(200, 220, 255, 0.75); }
+  100% { opacity: 0; color: rgba(200, 220, 255, 0); }
+}
+
+/* the once-per-session personal-best whisper, under the score */
+.zs-best {
+  position: absolute;
+  top: calc(max(18px, env(safe-area-inset-top)) + 64px);
+  left: 50%; transform: translateX(-50%);
+  font-size: 12px; letter-spacing: 0.40em; text-transform: uppercase;
+  color: rgba(255,235,170,0);
+  text-shadow: 0 0 22px rgba(255,206,110,0.4);
+  white-space: nowrap;
+  transition: color 1.1s ease;
+}
+.zs-best.show { animation: zsBest 4.0s ease-in-out forwards; }
+@keyframes zsBest {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; color: rgba(255,235,170,0.85); }
+  75%  { opacity: 1; color: rgba(255,235,170,0.85); }
+  100% { opacity: 0; color: rgba(255,235,170,0); }
+}
+
+/* prefers-reduced-motion: the level name simply fades — no tracking sweep —
+ * and the hint stops pulsing. Callout motion is zeroed in hud.js. */
+@media (prefers-reduced-motion: reduce) {
+  .zs-level.show { animation: zsLevelStill 3.4s ease forwards; }
+  .zs-hint { animation: none; opacity: 0.4; }
+}
+@keyframes zsLevelStill {
+  0%   { opacity: 0; color: rgba(255,255,255,0); }
+  18%  { opacity: 1; color: rgba(255,255,255,0.88); }
+  70%  { opacity: 1; color: rgba(255,255,255,0.88); }
+  100% { opacity: 0; color: rgba(255,255,255,0); }
+}
+
 /* r17 — the experiment badge. Deliberately plain and deliberately not pretty:
  * it is a diagnostic, it must never be mistaken for game chrome, and it must be
  * legible over a black playfield on a phone at arm's length. Bottom-left keeps

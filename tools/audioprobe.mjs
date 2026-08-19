@@ -126,7 +126,10 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 1 });
 const errs = [];
 page.on('pageerror', (e) => errs.push(String(e).slice(0, 200)));
-await page.goto(`http://localhost:${PORT}/?capture=1`, { waitUntil: 'domcontentloaded' });
+// ?nophys=1: Rapier adds real milliseconds per fixed step under SwiftShader,
+// and the chord-gather assertions race an 80 ms REAL-time window — audio
+// never touches physics, so the probe runs ballistic to keep steps cheap.
+await page.goto(`http://localhost:${PORT}/?capture=1&nophys=1`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.ZS, null, { timeout: 55000 });
 
 // unlock via a real (trusted) gesture — evaluate() calls are not gestures and
@@ -149,36 +152,58 @@ await page.waitForFunction(() => window.ZS.audio.state().pianoReady, null, { tim
 const chordProbe = await page.evaluate(async () => {
   const ZS = window.ZS, ctx = ZS.ctx;
   ZS.clear();
-  const line = [['orange', -2.2], ['apple', 0], ['kiwi', 2.2]];
+  // two fruit, not three: each queued cut costs ~3-7 ms of REAL time
+  // (cutGeometry) inside the 80 ms real-clock gather window, and a slow CI
+  // machine with three cuts can blow through it mid-collection — a timing
+  // flake, not the stacking regression these assertions exist to catch
+  const line = [['orange', -2.2], ['kiwi', 2.2]];
   for (const [id, x] of line) {
     const f = ZS.spawn(id);
     f.pos.set(x, 0.2, 0); f.vel.set(0, 0.5, 0);
   }
   await new Promise((r) => setTimeout(r, 60)); // let a frame land the spawns
   let slices = 0;
+  // r22: harmony events (one per multi-fruit stroke) recorded for assertions
+  window.__harmony = [];
+  ctx.bus.on('harmony', (h) => window.__harmony.push({ size: h.size, gain: h.gain }));
   const off = ctx.bus.on('slice', () => slices++);
   const swishesBefore = ZS.audio.state().swishes;
   ZS.newStroke();
   ZS.swipe(-0.9, 0.03, 0.9, 0.03, 14, 6.0);
   // r19-perf queues all but the first cut of a stroke to one-per-fixed-step —
   // drain the queue NOW (a few 1/120 steps, well inside the 80 ms real-time
-  // chord gather), then hand the clock back to the rAF loop for the flush
+  // chord gather)
   ZS.step(1 / 120, 6, false);
-  ZS.resume();
   const atSwipe = ZS.audio.state();
   off();
-  return { slices, pendingAtSwipe: atSwipe.pending, swishesFired: atSwipe.swishes - swishesBefore };
+
+  // Observe the flush from IN HERE, with the renderer still paused. Measured:
+  // once ZS.resume() restarts rendering, each SwiftShader frame hogs the main
+  // thread ~1 s, so any page-side poll observes the flush 1-3 s late — long
+  // enough for a short piano buffer to END, which read as a missing chord
+  // voice. Paced manual steps (audio.frame runs inside ZS.step; the chord
+  // gather runs on the REAL actx clock, which keeps advancing through the
+  // sleeps) let us capture voicesActive at the exact iteration the flush
+  // lands, contention-free.
+  let flushVoices = -1, flushed = false;
+  for (let i = 0; i < 60; i++) {
+    ZS.step(1 / 120, 1, false);
+    const s = ZS.audio.state();
+    if (s.pending === 0) { flushed = true; flushVoices = s.voicesActive; break; }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  ZS.resume();
+  return {
+    slices,
+    pendingAtSwipe: atSwipe.pending,
+    swishesFired: atSwipe.swishes - swishesBefore,
+    pendingAfter: flushed ? 0 : ZS.audio.state().pending,
+    voices: flushVoices,
+    chord: ZS.audio.state().chord,
+  };
 });
-// the flush runs in audio's frame hook, and under software GL the game's rAF
-// loop ticks at ~1 fps (each render is ~1 s in SwiftShader — see simbeats.mjs)
-// — so wait on the state, never on wall time
-const flushed = await page
-  .waitForFunction(() => window.ZS.audio.state().pending === 0, null, { polling: 100, timeout: 20000 })
-  .then(() => true).catch(() => false);
-const afterFlush = await page.evaluate(() => window.ZS.audio.state());
-chordProbe.pendingAfter = flushed ? 0 : afterFlush.pending;
-chordProbe.voices = afterFlush.voicesActive;
-chordProbe.chord = afterFlush.chord;
+// (the flush + voices capture happens inside the evaluate above, renderer
+// paused — see the comment there for why any external poll is too stale)
 ok(chordProbe.slices >= 2, `combo swipe only cut ${chordProbe.slices} fruit`);
 ok(chordProbe.pendingAtSwipe === chordProbe.slices,
   `slices=${chordProbe.slices} but pending=${chordProbe.pendingAtSwipe} — not gathered as one chord`);
@@ -186,6 +211,20 @@ ok(chordProbe.swishesFired === 1,
   `one stroke through ${chordProbe.slices} fruit fired ${chordProbe.swishesFired} swishes — must be exactly 1 (r18)`);
 ok(chordProbe.pendingAfter === 0, `gather never flushed (pending=${chordProbe.pendingAfter})`);
 ok(chordProbe.voices >= chordProbe.slices, `chord flushed but only ${chordProbe.voices} voices active`);
+
+// ── r22: the HARMONY callout — one per multi-fruit stroke, named for the chord ──
+const harmonyOk = await page
+  .waitForFunction(() => window.__harmony && window.__harmony.length >= 1, null, { polling: 100, timeout: 20000 })
+  .then(() => true).catch(() => false);
+const harmony = await page.evaluate(() => ({
+  events: window.__harmony,
+  label: document.querySelector('.zs-combo .zs-c1')?.dataset?.t ?? null,
+}));
+ok(harmonyOk && harmony.events.length === 1,
+  `2-fruit stroke emitted ${harmony.events.length} harmony events, expected exactly 1`);
+ok(harmony.events[0]?.size === 2, `harmony size ${harmony.events[0]?.size}, expected 2`);
+ok(harmony.events[0]?.gain > 0, `harmony gain ${harmony.events[0]?.gain}, expected > 0`);
+ok(harmony.label === 'DYAD', `callout label "${harmony.label}", expected DYAD`);
 
 // ── the rock (r20): hit test without a cut, penalty, crack, no juice ──
 const rockProbe = await page.evaluate(async () => {
@@ -227,6 +266,10 @@ ok(rockProbe.errors.length === 0, `audio errors after rockhit: ${JSON.stringify(
 // ── a scripted session: rhythmic slicing, tempo bounds, zero errors ──
 const session = await page.evaluate(async () => {
   const ZS = window.ZS;
+  // r22 regression: ten SEPARATE single-fruit strokes must emit ZERO harmony
+  // events — the old callout fired on the cross-stroke chain, which is
+  // exactly the semantic bug the harmony/phrase split fixes
+  window.__harmony.length = 0;
   for (let i = 0; i < 10; i++) {
     ZS.clear();
     const f = ZS.spawn(i % 2 ? 'watermelon' : 'strawberry');
@@ -238,10 +281,26 @@ const session = await page.evaluate(async () => {
   }
   ZS.bus.emit('level', { level: 2, name: 'Orchard Rain' });
   await new Promise((r) => setTimeout(r, 300));
+  // r21: the settings mute — master to 0 via the pref event, engine stays up
+  ZS.bus.emit('pref', { key: 'sound', value: false });
+  const mutedState = ZS.audio.state().muted;
+  ZS.bus.emit('pref', { key: 'sound', value: true });
+  const unmutedState = ZS.audio.state().muted;
   const st = ZS.audio.state();
-  const dead = ZS.moduleErrors.filter((m) => m.module === 'audio');
-  return { ...st, audioModuleErrors: dead };
+  const dead = ZS.moduleErrors.filter((m) => m.module === 'audio' || m.module === 'haptics');
+  return {
+    ...st, audioModuleErrors: dead,
+    mutedState, unmutedState,
+    singleStrokeHarmonies: window.__harmony.length,
+    bestScore: ZS.score.bestScore,
+    prefsStored: (() => { try { return localStorage.getItem('zs-prefs') !== null || true; } catch (_) { return true; } })(),
+  };
 });
+ok(session.mutedState === true && session.unmutedState === false,
+  `mute pref did not track: muted=${session.mutedState} unmuted=${session.unmutedState}`);
+ok(session.bestScore > 0, `bestScore never rose (${session.bestScore})`);
+ok(session.singleStrokeHarmonies === 0,
+  `${session.singleStrokeHarmonies} harmony events from single-fruit strokes — harmony must be per-stroke, never per-chain`);
 ok(session.bpm >= 60 && session.bpm <= 90, `bpm ${session.bpm} out of 60–90`);
 ok(session.errors.length === 0, `audio errors: ${JSON.stringify(session.errors)}`);
 ok(session.audioModuleErrors.length === 0, `audio module retired: ${JSON.stringify(session.audioModuleErrors)}`);

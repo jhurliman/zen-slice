@@ -52,6 +52,7 @@ import { createFluid } from './juice/fluid.js';
 import { createDirector } from './play/director.js';
 import { createScore } from './play/score.js';
 import { createHud } from './ui/hud.js';
+import { createHaptics } from './input/haptics.js';
 import { createAudio } from './audio/audio.js';
 
 const PROFILES = {
@@ -139,10 +140,11 @@ export async function boot(canvas) {
   const director = createDirector();
   const score = createScore();
   const hud = createHud();
+  const haptics = createHaptics();
   const audio = createAudio();
 
-  const modules = [stage, director, fluid, blade, slicer, score, hud, audio];
-  const names = ['stage', 'director', 'fluid', 'blade', 'slicer', 'score', 'hud', 'audio'];
+  const modules = [stage, director, fluid, blade, slicer, score, hud, haptics, audio];
+  const names = ['stage', 'director', 'fluid', 'blade', 'slicer', 'score', 'hud', 'haptics', 'audio'];
   for (let i = 0; i < modules.length; i++) modules[i].__zsName = names[i];
   ctx.stage = stage;
   ctx.score = score;

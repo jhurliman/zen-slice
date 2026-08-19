@@ -151,12 +151,15 @@ async function renderPianoNote(sr, f0, idx) {
  * Synchronous JS math, 8 buffers × ~0.45 s ≈ 170k samples — trivial.
  */
 // r20: wind/breath decays lengthened — the player asked for more
-// sustain/release on the swipe sounds ("sprinkled on top", lingering)
+// sustain/release on the swipe sounds ("sprinkled on top", lingering).
+// r22: attacks shortened — the SNICK now owns the cut's first frame, and the
+// swish blooms right behind it as pure air; a 35-60 ms swish attack with no
+// transient in front of it was the perceived latency.
 const SWISH_RECIPES = {
-  breath: { attack: 0.060, decay: 0.42, dur: 0.75, k0: 0.10, k1: 0.04, grainHz: 0, hp: false },
-  wind: { attack: 0.035, decay: 0.30, dur: 0.58, k0: 0.22, k1: 0.07, grainHz: 0, hp: false },
-  rain: { attack: 0.040, decay: 0.26, dur: 0.50, k0: 0.26, k1: 0.10, grainHz: 30, hp: true },
-  leaves: { attack: 0.030, decay: 0.20, dur: 0.42, k0: 0.30, k1: 0.12, grainHz: 70, hp: true },
+  breath: { attack: 0.045, decay: 0.42, dur: 0.75, k0: 0.10, k1: 0.04, grainHz: 0, hp: false },
+  wind: { attack: 0.028, decay: 0.30, dur: 0.58, k0: 0.22, k1: 0.07, grainHz: 0, hp: false },
+  rain: { attack: 0.030, decay: 0.26, dur: 0.50, k0: 0.26, k1: 0.10, grainHz: 30, hp: true },
+  leaves: { attack: 0.025, decay: 0.20, dur: 0.42, k0: 0.30, k1: 0.12, grainHz: 70, hp: true },
 };
 
 /** level index (the 10-level day arc) → swish recipe name */
@@ -204,26 +207,36 @@ export function makeSwishBank(actx) {
 }
 
 /**
- * The contact tick (r20): ~15 ms of bandpassed noise with a 1.5 ms rise — a
- * fingertip tap, not a click. This is the latency fix: r18 made the swish a
- * slow-rising texture and halved the thump, which deleted the immediate
- * "blade touched the fruit" percept; the piano then waits out the 80 ms
- * chord gather, so the whole cut read as sluggish. The tick fires PER FRUIT
- * at the instant of the cut and restores the contact without undoing the
- * texture redesign.
+ * The SNICK (r22, slice latency round two): the sound that owns the first
+ * frame of a cut. The r20 "tick" was too quiet and too thin to register
+ * (0.05-0.12 gain, first-difference wisp), so the ear locked onto the swish
+ * — whose designed attack is 35-60 ms — and the player still heard latency.
+ * This is a real transient: <2 ms attack, ~90 ms of mid-band body whose
+ * center FALLS across its life (a blade entering flesh, not a click),
+ * normalized and played per fruit at 2-3x the old tick's level, pitched
+ * down slightly for heavy fruit via playbackRate.
  */
-export function makeTickBuffer(actx) {
-  const sr = actx.sampleRate, dur = 0.03, len = (sr * dur) | 0;
+export function makeSnickBuffer(actx) {
+  const sr = actx.sampleRate, dur = 0.09, len = (sr * dur) | 0;
   const buf = actx.createBuffer(1, len, sr);
   const d = buf.getChannelData(0);
-  let lp = 0, prev = 0;
+  let lp1 = 0, lp2 = 0;
   for (let i = 0; i < len; i++) {
     const t = i / sr;
-    lp += ((Math.random() * 2 - 1) - lp) * 0.55;    // bright but not white
-    const bp = lp - prev; prev = lp;                 // first-difference: no low thump
-    const env = Math.min(1, t / 0.0015) * Math.exp(-t / 0.012);
-    d[i] = bp * env * 2.2;
+    const w = Math.random() * 2 - 1;
+    // band = difference of two one-poles; the faster pole's coefficient
+    // falls over the sound, dragging the band's center down ~3.5k → ~700 Hz
+    const kHi = 0.55 - 0.42 * Math.min(1, t / 0.06);
+    lp1 += (w - lp1) * kHi;
+    lp2 += (w - lp2) * 0.10;
+    const band = lp1 - lp2;
+    const env = Math.min(1, t / 0.0018) * Math.exp(-t / 0.026);
+    d[i] = band * env;
   }
+  let peak = 1e-6;
+  for (let i = 0; i < len; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
+  const g = 1 / peak;
+  for (let i = 0; i < len; i++) d[i] *= g;
   return buf;
 }
 
