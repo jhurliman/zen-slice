@@ -213,7 +213,9 @@ html, body {
   pointer-events: none;
 }
 .zs-gear {
-  pointer-events: auto;
+  /* hit-testable ONLY while visible — an opacity-0 button that still takes
+   * pointer events would swallow swipes starting in the top-right corner */
+  pointer-events: none;
   background: none; border: none;
   font: inherit;
   font-size: 22px; letter-spacing: 0.1em;
@@ -222,7 +224,7 @@ html, body {
   opacity: 0; transition: opacity 1.2s ease;
   touch-action: manipulation;
 }
-.zs-gear.show { opacity: 1; }
+.zs-gear.show { opacity: 1; pointer-events: auto; }
 .zs-panel {
   display: none;
   margin-top: 6px;

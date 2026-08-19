@@ -218,6 +218,11 @@ export function createHud() {
         const k = b.dataset.k;
         if (k === 'again') {
           ctx.fruits?.reset?.();
+          // re-announce the first level so the name plays its fade and the
+          // score module's level fields sync — emitted HERE, not from
+          // director.reset, so the harness's frequent ZS.clear() calls never
+          // flash level text into captured frames
+          ctx.bus.emit('level', { level: 0, name: 'Still Water' });
           togglePanel(false);
           gearEl.classList.remove('show');
           idleT = 0;

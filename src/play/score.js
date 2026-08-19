@@ -145,6 +145,17 @@ export function createScore() {
       }
     });
 
+    // r21b: 'reset' (director.reset — the settings glyph's BEGIN AGAIN, and
+    // the harness's ZS.clear) starts a fresh scoring session too. Everything
+    // session-scoped goes back to zero; the persisted bestScore survives, and
+    // a fresh run may whisper 'personal best' again when it passes it.
+    c.bus.on('reset', () => {
+      api.score = 0; api.combo = 0; api.best = 0; api.total = 0;
+      api.level = 0; api.levelName = 'Still Water';
+      lastSliceT = -1e9;
+      announcedBest = false;
+    });
+
     // ══ r20: THE ROCK PENALTY ═══════════════════════════════════════════════
     // A fixed sting, not a scaling one: −25 is about one good combo cut, so a
     // careless swipe costs a moment's progress and never a session's. The
