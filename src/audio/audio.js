@@ -235,11 +235,13 @@ export function createAudio() {
         if (echoes.has(i)) conductor.echo(semis[i], p.v * taper, panOf(p.x));
       }
       // 3+ fruit: reinforce the chord's foundation an octave under its lowest
-      // voice — body, not mud (the low register stays wide by voicing law)
+      // voice — body, not mud (the low register stays wide by voicing law).
+      // SKIPPED when the octave leaves the kit's span: clamping a pitch
+      // transposes it to a different note (an A1 bottom would gain a G#),
+      // which is an off-chord semitone at the exact reward moment.
       if (n >= 3) {
-        const low = semis[byPitch[byPitch.length - 1]];
-        const sub = Math.max(-25, low - 12);
-        if (sub < low) playNote(sub, Math.min(1, pending[0].v * boost) * 0.5, 0, t, 900, 0.45);
+        const sub = semis[byPitch[byPitch.length - 1]] - 12;
+        if (sub >= -25) playNote(sub, Math.min(1, pending[0].v * boost) * 0.5, 0, t, 900, 0.45);
       }
       // five and up earns the harp flourish
       if (n >= 5) {
