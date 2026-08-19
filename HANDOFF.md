@@ -183,6 +183,7 @@ separate files without collision. `SliceStroke` is the load-bearing noun.
 | `src/input/blade.js` | blade — swept steel band, one draw call |
 | `src/play/director.js`, `score.js` | feel / director — spawn, budget governor, scoring |
 | `src/play/physics.js` | physics — Rapier (new in round 11) |
+| `src/audio/audio.js`, `engine.js`, `harmony.js`, `instruments.js`, `conductor.js` | audio — the generative music system (new in round 16). audio.js orchestrates the bus; engine.js is plumbing (master chain, procedural reverb, voice pools); harmony.js is the pure harmonic field (per-level chord palettes, species→chord-role mapping); instruments.js renders the piano sample-map offline at unlock; conductor.js infers tempo from the player's slicing cadence and runs the look-ahead scheduler. Verified by `tools/audioprobe.mjs` (pure harmony laws in node + live-build assertions on `ZS.audio.state()`). `?nosound` disables it. |
 
 **Renderer facts that will bite you:** `WebGPURenderer` only, no WebGL2 fallback (the user chose
 this). `ShaderMaterial` / `RawShaderMaterial` / `onBeforeCompile` / `EffectComposer` are

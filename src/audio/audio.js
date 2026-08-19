@@ -1,122 +1,274 @@
 /**
- * audio.js — entirely procedural WebAudio. No files, no loading, no licensing.
+ * audio.js — the generative music system's orchestrator. Entirely procedural
+ * WebAudio: no files, no loading, no licensing. The parts live next door —
+ * engine.js (plumbing: master chain, reverb, voice pools), harmony.js (the
+ * harmonic field: what notes exist right now), instruments.js (how each sound
+ * is made), conductor.js (tempo inference, chord clock, background layers).
+ * This file is the only one on the bus.
  *
- *  - ambient: two detuned sine pads on a slow LFO + filtered noise "room"
- *  - slice:   a short filtered-noise "shhk" whose brightness tracks blade speed,
- *             plus a plucked sine chime on a pentatonic scale that climbs with
- *             the combo. The chime is what makes slicing feel like an instrument.
- *  - slowmo:  master lowpass sweeps down and the pad detunes flat, so the world
- *             audibly thickens for the duration of the dilation.
+ * ── The architecture in one paragraph ───────────────────────────────────────
+ * Foreground sounds are IMMEDIATE: the noise "shhk" and the mass thump fire
+ * per fruit at the instant of the cut, and the piano is held only long enough
+ * to gather one stroke into one chord (below). Cohesion comes from harmony,
+ * not quantization — every pitched voice draws from the shared harmonic
+ * field, so the player can never play a wrong note. Background layers (pad,
+ * bass pulse, arp sparkle) ARE grid-quantized, but the grid's tempo is
+ * inferred from the player's own slicing cadence: the music follows the
+ * player, never the reverse, and no note is ever delayed to fit a beat.
  *
- * iOS: the context is created suspended and resumed on the first pointerdown.
+ * ── The chord gather (multi-fruit combos) ───────────────────────────────────
+ * One swipe through three fruit is three 'slice' events — same tick if the
+ * segment crosses them together, tens of ms apart when the blade travels
+ * between them. Either way it is ONE musical gesture: piano notes are pooled
+ * for CHORD_GATHER seconds from the first cut of a stroke, then voiced as a
+ * single rolled chord — strummed in fruit x-order, roll direction from the
+ * swipe, each note panned to its fruit. The shhk under it is instant, so the
+ * gather reads as "cut… then the fruit sings", not as latency.
+ *
+ * iOS: the context is created suspended and resumed on the first gesture;
+ * visibilitychange suspends/resumes so an interruption never leaves a stuck
+ * context. A throw in any handler is caught and logged to api.errors — the
+ * safe() wrapper in main.js would otherwise retire audio for the session.
  */
 
-const PENTA = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
+import { createEngine } from './engine.js';
+import { createHarmony } from './harmony.js';
+import { createConductor } from './conductor.js';
+import {
+  renderPianoKit, pianoSample, makeThumpBuffer,
+  playPluck, playRiser, playSigh, playBloom,
+} from './instruments.js';
+
+const CHORD_GATHER = 0.08;  // s from first cut of a stroke to the chord (blade travel time)
+const STRUM = 0.028;        // s between rolled chord notes
+const MAX_ERRORS = 20;
 
 export function createAudio() {
-  const api = { enabled: true };
-  let actx = null, master, lp, padGain, ctxRef;
-  let started = false;
+  const api = { enabled: true, errors: [] };
+  const engine = createEngine();
+  const harmony = createHarmony();
+  const conductor = createConductor(engine, harmony);
 
-  function ensure() {
-    if (actx) return;
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) { api.enabled = false; return; }
-    actx = new AC();
-    master = actx.createGain(); master.gain.value = 0.0;
-    lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 18000; lp.Q.value = 0.3;
-    lp.connect(master); master.connect(actx.destination);
+  let ctxRef = null, started = false, unlockers = null;
+  let pianoKit = null, thumpBuf = null;
+  let pending = [];            // gathered notes of the current stroke
+  let pendingAt = -1;          // engine time of the stroke's first cut
+  let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9;
+  let caps = { background: true, arps: true, voices: 16, wet: 1.0 };
 
-    // ambient pad
-    padGain = actx.createGain(); padGain.gain.value = 0.055; padGain.connect(lp);
-    [55, 82.4, 110, 164.8].forEach((f, i) => {
-      const o = actx.createOscillator();
-      o.type = i % 2 ? 'sine' : 'triangle';
-      o.frequency.value = f;
-      const g = actx.createGain(); g.gain.value = 0.35 / (i + 1);
-      const lfo = actx.createOscillator(); lfo.frequency.value = 0.03 + i * 0.017;
-      const lfg = actx.createGain(); lfg.gain.value = 0.5 + i * 0.35;
-      lfo.connect(lfg); lfg.connect(o.detune); lfo.start();
-      o.connect(g); g.connect(padGain); o.start();
-    });
+  const nosound = (() => {
+    try {
+      const q = new URLSearchParams((typeof location !== 'undefined' ? location.search : '') || '');
+      return q.has('nosound') && q.get('nosound') !== '0';
+    } catch (_) { return false; }
+  })();
 
-    // noise buffer reused for every slice
-    const len = actx.sampleRate * 1.0;
-    api._noise = actx.createBuffer(1, len, actx.sampleRate);
-    const d = api._noise.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  function fail(err) {
+    if (api.errors.length >= MAX_ERRORS) api.errors.shift();
+    api.errors.push(String(err && err.stack ? err.stack : err).slice(0, 300));
+  }
+  const guard = (fn) => (e) => { try { fn(e); } catch (err) { fail(err); } };
+
+  /** velocity law over the MEASURED stroke.speed range (~5 slow … ~170 flick).
+   *  The old /18 was saturated for every ordinary cut; log spreads the whole
+   *  expressive range instead. */
+  const vel = (speed) => Math.min(1, Math.max(0, Math.log(Math.max(1e-3, speed / 5)) / Math.log(34)));
+  const panOf = (x) => Math.max(-1, Math.min(1, x / 4.4)) * 0.7;
+  const brightOf = (v) => 1200 * Math.pow(7000 / 1200, v);
+
+  /** Every pitched note goes through here — piano when the kit has rendered,
+   *  the old pluck until then. Also handed to the conductor for bass/arps. */
+  function playNote(semis, v, pan, when, brightHz, wet) {
+    if (pianoKit) {
+      const s = pianoSample(pianoKit, semis);
+      engine.playPiano(s.buffer, s.rate, when, 0.55 * (0.3 + 0.7 * v), pan,
+        brightHz ?? brightOf(v), wet);
+    } else {
+      playPluck(engine, semis, v, pan, when);
+    }
   }
 
   function unlock() {
-    ensure();
-    if (!actx || started) return;
-    actx.resume?.();
-    master.gain.setTargetAtTime(0.85, actx.currentTime, 0.8);
+    if (nosound) return;
+    if (!engine.ensure()) { api.enabled = false; return; }
+    if (started) return;
     started = true;
+    engine.resume();
+    engine.setMaster(0.85, 0.8);
+    thumpBuf = makeThumpBuffer(engine.actx);
+    conductor.start(playNote);
+    conductor.setCaps(caps);
+    engine.setPianoCap(caps.voices);
+    engine.setWetScale(caps.wet);
+    // renders off the main thread; slices use the pluck until it lands
+    renderPianoKit(engine.actx.sampleRate)
+      .then((kit) => { pianoKit = kit; })
+      .catch(fail);
+    if (unlockers) { unlockers(); unlockers = null; }
   }
+  api.unlock = unlock;   // harness path: no real gesture ever fires
 
   api.init = (c) => {
     ctxRef = c;
-    const el = c.renderer.domElement;
-    ['pointerdown', 'touchstart', 'keydown'].forEach((ev) =>
-      window.addEventListener(ev, unlock, { once: false, passive: true }));
+    const evs = ['pointerdown', 'touchstart', 'keydown'];
+    evs.forEach((ev) => window.addEventListener(ev, unlock, { passive: true }));
+    unlockers = () => evs.forEach((ev) => window.removeEventListener(ev, unlock));
 
-    c.bus.on('slice', (e) => slice(e));
-    c.bus.on('slowmo', (e) => {
-      if (!actx) return;
-      const t = actx.currentTime;
-      lp.frequency.cancelScheduledValues(t);
-      lp.frequency.setValueAtTime(Math.max(400, lp.frequency.value), t);
-      lp.frequency.linearRampToValueAtTime(900, t + 0.04);
-      lp.frequency.exponentialRampToValueAtTime(18000, t + e.seconds + 0.35);
-    });
+    document.addEventListener('visibilitychange', guard(() => {
+      if (!started) return;
+      if (document.hidden) { engine.setMaster(0, 0.05); engine.suspend(); }
+      else { engine.resume(); engine.setMaster(0.85, 0.8); }
+    }));
+
+    c.bus.on('slice', guard(onSlice));
+    c.bus.on('combo', guard(onCombo));
+    c.bus.on('spawn', guard(onSpawn));
+    c.bus.on('expire', guard(onExpire));
+    c.bus.on('level', guard((e) => conductor.setLevel(e.level)));
+    c.bus.on('reset', guard(() => {
+      pending.length = 0; pendingAt = -1;
+      conductor.reset();
+    }));
   };
 
-  function slice(e) {
-    if (!actx || !api.enabled) return;
-    const t = actx.currentTime;
-    const speed = Math.min(1, e.stroke.speed / 18);
-    const combo = ctxRef.score?.combo ?? 1;
-
-    // ── the cut: filtered noise burst ──
-    const src = actx.createBufferSource(); src.buffer = api._noise;
-    const bp = actx.createBiquadFilter(); bp.type = 'bandpass';
-    bp.frequency.setValueAtTime(700 + speed * 2600, t);
-    bp.frequency.exponentialRampToValueAtTime(280, t + 0.22);
-    bp.Q.value = 0.9;
-    const g = actx.createGain();
-    g.gain.setValueAtTime(0.0, t);
-    g.gain.linearRampToValueAtTime(0.32 + speed * 0.25, t + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.26);
-    src.connect(bp); bp.connect(g); g.connect(lp);
-    src.start(t); src.stop(t + 0.3);
-
-    // ── wet splat: low thump scaled by mass ──
-    const o2 = actx.createOscillator(); o2.type = 'sine';
+  function onSlice(e) {
+    if (!engine.ready || !api.enabled) return;
+    const t = engine.now();
+    const v = vel(e.stroke.speed);
+    const pan = panOf(e.fruit.pos.x);
     const mass = e.fruit.species.mass;
-    o2.frequency.setValueAtTime(120 + 40 / mass, t);
-    o2.frequency.exponentialRampToValueAtTime(45, t + 0.16);
-    const g2 = actx.createGain();
-    g2.gain.setValueAtTime(0.0, t);
-    g2.gain.linearRampToValueAtTime(0.16 * Math.min(1.4, mass * 0.5), t + 0.01);
-    g2.gain.exponentialRampToValueAtTime(0.0005, t + 0.30);
-    o2.connect(g2); g2.connect(lp); o2.start(t); o2.stop(t + 0.34);
+    const wasIdle = conductor.isIdle();
 
-    // ── the chime: pentatonic, climbs with combo ──
-    const semis = e.fruit.species.pitch + PENTA[Math.min(PENTA.length - 1, combo - 1)];
-    const f0 = 220 * Math.pow(2, semis / 12);
-    [1, 2.01, 3.02].forEach((h, i) => {
-      const o = actx.createOscillator(); o.type = i === 0 ? 'sine' : 'triangle';
-      o.frequency.value = f0 * h;
-      const gg = actx.createGain();
-      const amp = 0.14 / (i + 1.4);
-      gg.gain.setValueAtTime(0, t + 0.012);
-      gg.gain.linearRampToValueAtTime(amp, t + 0.02);
-      gg.gain.exponentialRampToValueAtTime(0.0004, t + 1.5 - i * 0.35);
-      o.connect(gg); gg.connect(lp); o.start(t + 0.012); o.stop(t + 1.6);
+    // ── immediate, per fruit: the cut and the weight ──
+    engine.playShhk(t, 0.26 + v * 0.26, 700 + v * 2600, pan);
+    engine.playThump(thumpBuf, Math.min(2.2, Math.max(0.8, 0.8 + 0.5 / mass)),
+      t, 0.16 * Math.min(1.4, mass * 0.5));
+
+    conductor.onSlice();
+
+    // ── gathered: the note. combo is already incremented (audio runs last),
+    //    so combo-1 is this cut's climb up the chord. ──
+    const combo = ctxRef.score?.combo ?? 1;
+    pending.push({
+      id: e.fruit.species.id, pitch: e.fruit.species.pitch,
+      x: e.fruit.pos.x, y: e.fruit.pos.y,
+      v, dirY: e.stroke.dir.y, climb: Math.max(0, combo - 1), combo,
     });
+    if (pending.length === 1) pendingAt = t;
+
+    // silence broken: the first note back blooms
+    if (wasIdle) playBloom(engine, harmony.noteFor('orange', 0), t);
   }
 
-  api.quality = () => {};
+  /** Voice and play everything the stroke gathered. */
+  function flush() {
+    const n = pending.length;
+    const t = engine.now();
+
+    let semis;
+    try {
+      semis = n === 1
+        ? [harmony.noteFor(pending[0].id, pending[0].climb)]
+        : harmony.voiceChord(pending);
+    } catch (err) {
+      fail(err);
+      semis = pending.map((p) => harmony.fallbackPitch(p.pitch, p.combo));
+    }
+
+    if (n === 1) {
+      const p = pending[0];
+      playNote(semis[0], p.v, panOf(p.x), t, brightOf(p.v), wetOf(p.y));
+    } else {
+      // strum in fruit x-order; an up-swipe rolls ascending, down descending
+      const order = pending.map((_, i) => i);
+      const d = pending[0].dirY;
+      if (Math.abs(d) > 0.5) order.sort((a, b) => (semis[a] - semis[b]) * Math.sign(d));
+      else order.sort((a, b) => pending[a].x - pending[b].x);
+      for (let k = 0; k < order.length; k++) {
+        const i = order[k];
+        const p = pending[i];
+        const taper = 1 - k * 0.06;
+        playNote(semis[i], p.v * taper, panOf(p.x), t + k * STRUM, brightOf(p.v), wetOf(p.y));
+      }
+      // five and up earns the harp flourish
+      if (n >= 5) {
+        const gliss = harmony.glissNotes();
+        for (let k = 0; k < gliss.length; k++) {
+          playNote(gliss[k], 0.22, (k / gliss.length - 0.5) * 0.8,
+            t + 0.08 + order.length * STRUM + k * 0.045, 4200, 0.85);
+        }
+      }
+    }
+    pending.length = 0; pendingAt = -1;
+  }
+
+  const wetOf = (y) => 0.35 + Math.max(0, Math.min(1, (y + 4) / 8)) * 0.4;
+
+  function onCombo(e) {
+    if (!engine.ready || !api.enabled) return;
+    if (e.peak) conductor.onComboPeak();
+    const t = engine.now();
+    if (e.count >= 3 && t - lastShimmer > 0.8) {
+      lastShimmer = t;
+      const a = harmony.noteFor('kiwi', 2);
+      const b = harmony.noteFor('strawberry', 1);
+      playNote(a, 0.18, -0.3, t + 0.05, 3800, 0.85);
+      playNote(b, 0.15, 0.3, t + 0.11, 3800, 0.85);
+    }
+  }
+
+  function onSpawn(e) {
+    if (!started || !api.enabled) return;
+    const t = engine.now();
+    if (conductor.intensity >= 0.5 || t - lastRiser < 1.2) return;
+    lastRiser = t;
+    playRiser(engine, e.fruit.vel.y / 14);   // apex = v_y / |GRAVITY|
+  }
+
+  function onExpire(e) {
+    if (!started || !api.enabled || e.reason !== 'missed') return;
+    const t = engine.now();
+    if (t - lastSigh < 2.0) return;
+    lastSigh = t;
+    playSigh(engine, harmony.noteFor('apple', 0));
+  }
+
+  api.frame = (dt) => {
+    if (!started || !api.enabled) return;
+    try {
+      conductor.frame(dt);
+      if (pendingAt >= 0 && engine.now() - pendingAt >= CHORD_GATHER) flush();
+    } catch (err) { fail(err); }
+  };
+
+  api.quality = (q) => {
+    caps = q.tier <= 0
+      ? { background: false, arps: false, voices: 8, wet: 0.5 }
+      : q.tier === 1
+        ? { background: true, arps: false, voices: 12, wet: 0.8 }
+        : { background: true, arps: true, voices: 16, wet: 1.0 };
+    if (!started) return;
+    conductor.setCaps(caps);
+    engine.setPianoCap(caps.voices);
+    engine.setWetScale(caps.wet);
+  };
+
+  /** Harness surface (ZS.audio) — sound made assertable without ears. */
+  api.state = () => ({
+    started, pianoReady: !!pianoKit,
+    actxState: engine.actx ? engine.actx.state : 'none',
+    bpm: Math.round(conductor.bpm * 10) / 10,
+    chord: harmony.chordName(),
+    level: harmony.level(),
+    levelPending: harmony.levelPending(),
+    intensity: Math.round(conductor.intensity * 100) / 100,
+    voicesActive: engine.ready ? engine.voicesActive() : 0,
+    nodesCreated: engine.nodesCreated,
+    pending: pending.length,
+    errors: api.errors,
+  });
+
+  api.dispose = () => { engine.dispose(); };
+
   return api;
 }
