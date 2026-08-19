@@ -145,6 +145,12 @@ export function createDirector({ seed = 20260806 } = {}) {
     physics.removeBody(f);
     ctx.scene.remove(f.mesh);
     if (f.generation > 0) f.mesh.geometry.dispose(); // halves own their geometry
+    // r20: rocks own their material instance (per-body damage uniform), so it
+    // dies with the body — Deep Calm is endless, and undisposed per-spawn
+    // materials would accumulate renderer-side forever. Fruit keep using the
+    // shared cache, which is never disposed. Both rock slots are the same
+    // instance, so dispose once.
+    if (f.species?.noCut) f.mesh.material?.[0]?.dispose?.();
     f.dead = true;
   };
 

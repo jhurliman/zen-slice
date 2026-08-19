@@ -3,129 +3,21 @@
   "zoom": false,
   "shots": [
     {
-      "name": "watermelon-side",
-      "luma": 8.899,
-      "ms": 2334,
-      "ok": true
-    },
-    {
-      "name": "watermelon-top",
-      "luma": 7.807,
-      "ms": 670,
-      "ok": true
-    },
-    {
-      "name": "watermelon-threequarter",
-      "luma": 8.128,
-      "ms": 640,
-      "ok": true
-    },
-    {
-      "name": "orange-side",
-      "luma": 7.579,
-      "ms": 1220,
-      "ok": true
-    },
-    {
-      "name": "orange-top",
-      "luma": 7.569,
-      "ms": 604,
-      "ok": true
-    },
-    {
-      "name": "orange-threequarter",
-      "luma": 7.69,
-      "ms": 632,
-      "ok": true
-    },
-    {
-      "name": "kiwi-side",
-      "luma": 4.945,
-      "ms": 981,
-      "ok": true
-    },
-    {
-      "name": "kiwi-top",
-      "luma": 4.398,
-      "ms": 613,
-      "ok": true
-    },
-    {
-      "name": "kiwi-threequarter",
-      "luma": 4.605,
-      "ms": 599,
-      "ok": true
-    },
-    {
-      "name": "apple-side",
-      "luma": 6.538,
-      "ms": 1110,
-      "ok": true
-    },
-    {
-      "name": "apple-top",
-      "luma": 8.29,
-      "ms": 593,
-      "ok": true
-    },
-    {
-      "name": "apple-threequarter",
-      "luma": 7.725,
-      "ms": 608,
-      "ok": true
-    },
-    {
-      "name": "strawberry-side",
-      "luma": 3.912,
-      "ms": 968,
-      "ok": true
-    },
-    {
-      "name": "strawberry-top",
-      "luma": 3.91,
-      "ms": 622,
-      "ok": true
-    },
-    {
-      "name": "strawberry-threequarter",
-      "luma": 3.973,
-      "ms": 606,
-      "ok": true
-    },
-    {
-      "name": "pineapple-side",
-      "luma": 11.589,
-      "ms": 1057,
-      "ok": true
-    },
-    {
-      "name": "pineapple-top",
-      "luma": 8.845,
-      "ms": 634,
-      "ok": true
-    },
-    {
-      "name": "pineapple-threequarter",
-      "luma": 8.095,
-      "ms": 676,
-      "ok": true
-    },
-    {
       "name": "rock-side",
-      "luma": 4.256,
-      "ms": 816,
+      "luma": 4.255,
+      "ms": 1882,
       "ok": true
     },
     {
       "name": "rock-top",
       "luma": 4.15,
-      "ms": 643,
+      "ms": 887,
       "ok": true
     },
     {
       "name": "rock-threequarter",
-      "luma": 4.263,
-      "ms": 660,
+      "luma": 4.262,
+      "ms": 836,
       "ok": true
     }
   ],

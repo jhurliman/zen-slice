@@ -251,12 +251,16 @@ for (const id of SPECIES) {
           continue;
         }
         const buf = Buffer.from(data.split(',')[1], 'base64');
-        let luma = NaN;
-        try { luma = await frameLuma(buf); } catch (e) { luma = NaN; }
-        if (Number.isNaN(luma) || luma >= LUMA_FLOOR) {
+        // FAIL CLOSED: if the analysis itself throws (sharp missing, corrupt
+        // buffer), that is a failed shot, not a free pass — a luma gate that
+        // waves NaN through can write black frames and still exit 0.
+        let luma;
+        try { luma = await frameLuma(buf); }
+        catch (e) { throw new Error(`luma analysis failed for ${name}: ${e && e.message ? e.message : e}`); }
+        if (luma >= LUMA_FLOOR) {
           writeFileSync(join(outDir, `${name}.png`), buf);
-          state.shots.push({ name, luma: Number.isNaN(luma) ? null : +luma.toFixed(3), ms: Date.now() - started, ok: true });
-          log(`${name}  luma ${Number.isNaN(luma) ? '?' : luma.toFixed(2)}  ${((Date.now() - started) / 1000).toFixed(1)}s`);
+          state.shots.push({ name, luma: +luma.toFixed(3), ms: Date.now() - started, ok: true });
+          log(`${name}  luma ${luma.toFixed(2)}  ${((Date.now() - started) / 1000).toFixed(1)}s`);
           return true;
         }
         log(`  !! ${name}: mean luma ${luma.toFixed(4)} < ${LUMA_FLOOR} — BLACK FRAME, re-rendering`);
