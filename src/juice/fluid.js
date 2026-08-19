@@ -2653,7 +2653,28 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // which is the "I want to see it falling" he asked for. Lower drag also
       // means the bead KEEPS more of its launch velocity, so the arc is a real
       // parabola rather than a decelerating stub.
-      const kB = rr(0.85 + 0.55 * filmness, 1.90 + 1.00 * filmness);
+      // ══ r16: BEADS FALL 20% FASTER. HIS CALL, AND IT CLOSES A GAP I ═════════
+      // ══      MEASURED AND REPORTED RATHER THAN ACTED ON.                 ═══
+      // Terminal fall is exactly g/k with g = 14, so a 20% faster sink is k/1.2
+      // — every coefficient x 0.8333. Measured at the ordinary-swipe filmness
+      // of 0.776, where the median bead sits:
+      //     k      1.977 -> 1.647
+      //     v_term 7.08  -> 8.50 units/s
+      //     crossing a portrait frame (16.9 u)  2.39 s -> 1.99 s
+      // That lands just above the k = 1.52 that falls out of a real 2 mm drop's
+      // drag time constant (tau = v_t/g = 6.5/9.8 = 0.66 s, and tau is a
+      // property of the DROPLET, not of gravity), so this moves TOWARD the
+      // physical number rather than past it.
+      //
+      // ⚠ THE ASYMPTOTE IS UNCHANGED, BY CONSTRUCTION, and that is why this is
+      // a one-line change and not a retune. `v0 = beadReach * kB`, so lowering
+      // k lowers the launch speed in exactly the same proportion and the
+      // asymptotic travel `v0/k = beadReach` does not move at all. What changes
+      // is (a) the terminal fall g/k, which is the thing he asked for, and
+      // (b) how long a bead KEEPS its launch velocity — lower drag means a
+      // longer, flatter arc before gravity takes it, which is the same
+      // direction as r14 note 3. Spread, reach and count are all untouched.
+      const kB = rr(0.708 + 0.458 * filmness, 1.583 + 0.833 * filmness);
       _v.multiplyScalar(beadReach * kB * TBL[ai * 7 + 6] * rr(0.14, 1.30)).add(B.inh);
       _j.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(beadReach * kB * 0.13);
       _v.add(_j);
