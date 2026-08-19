@@ -18,7 +18,7 @@ const POP_MAX = 1.20;     // peak overshoot of the punch-in
 
 export function createHud() {
   const api = {};
-  let ctx, root, scoreEl, levelEl, comboLayer, hintEl;
+  let ctx, root, scoreEl, levelEl, comboLayer, hintEl, flagEl;
   let shownScore = 0;
   const floats = [];
 
@@ -30,12 +30,14 @@ export function createHud() {
       <div class="zs-score"><span id="zs-num">0</span></div>
       <div class="zs-level" id="zs-level"></div>
       <div class="zs-combos" id="zs-combos"></div>
-      <div class="zs-hint" id="zs-hint">swipe to slice</div>`;
+      <div class="zs-hint" id="zs-hint">swipe to slice</div>
+      <div class="zs-flag" id="zs-flag"></div>`;
     document.body.appendChild(root);
     scoreEl = root.querySelector('#zs-num');
     levelEl = root.querySelector('#zs-level');
     comboLayer = root.querySelector('#zs-combos');
     hintEl = root.querySelector('#zs-hint');
+    flagEl = root.querySelector('#zs-flag');
 
     c.bus.on('level', (e) => {
       levelEl.textContent = e.name;
@@ -163,6 +165,22 @@ export function createHud() {
   };
 
   api.frame = (dt, alpha, c) => {
+    // ══ r17: SAY WHEN AN EXPERIMENT IS ON ═══════════════════════════════════
+    // He added ?dropphys=1 to the live URL and could not tell whether anything
+    // had happened — and he was right not to be able to, because at r15's
+    // collider size it changed the frame by 0%. A prototype the player cannot
+    // SEE THE STATE OF is untestable: every observation is confounded by "is
+    // it even on". The badge reports the flag AND the live sphere count, so a
+    // frame with 0 spheres is visibly different from the feature being off.
+    // `ctx.dropPhys` is published by fluid.js, the owner; the HUD does not
+    // re-parse the URL, because duplicating that parse is exactly the drift
+    // r14b removed for cling.
+    if (flagEl) {
+      const on = !!c.dropPhys;
+      const txt = on ? `DROPLET PHYSICS ON · ${c.dropPhysSpheres | 0} colliders` : '';
+      if (flagEl.textContent !== txt) flagEl.textContent = txt;
+      if (on !== flagEl.classList.contains('on')) flagEl.classList.toggle('on', on);
+    }
     const s = c.score?.score ?? 0;
     shownScore += (s - shownScore) * Math.min(1, dt * 9);
     scoreEl.textContent = Math.round(shownScore);
