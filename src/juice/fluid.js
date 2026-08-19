@@ -558,7 +558,11 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
   // computed once from the geometry and cached on the body, then transformed
   // to world every frame by the body's own quaternion. 48 slots is 16 bodies
   // at 3 spheres, comfortably past the 17-18 live bodies the perf probe sees.
-  const MAX_SPHERES = 48;
+  // 64, and allocated in TWO PASSES below. 48 was 16 bodies at 3 spheres, and
+  // the perf probe sees 17-18 live bodies — so the single-pass fill silently
+  // dropped every collider past the sixteenth body and REGRESSED r15's 24-body
+  // coverage while claiming to improve it. Caught in review.
+  const MAX_SPHERES = 64;
   const uBodies = uniformArray(
     Array.from({ length: MAX_SPHERES }, () => new THREE.Vector4(0, 0, 0, 0)), 'vec4');
   const _sc = new THREE.Vector3(), _sz = new THREE.Vector3(), _sq = new THREE.Vector3();
@@ -3151,14 +3155,34 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     if (ctx && ctx.fruits && U.dropPhys.value > 0.5) {
       const live = ctx.fruits.live;
       let k = 0;
+      // ── PASS 1: one sphere for EVERY body, before any body gets a second ──
+      // Coverage first, fidelity second. A single-pass fill spends all 64 slots
+      // on the first ~21 bodies and leaves the rest with NO collider at all,
+      // which is a worse failure than approximating a hemisphere with one
+      // sphere: a droplet passes clean through an uncovered fruit. With this
+      // ordering, degradation under crowding is every body getting rounder,
+      // not some bodies vanishing.
+      const put = (f, c) => {
+        _sq.set(c.x, c.y, c.z);
+        if (f.quat) _sq.applyQuaternion(f.quat);
+        uBodies.array[k++].set(_sq.x + f.pos.x, _sq.y + f.pos.y, _sq.z + f.pos.z, c.r);
+      };
       for (let i = 0; i < live.length && k < MAX_SPHERES; i++) {
-        const f = live[i];
-        const set = localSpheres(f);
-        for (let j = 0; j < set.length && k < MAX_SPHERES; j++, k++) {
-          const c = set[j];
-          _sq.set(c.x, c.y, c.z);
-          if (f.quat) _sq.applyQuaternion(f.quat);
-          uBodies.array[k].set(_sq.x + f.pos.x, _sq.y + f.pos.y, _sq.z + f.pos.z, c.r);
+        const set = localSpheres(live[i]);
+        // the MIDDLE sphere is the representative one for a 1-of-N fallback
+        put(live[i], set[set.length >> 1]);
+      }
+      // ── PASS 2: spend what is left on the extra spheres, in body order ────
+      for (let j = 0; j < 3 && k < MAX_SPHERES; j++) {
+        for (let i = 0; i < live.length && k < MAX_SPHERES; i++) {
+          const set = localSpheres(live[i]);
+          const mid = set.length >> 1;
+          let seen = -1;
+          for (let q = 0; q < set.length; q++) {
+            if (q === mid) continue;
+            seen++;
+            if (seen === j) { put(live[i], set[q]); break; }
+          }
         }
       }
       for (let i = k; i < MAX_SPHERES; i++) uBodies.array[i].w = 0;

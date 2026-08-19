@@ -89,12 +89,16 @@ const data = await p.evaluate(() => {
   const diag = { juiceEvents, sliceEvents, liveBefore, liveAfter: ZS.director.live.length,
                  tapAfterSwipe, tapFinal: drops.length };
   // sample the collider set over the flight, since the bodies MOVE
+  // EVERY step, not every third: the replay below runs at the kernel's own
+  // 120 Hz, and interpolating collider positions would be one more place for
+  // the model and the shader to disagree.
   const frames = [];
-  for (let i = 0; i < 150; i++) {
+  for (let i = 0; i < 170; i++) {
     ZS.step(1 / 120, 1, false);
-    if (i % 3 === 0) frames.push({ t: ZS.ctx.time, sph: F.debugSpheres() });
+    frames.push({ t: ZS.ctx.time, sph: F.debugSpheres() });
   }
-  return { drops, frames, grav: -14.0, diag };
+  return { drops, frames, grav: -14.0, diag,
+           turbDamp: 7.0, dispMax: 0.34, turbAmp: 8.0, hitDecay: 0.7, hitGain: 11.0 };
 });
 await b.close(); server.close();
 
@@ -118,52 +122,94 @@ function velAt(d, t) {
   const k = Math.max(d.k, 0.05); const ex = Math.exp(-k * t);
   return [d.vx * ex, d.vy * ex + G * (1 - ex) / k, d.vz * ex];
 }
-/** @param scale multiply every collider radius, to sweep */
+/** Replay the kernel's OWN state updates, at the kernel's OWN cadence.
+ *
+ * ⚠ THE FIRST VERSION OF THIS FUNCTION WAS WRONG AND ITS 68% WAS NOT MEANINGFUL.
+ * It advanced `D` with an UNDAMPED `W` at 40 Hz, while the shipping kernel runs
+ * at 120 Hz, damps `W` by `turbDamp` every step, and clamps |D| against
+ * `dispMax * (1 + hit*11)`. Undamped `W` never decays, so a droplet that
+ * bounced once was flung away from the fruit and never came back — which
+ * flatters exactly the droplets counted as "with collision". Caught in review.
+ *
+ * Replayed here, in the kernel's order (fluid.js, `const kernel = Fn`):
+ *   1. P = analytic(t) + D                     (collision reads LAST frame's D)
+ *   2. W += (F*resp - W*turbDamp) * dt         (turbulence)
+ *   3. D += W * dt
+ *   4. collision: correct D, reflect into W, set hit
+ *   5. hit decays; cap = dispMax * (1 + hit*hitGain); clamp |D| <= cap
+ *
+ * ⚠ STILL OMITTED: the curl-noise force F and the blade wake. Modelling those
+ * on the CPU would be a second implementation of the shader's noise, which is
+ * the drift this tool exists to avoid. `resp` and `turbDamp` ARE modelled, so
+ * the damping that bleeds off a bounce is present; what is missing is the wind
+ * that would jitter a droplet ACROSS a collider boundary. Since r14 cut the
+ * wind's authority to ~9% of a fruit radius, that is a small error — but it is
+ * an error, and it is why this validates the design rather than the shader.
+ */
 function run(scale, correct) {
   let pen = 0, frames = 0, hitDrops = 0;
-  const REST = 0.30, FRIC = 0.42, DT = 1 / 40;   // frames sampled every 3 steps
+  const REST = 0.30, FRIC = 0.42, DT = 1 / 120;
+  const { turbDamp, dispMax, turbAmp, hitDecay, hitGain } = data;
+  const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   for (const d of data.drops) {
-    let D = [0, 0, 0], W = [0, 0, 0], everHit = false;
+    const D = [0, 0, 0], W = [0, 0, 0];
+    let hit = 0, everHit = false;
+    // `resp` is the kernel's air-responsiveness, read off drag exactly as it is
+    const resp = smoothstep(0.9, 6.5, d.k) * turbAmp;
+    void resp;   // used only by the omitted curl term; kept so the omission is visible
     for (const fr of data.frames) {
       const t = fr.t - d.birth;
       if (t < 0 || t > d.life) continue;
       frames++;
-      const P = posAt(d, t); const Pw = [P[0] + D[0], P[1] + D[1], P[2] + D[2]];
+      const P = posAt(d, t);
+      const Pw = [P[0] + D[0], P[1] + D[1], P[2] + D[2]];        // step 1
+      for (let i = 0; i < 3; i++) {                              // steps 2-3
+        if (correct) { W[i] -= W[i] * turbDamp * DT; D[i] += W[i] * DT; }
+      }
       let inside = false;
-      for (const s of fr.sph) {
-        const rel = [Pw[0] - s.x, Pw[1] - s.y, Pw[2] - s.z];
-        const dist = Math.hypot(...rel) || 1e-4;
-        const R = s.r * scale;
+      for (const sp of fr.sph) {                                  // step 4
+        const rel = [Pw[0] - sp.x, Pw[1] - sp.y, Pw[2] - sp.z];
+        const dist = Math.hypot(rel[0], rel[1], rel[2]) || 1e-4;
+        const R = sp.r * scale;
         if (dist >= R) continue;
         inside = true;
         if (!correct) continue;
-        const n = rel.map((v) => v / dist);
+        const n = [rel[0] / dist, rel[1] / dist, rel[2] / dist];
         const wv = velAt(d, t);
         const vel = [wv[0] + W[0], wv[1] + W[1], wv[2] + W[2]];
         const vn = vel[0] * n[0] + vel[1] * n[1] + vel[2] * n[2];
-        if (vn >= 0) continue;                       // r15b: only if approaching
+        if (vn >= 0) continue;                                    // r15b approach gate
         for (let i = 0; i < 3; i++) {
           D[i] += n[i] * (R - dist + 0.002);
           W[i] -= n[i] * vn * (1 + REST);
           W[i] -= (vel[i] - n[i] * vn) * FRIC;
         }
-        everHit = true;
+        hit = 1; everHit = true;
       }
       if (inside) pen++;
-      if (correct) for (let i = 0; i < 3; i++) D[i] += W[i] * DT;
+      if (correct) {                                              // step 5
+        hit = Math.max(hit - DT * hitDecay, 0);
+        const cap = dispMax * (1 + hit * hitGain);
+        const dl = Math.hypot(D[0], D[1], D[2]);
+        if (dl > cap) { const f = cap / dl; D[0] *= f; D[1] *= f; D[2] *= f; }
+      }
     }
     if (everHit) hitDrops++;
   }
   return { pen, frames, hitDrops, pct: frames ? pen / frames * 100 : 0 };
 }
 
-const scales = SWEEP ? [0.6, 0.8, 0.92, 1.0, 1.15, 1.3] : [1.0];
+// 1.00 IS WHAT SHIPS: the runtime uploads localSpheres()' inscribed radius
+// unchanged. The r17 report first labelled 0.92 as shipped, which was a row
+// the live build never used. Caught in review.
+const scales = SWEEP ? [0.8, 1.0, 1.15, 1.3] : [1.0];
 console.log();
 console.log('droplet-frames spent INSIDE a collider, world space (lower = fewer droplets in fruit)');
 console.log('radius   uncorrected        with collision      reduction   droplets ever hit');
 for (const sc of scales) {
+  const tag = sc === 1.0 ? '  <- SHIPPED' : '';
   const a = run(sc, false), c = run(sc, true);
   const red = a.pen ? (1 - c.pen / a.pen) * 100 : 0;
   console.log(`${sc.toFixed(2).padStart(5)}   ${String(a.pen).padStart(6)} (${a.pct.toFixed(2)}%)   `
-    + `${String(c.pen).padStart(6)} (${c.pct.toFixed(2)}%)   ${red.toFixed(0).padStart(6)}%      ${c.hitDrops}`);
+    + `${String(c.pen).padStart(6)} (${c.pct.toFixed(2)}%)   ${red.toFixed(0).padStart(6)}%      ${String(c.hitDrops).padStart(5)}${tag}`);
 }
