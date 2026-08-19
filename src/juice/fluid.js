@@ -375,6 +375,7 @@ import {
   Fn, uniform, attribute, varyingProperty, storage, instancedArray,
   vec2, vec3, vec4, float, instanceIndex,
   mix, smoothstep, clamp, max, min, abs, sin, cos, exp, log, pow, sqrt,
+  uniformArray, Loop,
   dot, cross, normalize, length, fract, floor, select, If, Discard,
   cameraProjectionMatrix, cameraViewMatrix,
 } from 'three/tsl';
@@ -510,7 +511,21 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // the longest life the emitter can hand out (rim's 2.30 s ceiling), or a
     // live droplet has its swirl hard-reset to zero mid-flight and visibly
     // snaps back onto the analytic path.
-    maxAge: uniform(2.7),
+    // r15: 2.7 -> 5.4. This is the kernel's "long dead, stop integrating" gate,
+    // and it has to stay above the longest life any class can draw or a droplet
+    // still in flight gets its turbulence hard-reset mid-arc. The ceilings
+    // doubled when retirement moved to the frustum, so this doubles with them.
+    maxAge: uniform(5.4),
+    // ══ r15: THE FRUIT COLLIDERS, AS SEEN BY THE DROPLETS ═══════════════════
+    // xyz = world centre, w = radius. Radius 0 means "slot unused", so the
+    // kernel's loop is a FIXED count and needs no dynamic bound — dynamic loop
+    // bounds are legal in GLSL ES 3.0 but this path also runs as transform
+    // feedback on the WebGL2 fallback, and a fixed trip count is one less thing
+    // to be surprised by there.
+    bodyN: uniform(0),
+    dropPhys: uniform(0),      // 0 = off, 1 = on. A/B without a rebuild.
+    restitution: uniform(0.30),
+    friction: uniform(0.42),
     // turbulence / wake (compute)
     turbMix: uniform(0),                             // 0 until compute has run
     turbAmp: uniform(46.0),
@@ -527,6 +542,18 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     wakeAmp: uniform(0),
   };
 
+
+  // ⚠ A uniformArray, NOT a fifth storage buffer, and declared out here at
+  // factory scope because `api.frame` refills it every frame. See the
+  // four-buffer note at `sTurb`: the WebGL2 fallback emulates the kernel with
+  // transform feedback and registers every storage buffer as a separate TF
+  // varying, and WebGL2 only guarantees MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS
+  // = 4 — which the kernel already spends (sTurb, sTvel, rOrigin, rVel). A
+  // uniform array is not a TF varying, so the colliders cost nothing against
+  // that budget. That single constraint decided this whole design.
+  const MAX_BODIES = 24;
+  const uBodies = uniformArray(
+    Array.from({ length: MAX_BODIES }, () => new THREE.Vector4(0, 0, 0, 0)), 'vec4');
   // ═══════════════════════════════════════════════════════════════════════════
   //  DROPS — beads, spray, aerosol and cut-face foam. One instanced quad system.
   // ═══════════════════════════════════════════════════════════════════════════
@@ -595,7 +622,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     //     (mist k≈20..36, spray k≈2.4..6, fat beads k≈1.1..2.6). Small droplets
     //     have a huge area/mass ratio and are dragged bodily by the air; fat
     //     beads are ballistic. That is the coupling we wanted anyway.
-    const sTurb = instancedArray(count, 'vec4');   // disp.xyz, -
+    const sTurb = instancedArray(count, 'vec4');   // disp.xyz, hit
     const sTvel = instancedArray(count, 'vec4');   // perturbation vel.xyz, lastBirth
     const rOrigin = storage(aOrigin, 'vec4', count).toReadOnly();
     const rVel = storage(aVel, 'vec4', count).toReadOnly();
@@ -613,11 +640,13 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const t = U.T.sub(o.w).toVar();
       const recycled = abs(lastBirth.sub(o.w)).greaterThan(1e-5);
 
+      const hit = eT.w.toVar();
       If(recycled.or(t.lessThan(0.0)).or(t.greaterThan(U.maxAge)), () => {
         // not yet born, long dead, or this slot just got a new droplet: hard
         // reset so a recycled slot never inherits the previous one's swirl
         D.assign(vec3(0.0));
         W.assign(vec3(0.0));
+        hit.assign(0.0);
       }).Else(() => {
         const k = max(v.w, 0.05).toVar();
         const ex = exp(k.negate().mul(t)).toVar();
@@ -654,12 +683,85 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         W.addAssign(F.mul(resp).sub(W.mul(U.turbDamp)).mul(U.dt));
         D.addAssign(W.mul(U.dt));
 
+        // ══ r15: COLLISION WITH THE FRUIT, INSIDE THE FOUR-BUFFER BUDGET ═══
+        // There is no room for a fifth storage buffer (see the note at sTurb),
+        // so the bounce does not get its own state — it is folded into the two
+        // accumulators that already exist. That turns out to be the right shape
+        // anyway: `D` is "how far this droplet is from its analytic path" and a
+        // bounce is exactly that, and `W` is "the velocity carrying it there".
+        //
+        // The response, per overlapping sphere:
+        //   · push `D` out along the surface normal by the penetration depth,
+        //     so the droplet never renders inside a fruit;
+        //   · reflect the APPROACHING component of its true velocity — the
+        //     analytic `wv` plus the accumulated `W` — back into `W` with a
+        //     restitution, and shave the tangential component with a friction.
+        //     A low restitution and a high friction is juice on a wet rind: it
+        //     mostly stops and slides. That is what a drop does; a bouncy ball
+        //     is the wrong reference.
+        //   · record the hit in `sTurb.w`, the one free float in the budget.
+        //
+        // ⚠ THIS IS AN APPROXIMATION AND IT IS NOT RAPIER. The halves are convex
+        // hulls; the droplets see ONE SPHERE PER HALF, shrunk to 0.62 of the
+        // bounding radius so it approximates the meat rather than the corners.
+        // A droplet can therefore bounce off a little empty space near a
+        // concave edge, and can clip a protruding stem. The alternative is
+        // pushing 9000 bodies through Rapier at 120 Hz, which is not a
+        // trade-off, it is a different game.
+        If(U.dropPhys.greaterThan(0.5), () => {
+          const wv = v.xyz.mul(ex)
+            .add(vec3(0.0, U.grav.mul(float(1.0).sub(ex)).div(k), 0.0)).toVar();
+          Loop({ start: 0, end: MAX_BODIES, type: 'int', condition: '<' }, ({ i }) => {
+            const bd = uBodies.element(i);
+            If(bd.w.greaterThan(0.0), () => {
+              const rel = P.sub(bd.xyz).toVar();
+              const dist = max(length(rel), 1e-4).toVar();
+              If(dist.lessThan(bd.w), () => {
+                const n = rel.div(dist).toVar();
+                const vel = wv.add(W).toVar();
+                const vn = dot(vel, n).toVar();
+                // ⚠ NOTHING HAPPENS UNLESS THE DROPLET IS APPROACHING. Review
+                // caught why this matters and it is not an edge case: every
+                // droplet is BORN ON THE CUT PLANE, which at the instant of the
+                // cut lies inside the bounding spheres of BOTH halves that
+                // emitted it. An unconditional positional correction therefore
+                // shoves the entire burst outward at birth — and where the two
+                // source spheres overlap, shoves it two contradictory ways in
+                // the same loop.
+                // Gating on `vn < 0` makes initial overlap a non-event: a
+                // droplet already leaving a face is untouched, which is exactly
+                // the case at emission, and only a droplet moving INTO a
+                // surface is treated as an impact. It costs one dot product
+                // that the impulse needed anyway, and it needs no per-droplet
+                // "is this my source half" state — which is fortunate, because
+                // the four-buffer budget has nowhere to put it.
+                If(vn.lessThan(0.0), () => {
+                  // out to the surface, plus a sliver so a droplet resting on
+                  // it does not re-trigger every frame
+                  D.addAssign(n.mul(bd.w.sub(dist).add(0.002)));
+                  W.subAssign(n.mul(vn.mul(float(1.0).add(U.restitution))));
+                  W.subAssign(vel.sub(n.mul(vn)).mul(U.friction));
+                  hit.assign(1.0);
+                });
+              });
+            });
+          });
+        });
+        // A droplet that has been hit is no longer following its analytic path,
+        // so the turbulence clamp — which exists to stop the WIND throwing a
+        // droplet across the stage — must not also be the thing that yanks a
+        // bounced droplet back. `hit` widens it by 12x and decays over ~1.4 s,
+        // so the allowance is spent on the bounce and then returns to r14's
+        // deliberately subtle wind.
+        hit.assign(max(hit.sub(U.dt.mul(0.7)), 0.0));
+        const cap = U.dispMax.mul(float(1.0).add(hit.mul(11.0))).toVar();
+
         // never let a bad frame throw a droplet across the stage
         const dl = length(D).toVar();
-        D.assign(D.mul(min(U.dispMax.div(max(dl, 1e-5)), 1.0)));
+        D.assign(D.mul(min(cap.div(max(dl, 1e-5)), 1.0)));
       });
 
-      eT.assign(vec4(D, 0.0));
+      eT.assign(vec4(D, hit));
       eV.assign(vec4(W, o.w));
     });
 
@@ -761,7 +863,44 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         dir.x.negate().mul(ex2).add(dir.y.mul(ey2))
       );
       const clip = cameraProjectionMatrix.mul(vec4(mv.xy.add(off), mv.z, mv.w));
-      return select(alive, clip, vec4(2.0, 2.0, 2.0, 1.0));
+      // ⚠ THE CULL IS TESTED ON THE BILLBOARD CENTRE, NOT ON `clip`.
+      // `clip` carries the per-vertex corner offset `off`, so the four vertices
+      // of one quad can disagree about `onScreen` while the droplet straddles a
+      // boundary — and an indexed quad that mixes real vertices with the
+      // (2,2,2,1) sentinel is not a retired droplet, it is a clipped triangle
+      // spanning the frame. `mv` is per-INSTANCE, so `clipC` is identical for
+      // all four vertices and the decision cannot split. Caught in review.
+      const clipC = cameraProjectionMatrix.mul(mv);
+      // ══ r15: RETIRE BY VISIBILITY, NOT BY PREDICTED EXIT TIME ═══════════════
+      // The player's suggestion, and it is the load-bearing one — it is what
+      // makes stateful droplets possible at all.
+      //
+      // r11 derives every droplet's lifetime by SOLVING the closed form for the
+      // instant it crosses the frame (`exitTime`/`lifeOf`). That is exact, and
+      // it is exactly why a droplet could never be allowed to deviate from the
+      // closed form: the moment a collision bends its path, the predicted exit
+      // time is a prediction about a trajectory the droplet is no longer on.
+      // Every attempt to give these things physics runs into that.
+      //
+      // Culling on the ACTUAL clip-space position removes the prediction
+      // entirely. A droplet is retired because it is off screen, not because it
+      // was forecast to be — which is true whatever its path did on the way,
+      // costs one comparison it was already computing `clip` for, and needs no
+      // state, no buffer and no CPU work. `lifeOf` stays as the BACKSTOP that
+      // bounds pool occupancy; it no longer has to be right about geometry.
+      //
+      // ⚠ THE TOP EDGE IS DELIBERATELY GENEROUS, for the same reason `exitTime`
+      // never solved it: the crown opens off the cut plane, so a droplet above
+      // the frame is usually on its way back DOWN and must not pop out and in.
+      // Sides and floor are tight (1.22x, i.e. just past the sprite's own
+      // corner), the ceiling is 5x.
+      const M = float(1.22);
+      const w = max(clipC.w, 1e-4).toVar();
+      const onScreen = clipC.w.greaterThan(0.0)
+        .and(abs(clipC.x).lessThan(w.mul(M)))
+        .and(clipC.y.greaterThan(w.mul(M).negate()))
+        .and(clipC.y.lessThan(w.mul(5.0)));
+      return select(alive.and(onScreen), clip, vec4(2.0, 2.0, 2.0, 1.0));
     })();
 
     /** shared fragment body -> { col, alpha }
@@ -1841,6 +1980,19 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // published `bus.emit('reset')` for exactly this and left it a no-op
     // pending a listener (src/play/director.js:319-331). This is the listener.
     // Nothing outside fluid.js changes.
+    // ?dropphys=1 turns droplet-vs-fruit collision on, ?dropphys=0 off. Read
+    // once, on the SHIPPED build, so this can be A/B'd on the phone without a
+    // rebuild — the same switch shape `?shape=` uses for the fruit variants.
+    // DEFAULT OFF while it is a prototype: it is not yet good enough to be the
+    // thing he plays by accident, and a feature that changes every droplet's
+    // path should not ship on the same commit that proposes it.
+    try {
+      const q = new URLSearchParams((typeof location !== 'undefined' && location.search) || '');
+      const v = q.get('dropphys');
+      if (v !== null && v !== '0' && v !== 'false') U.dropPhys.value = 1;
+    } catch (e) { /* no location outside a browser */ }
+    if (globalThis.__ZS_DROPPHYS) U.dropPhys.value = 1;
+
     ctx.bus.on('reset', () => api.reset());
   };
 
@@ -2570,7 +2722,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // r11: the life is DERIVED from this bead's own ballistics, not drawn.
       // See the block above `exitTime`. Floor 0.40 s (a bead born outside the
       // frame still needs to exist for a frame or two), ceiling 2.30 s.
-      const L = lifeOf(_o, _v, kB, 0.40, 2.30, 0.30);
+      const L = lifeOf(_o, _v, kB, 0.40, 4.60, 0.30);
       emit4(drops, _o, _v, simT + del, kB,
         // r6 (C) authored this as `0.070 + 0.300*rng()*rng()` — median 0.126 s,
         // max 0.370 s — with the explicit constraint "still clear of the 0.43 s
@@ -2705,7 +2857,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         // between the two landscape values and is the same everywhere.
         const dbl = sz > 2.0 * wpx && rng() < dblSpray;
         shape(dbl ? 0.30 : 0, rr(0.12, 0.46), rr(0.24, 0.68), rr(0.20, 1.40));
-        const L = lifeOf(_o, _v, kS, 0.34, 2.00, 0.28);
+        const L = lifeOf(_o, _v, kS, 0.34, 4.00, 0.28);
         emit4(drops, _o, _v, simT + del, kS,
           dbl ? sz * DBL_AREA : sz, L.life, rng(), cls(szW),
           rr(3.5, 15.0), rr(0.05, 0.90), rr(0.004, 0.018), L.fade,
@@ -2780,7 +2932,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // spread from 16% of life instead of cliffed, and (c) applied to a grain
       // that is still visibly MOVING while it happens. In landscape most of it
       // does get out (see the report); in portrait about a third does.
-      const L = lifeOf(_o, _v, kM, 0.30, 1.90, 0.16);
+      const L = lifeOf(_o, _v, kM, 0.30, 3.80, 0.16);
       emit4(drops, _o, _v, simT + rr(0.0, 0.005), kM,
         sz, L.life, rng(), cls(sz),
         rr(5.0, 22.0), rr(0.10, 0.80), rr(0.003, 0.012), L.fade,
@@ -2882,6 +3034,44 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // billboard-relative), so the light directions come along for the ride
     _l1.copy(L1).transformDirection(camera.matrixWorldInverse);
     _l2.copy(L2).transformDirection(camera.matrixWorldInverse);
+
+    // ══ r15: FEED THE DROPLETS THE FRUIT ════════════════════════════════════
+    // One sphere per live body, world-space, refreshed every frame. This is the
+    // whole CPU cost of droplet collision: a loop over <=24 bodies, no
+    // allocation, no readback, no Rapier query. The heavy lifting is 9000
+    // droplets x 24 spheres of distance test on the GPU, which is nothing
+    // against the two octaves of curl noise the same kernel already runs per
+    // droplet.
+    //
+    // ⚠ 0.92 OF THE BOUNDING RADIUS, AND I GOT THIS WRONG THE FIRST TIME.
+    // I picked 0.62 by reasoning that a cut half's bounding sphere
+    // circumscribes its corners, so the whole radius would bounce droplets off
+    // empty space. That reasoning is fine for a HALF and badly wrong for a
+    // WHOLE fruit, which is most of what is on screen: a watermelon's bounding
+    // radius IS its radius, and 0.62 of it is a sphere floating deep inside a
+    // melon that droplets sail straight through. Measured: at 0.62 the feature
+    // changed the frame by 0%, and at 2.20 it removed 44% of the juice pixels
+    // sitting on a catcher fruit — same build, same metric, so the path was
+    // live the whole time and the radius was simply too small to catch
+    // anything. 0.92 is the honest compromise for a mixed population of whole
+    // fruit and halves, and ONE SPHERE PER BODY is still the crudest thing in
+    // this feature — see the report for why 2-3 is the real fix.
+    if (ctx && ctx.fruits && U.dropPhys.value > 0.5) {
+      const live = ctx.fruits.live;
+      const n = Math.min(live.length, MAX_BODIES);
+      for (let i = 0; i < n; i++) {
+        const f = live[i];
+        const e = uBodies.array[i];
+        e.set(f.pos.x, f.pos.y, f.pos.z, Math.max(0.05, (f.radius || 0.5) * 0.92));
+      }
+      for (let i = n; i < MAX_BODIES; i++) uBodies.array[i].w = 0;
+      uBodies.needsUpdate = true;
+      U.bodyN.value = n;
+    } else if (U.bodyN.value !== 0) {
+      for (let i = 0; i < MAX_BODIES; i++) uBodies.array[i].w = 0;
+      uBodies.needsUpdate = true;
+      U.bodyN.value = 0;
+    }
 
     U.T.value = simT;
     U.cam.value.copy(_cam);
