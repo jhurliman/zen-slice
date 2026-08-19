@@ -129,3 +129,68 @@ nothing. **On-device measurement is required before this ships**, and that is a 
 **And the thing I would not do:** put the droplets in Rapier. 9000 bodies at 120 Hz is not a
 trade-off, it is a different game. The value here is that the collision rides the kernel that was
 already running.
+
+---
+
+# r17 — the two gaps closed, and the feature finally has a number
+
+**All three things he asked for: multi-sphere colliders, a 3D metric, and an on-screen badge.**
+
+## Multi-sphere colliders
+
+One sphere per body was the crudest thing in r15 — a cut half is a hemisphere and a pineapple is a
+barrel, so a single sphere either floats inside them or bounces droplets off air. Each body now gets
+**1–3 spheres inscribed in its geometry's bounding box**, spaced along the box's longest axis, radius
+fitted to the *short* cross-section so a sphere never pokes out of the silhouette. Computed once and
+cached on the body, then transformed to world each frame by the body's own quaternion. Measured on a
+4-fruit combo: **4 bodies → 11 colliders.**
+
+## The 3D metric — `tools/dropphys3d.mjs`
+
+⚠ **Not the frozen suite.** `probes.py` measures images and stays frozen; this measures world space,
+and it exists because r15's screen-space metric **could not tell a collision from an occlusion**.
+
+`fluid.js` now carries a **gated tap** (`api.debugTap`) that records what the emitter actually drew —
+origin, velocity, drag, birth, life — so the metric reads the shipping code rather than a
+reimplementation of it. Two reimplementations of `api.burst` already exist in this repo's benches and
+both have drifted. It then integrates **the same closed form the vertex shader evaluates** against
+**the same world sphere set the kernel reads** (`api.debugSpheres`), and counts droplet-frames spent
+inside a collider.
+
+**2300 droplets, a real 4-fruit combo, portrait, tier 2:**
+
+| collider scale | uncorrected | with collision | reduction | droplets affected |
+|---|---|---|---|---|
+| 0.60× | 1074 (1.14%) | 434 (0.46%) | 60% | 146 |
+| 0.80× | 2390 (2.53%) | 883 (0.94%) | 63% | 291 |
+| **0.92× (shipped)** | **3785 (4.01%)** | **1217 (1.29%)** | **68%** | **427** |
+| 1.00× | 5019 (5.32%) | 1600 (1.70%) | 68% | 547 |
+| 1.15× | 8432 (8.94%) | 2351 (2.49%) | 72% | 840 |
+| 1.30× | 13997 (14.84%) | 3779 (4.01%) | 73% | 1274 |
+
+**At the shipped configuration the feature removes 68% of the droplet-in-fruit penetration and
+touches 427 of 2300 droplets — about 19%.** That is a real effect, and it is also why it is subtle:
+4% of droplet-frames is a small share of the frame, so *not being able to see it at a glance is the
+correct outcome*, not evidence it is broken. r15 was right that it worked and wrong to expect it to
+be obvious.
+
+**The instrument's own near-miss, kept because it is the lesson.** My first staging swiped at ndc
+y = 0.10 while the fruit had fallen to world y ≈ −0.8. In portrait, ndc 0.10 is world y 0.85 — a
+clean miss. Zero cuts, zero droplets, and the metric reported a confident **0.00% penetration** for
+a scene with no juice in it. **An instrument that returns a plausible number when its input is empty
+is the most dangerous kind**, so `dropphys3d.mjs` now aborts loudly on an empty tap rather than
+printing a table.
+
+⚠ **What it does not measure: whether the GPU agrees with this CPU model.** It validates the design
+and lets a collider configuration be swept in milliseconds instead of a rebuild-and-squint.
+Agreement between this model and the shader is unverified and is the next thing to check.
+
+## The badge
+
+He enabled `?dropphys=1` on the live build and could not tell whether anything had happened — and at
+r15's configuration he was right not to. A prototype whose state the player cannot see is
+untestable, because every observation is confounded by "is it even on". The HUD now shows
+**`DROPLET PHYSICS ON · N COLLIDERS`** bottom-left, reporting the flag *and* the live collider count,
+so a scene with 0 colliders looks different from the feature being off. `ctx.dropPhys` is published
+by `fluid.js`, the owner — the HUD does not re-parse the URL, because duplicating that parse is
+exactly the drift r14b removed for cling.

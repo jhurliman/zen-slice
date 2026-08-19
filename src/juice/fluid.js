@@ -551,9 +551,50 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
   // = 4 — which the kernel already spends (sTurb, sTvel, rOrigin, rVel). A
   // uniform array is not a TF varying, so the colliders cost nothing against
   // that budget. That single constraint decided this whole design.
-  const MAX_BODIES = 24;
+  // ══ r17: SPHERES, NOT BODIES. ONE PER BODY WAS THE CRUDEST THING IN r15 ══
+  // A cut half is a hemisphere and a pineapple is a barrel; a single sphere
+  // either floats inside them or bounces droplets off air. Each body now gets
+  // 1-3 spheres INSCRIBED IN ITS BOUNDING BOX along the box's longest axis,
+  // computed once from the geometry and cached on the body, then transformed
+  // to world every frame by the body's own quaternion. 48 slots is 16 bodies
+  // at 3 spheres, comfortably past the 17-18 live bodies the perf probe sees.
+  const MAX_SPHERES = 48;
   const uBodies = uniformArray(
-    Array.from({ length: MAX_BODIES }, () => new THREE.Vector4(0, 0, 0, 0)), 'vec4');
+    Array.from({ length: MAX_SPHERES }, () => new THREE.Vector4(0, 0, 0, 0)), 'vec4');
+  const _sc = new THREE.Vector3(), _sz = new THREE.Vector3(), _sq = new THREE.Vector3();
+
+  /** Local-space sphere set for one body, cached on it. Inscribed in the
+   *  geometry's bounding box: radius fits the SHORT cross-section so a sphere
+   *  never pokes out of the silhouette, and 1-3 of them are spaced along the
+   *  long axis so a hemisphere or a barrel is actually covered. */
+  function localSpheres(f) {
+    if (f._zsSph) return f._zsSph;
+    const g = f.mesh && f.mesh.geometry;
+    if (!g) return (f._zsSph = [{ x: 0, y: 0, z: 0, r: (f.radius || 0.5) * 0.92 }]);
+    if (!g.boundingBox) g.computeBoundingBox();
+    const bb = g.boundingBox;
+    if (!bb) return (f._zsSph = [{ x: 0, y: 0, z: 0, r: (f.radius || 0.5) * 0.92 }]);
+    bb.getSize(_sz); bb.getCenter(_sc);
+    const d = [_sz.x, _sz.y, _sz.z];
+    const ax = d[0] >= d[1] && d[0] >= d[2] ? 0 : (d[1] >= d[2] ? 1 : 2);
+    const len = d[ax];
+    const cross = d.filter((_, i) => i !== ax);
+    // 1.06 lets the inscribed sphere bulge very slightly past the short
+    // half-extent, because a fruit is rounder than its box and a sphere that
+    // fits the box exactly sits inside the rind.
+    const r = Math.max(0.05, 0.5 * Math.min(cross[0], cross[1]) * 1.06);
+    const n = len > 2.4 * r ? 3 : (len > 1.5 * r ? 2 : 1);
+    const span = Math.max(0, len - 2 * r);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const t = n === 1 ? 0 : (i / (n - 1)) - 0.5;      // -0.5 .. +0.5
+      const off = t * span;
+      const c = { x: _sc.x, y: _sc.y, z: _sc.z, r };
+      if (ax === 0) c.x += off; else if (ax === 1) c.y += off; else c.z += off;
+      out.push(c);
+    }
+    return (f._zsSph = out);
+  }
   // ═══════════════════════════════════════════════════════════════════════════
   //  DROPS — beads, spray, aerosol and cut-face foam. One instanced quad system.
   // ═══════════════════════════════════════════════════════════════════════════
@@ -711,7 +752,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         If(U.dropPhys.greaterThan(0.5), () => {
           const wv = v.xyz.mul(ex)
             .add(vec3(0.0, U.grav.mul(float(1.0).sub(ex)).div(k), 0.0)).toVar();
-          Loop({ start: 0, end: MAX_BODIES, type: 'int', condition: '<' }, ({ i }) => {
+          Loop({ start: 0, end: MAX_SPHERES, type: 'int', condition: '<' }, ({ i }) => {
             const bd = uBodies.element(i);
             If(bd.w.greaterThan(0.0), () => {
               const rel = P.sub(bd.xyz).toVar();
@@ -1913,7 +1954,31 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
   // ───────────────────────────────────────────────────────────────────────────
   //  emitters
   // ───────────────────────────────────────────────────────────────────────────
+  // ══ r17: A GATED TAP, SO THE 3D METRIC CAN EXIST AT ALL ═════════════════
+  // Droplet positions live only on the GPU: `api.burst` draws (origin,
+  // velocity, drag, birth, life) and hands them to an instanced attribute, and
+  // nothing on the CPU ever knows where a droplet IS. That is why r15's metric
+  // ended up in screen space, and why it measured occlusion instead of
+  // intersection. `tools/dropphys3d.mjs` needs the parameters, not the pixels.
+  //
+  // Off by default and free when off: one `if` on a null check per droplet. It
+  // is a TAP, not a mirror — it records what the emitter actually drew, so the
+  // metric cannot drift away from the shipping code the way a reimplementation
+  // of `api.burst` would (and two benches in this repo already have).
+  let dropTap = null;
+  api.debugTap = (on) => { dropTap = on ? [] : null; return dropTap; };
+  api.debugTapRead = () => dropTap;
+
   function emit4(sys, o, vel, birth, drag, x0, x1, x2, x3, y0, y1, y2, y3, tr, tg, tb) {
+    if (dropTap && sys === drops) {
+      dropTap.push({ ox: o.x, oy: o.y, oz: o.z, vx: vel.x, vy: vel.y, vz: vel.z,
+                     // ⚠ life is x1 and size is x0: `aParam` is packed
+                     // (sz, life, seed, cls) and the vertex stage reads
+                     // `life = aP.y`, `s0 = aP.x`. I wrote y1 first, which is
+                     // aParam2.y — the motion-stretch term — and would have
+                     // made every number this instrument produces wrong.
+                     k: drag, birth, life: x1, sz: x0 });
+    }
     const i = sys.head % sys.count; sys.head++;
     const i3 = i * 3, i4 = i * 4;
     sys.o[i4] = o.x; sys.o[i4 + 1] = o.y; sys.o[i4 + 2] = o.z; sys.o[i4 + 3] = birth;
@@ -1992,6 +2057,12 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       if (v !== null && v !== '0' && v !== 'false') U.dropPhys.value = 1;
     } catch (e) { /* no location outside a browser */ }
     if (globalThis.__ZS_DROPPHYS) U.dropPhys.value = 1;
+
+    // The 3D metric needs the debug tap and the live collider set, and
+    // `main.js` keeps its module list local. Publishing on ctx is the same
+    // channel `ctx.dropPhys` already uses and does not require reaching into
+    // another file. Read-only from outside; nothing in the game consumes it.
+    ctx.fluid = api;
 
     ctx.bus.on('reset', () => api.reset());
   };
@@ -3079,20 +3150,28 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // this feature — see the report for why 2-3 is the real fix.
     if (ctx && ctx.fruits && U.dropPhys.value > 0.5) {
       const live = ctx.fruits.live;
-      const n = Math.min(live.length, MAX_BODIES);
-      for (let i = 0; i < n; i++) {
+      let k = 0;
+      for (let i = 0; i < live.length && k < MAX_SPHERES; i++) {
         const f = live[i];
-        const e = uBodies.array[i];
-        e.set(f.pos.x, f.pos.y, f.pos.z, Math.max(0.05, (f.radius || 0.5) * 0.92));
+        const set = localSpheres(f);
+        for (let j = 0; j < set.length && k < MAX_SPHERES; j++, k++) {
+          const c = set[j];
+          _sq.set(c.x, c.y, c.z);
+          if (f.quat) _sq.applyQuaternion(f.quat);
+          uBodies.array[k].set(_sq.x + f.pos.x, _sq.y + f.pos.y, _sq.z + f.pos.z, c.r);
+        }
       }
-      for (let i = n; i < MAX_BODIES; i++) uBodies.array[i].w = 0;
+      for (let i = k; i < MAX_SPHERES; i++) uBodies.array[i].w = 0;
       uBodies.needsUpdate = true;
-      U.bodyN.value = n;
+      U.bodyN.value = k;
     } else if (U.bodyN.value !== 0) {
-      for (let i = 0; i < MAX_BODIES; i++) uBodies.array[i].w = 0;
+      for (let i = 0; i < MAX_SPHERES; i++) uBodies.array[i].w = 0;
       uBodies.needsUpdate = true;
       U.bodyN.value = 0;
     }
+    // published on ctx so the HUD can say so on screen without re-parsing the
+    // URL — the r14b lesson: one owner, one value, on the shared channel.
+    if (ctx) { ctx.dropPhys = U.dropPhys.value > 0.5; ctx.dropPhysSpheres = U.bodyN.value; }
 
     U.T.value = simT;
     U.cam.value.copy(_cam);
@@ -3118,6 +3197,11 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     frames++;
     emitted = 0;
   };
+
+  /** The live collider set in WORLD space, for the 3D metric. Same array the
+   *  kernel reads, so the metric and the shader cannot disagree about geometry. */
+  api.debugSpheres = () => uBodies.array.filter((e) => e.w > 0)
+    .map((e) => ({ x: e.x, y: e.y, z: e.z, r: e.w }));
 
   api.resize = () => { /* pix is recomputed every frame from the live camera */ };
 

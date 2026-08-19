@@ -148,3 +148,20 @@ html, body {
 }
 .zs-hint.gone { opacity: 0; }
 @keyframes zsPulse { 0%,100%{opacity:.22} 50%{opacity:.55} }
+
+/* r17 — the experiment badge. Deliberately plain and deliberately not pretty:
+ * it is a diagnostic, it must never be mistaken for game chrome, and it must be
+ * legible over a black playfield on a phone at arm's length. Bottom-left keeps
+ * it clear of the score (top-centre) and the hint (bottom-centre). */
+.zs-flag {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: rgba(120, 235, 160, 0.92);
+  text-shadow: 0 0 10px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.9);
+  opacity: 0; transition: opacity .25s ease;
+  pointer-events: none;
+}
+.zs-flag.on { opacity: 1; }
