@@ -1134,10 +1134,53 @@ function buildGeometry(side, src) {
 }
 
 /** Recentre a geometry on its centroid; returns the world offset that was removed. */
+/**
+ * ══ r19: NINE VERTEX PASSES BECAME TWO ══════════════════════════════════════
+ * This is on the CUT path, which `tools/perfprofile.mjs` measured at ~3.1 ms
+ * per cut running inside a POINTER HANDLER, against a 120 Hz frame budget of
+ * 8.3 ms. Half construction was the largest slice of that, and almost all of it
+ * was this function walking the geometry over and over:
+ *
+ *   computeBoundingSphere()      -> computeBoundingBox + a radius pass   (2)
+ *   translate(-c)                -> applyMatrix4, which in three ALSO
+ *                                   recomputes boundingBox AND boundingSphere
+ *                                   whenever they already exist              (4)
+ *   computeBoundingSphere()      -> two more                                  (2)
+ *   ...and then slicer.js called computeBoundingSphere() again                (2)
+ *
+ * The old code is not wrong, it is just paying `applyMatrix4`'s hidden
+ * recompute and then discarding it. Two passes is the honest minimum: one to
+ * find the centre, one to translate and take the radius while the coordinates
+ * are already in hand. The bounds are set analytically afterwards, which is
+ * exact rather than approximate — a translation moves a bounding sphere's
+ * centre and leaves its radius alone, and `computeBoundingSphere`'s own
+ * definition (box centre, then max distance) is reproduced here exactly, so
+ * `h.radius` downstream is unchanged.
+ */
 export function recenter(geom) {
-  geom.computeBoundingSphere();
-  const c = geom.boundingSphere.center.clone();
-  geom.translate(-c.x, -c.y, -c.z);
-  geom.computeBoundingSphere();
-  return c;
+  const pos = geom.attributes.position;
+  if (!pos) { geom.computeBoundingSphere(); return geom.boundingSphere.center.clone(); }
+  const a = pos.array, n = pos.count;
+  let mnx = Infinity, mny = Infinity, mnz = Infinity;
+  let mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
+  for (let i = 0, j = 0; i < n; i++, j += 3) {
+    const x = a[j], y = a[j + 1], z = a[j + 2];
+    if (x < mnx) mnx = x; if (x > mxx) mxx = x;
+    if (y < mny) mny = y; if (y > mxy) mxy = y;
+    if (z < mnz) mnz = z; if (z > mxz) mxz = z;
+  }
+  const cx = (mnx + mxx) * 0.5, cy = (mny + mxy) * 0.5, cz = (mnz + mxz) * 0.5;
+  let r2 = 0;
+  for (let i = 0, j = 0; i < n; i++, j += 3) {
+    const x = a[j] - cx, y = a[j + 1] - cy, z = a[j + 2] - cz;
+    a[j] = x; a[j + 1] = y; a[j + 2] = z;
+    const d = x * x + y * y + z * z;
+    if (d > r2) r2 = d;
+  }
+  pos.needsUpdate = true;
+  geom.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), Math.sqrt(r2));
+  geom.boundingBox = new THREE.Box3(
+    new THREE.Vector3(mnx - cx, mny - cy, mnz - cz),
+    new THREE.Vector3(mxx - cx, mxy - cy, mxz - cz));
+  return new THREE.Vector3(cx, cy, cz);
 }

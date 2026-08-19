@@ -22,6 +22,9 @@ const MIN_SPEED_NDC = 0.55;   // ndc units / second
 export function createSlicer() {
   const api = {};
   let ctx, strokeId = 0;
+  // r19: cuts deferred out of the pointer handler. See the block in onSwipe.
+  const pending = [];
+  let cutsThisTick = 0;
 
   const _e = new THREE.Vector3();       // eye
   const _ra = new THREE.Vector3(), _rb = new THREE.Vector3();
@@ -31,9 +34,40 @@ export function createSlicer() {
   const _localPlaneN = new THREE.Vector3();
   const _m = new THREE.Matrix4();
 
+  /** Drain at most ONE queued cut per RENDERED FRAME, and reopen the budget for
+   *  the next one.
+   *
+   *  ⚠ THIS MUST BE `frame`, NOT `fixed`, AND THE DIFFERENCE IS THE WHOLE POINT.
+   *  `main.js` runs `fixed` inside an accumulator loop, up to MAX_SUBSTEPS = 4
+   *  times per rendered tick — twice on a 60 Hz display as a matter of course,
+   *  and up to four times while recovering from a stall. Draining there reopened
+   *  the allowance on every substep, so ONE frame could perform 2-4 cuts and
+   *  re-concentrate exactly the work this queue exists to spread — and it did so
+   *  hardest during stall recovery, i.e. it made a bad frame worse. Caught in
+   *  review. `frame` runs exactly once per rendered tick, which is the unit the
+   *  budget is actually denominated in.
+   *
+   *  Running after `fluid.frame` costs nothing visible: `api.burst` writes and
+   *  flushes the droplet attributes synchronously, and `stage.render` runs after
+   *  every module's `frame`, so a cut made here still draws this frame. Only the
+   *  turbulence compute for those droplets starts one tick later.
+   *
+   *  A fruit that died or was already re-cut while queued is dropped. */
+  api.frame = () => {
+    cutsThisTick = 0;
+    while (pending.length) {
+      const job = pending.shift();
+      if (!job.f || job.f.dead) continue;          // died in flight; nothing to cut
+      cutsThisTick++;
+      cut(job.f, job.stroke);
+      break;
+    }
+  };
+
   api.init = (c) => {
     ctx = c;
     c.renderer.domElement.addEventListener('pointerdown', () => { strokeId++; });
+    c.bus.on('reset', () => { pending.length = 0; cutsThisTick = 0; });
     c.bus.on('swipe', onSwipe);
   };
 
@@ -121,7 +155,25 @@ export function createSlicer() {
       const at = new THREE.Vector3().copy(f.pos).addScaledVector(plane.n, -d);
       const worldSpeed = sw.speedNdc * _e.distanceTo(f.pos) * axisScale;
       const stroke = new SliceStroke(plane, dir.clone(), worldSpeed, at, sw.t);
-      cut(f, stroke);
+      // ══ r19: ONE CUT PER FRAME. THE REST ARE QUEUED. ═════════════════════
+      // Measured (tools/perfprofile.mjs): one cut costs ~3.1 ms at p50 and
+      // 7.5 ms at max, and this loop ran ALL of a stroke's cuts back-to-back —
+      // inside a pointermove handler, outside the animation frame, where a
+      // 120 Hz frame budget is 8.3 ms. A swipe across three fruit therefore
+      // spent p95 11.2 ms and up to 22.1 ms in one go, which is two to three
+      // dropped frames at exactly the moment the player is looking. That is
+      // "we lag or skip frames here and there".
+      //
+      // The frame loop itself was never the problem: p99 0.8 ms against 8.3.
+      // So this is not a matter of shaving constants, it is that N cuts were
+      // being charged to one frame. The first cut still happens IMMEDIATELY —
+      // the fruit under the blade must split on contact or the game feels
+      // broken — and any further fruit on the same stroke are queued and taken
+      // one per fixed step, i.e. 8.3 ms later each. `f.lastStroke` is already
+      // set above, so a queued fruit cannot be re-cut by the same stroke, and
+      // it keeps flying normally until its turn.
+      if (cutsThisTick === 0) { cutsThisTick++; cut(f, stroke); }
+      else pending.push({ f, stroke });
     }
   }
 
@@ -133,9 +185,15 @@ export function createSlicer() {
     const localPlane = { n: nLocal.clone(), d: nLocal.dot(pOnPlane) };
 
     const rind = f.species.id === 'watermelon' ? 0.085 : f.species.id === 'pineapple' ? 0.075 : 0.05;
+    // r19: opt-in stage timing. The cut runs in a POINTER HANDLER, outside the
+    // animation frame, so none of it appears in a per-module frame profiler —
+    // and it is the most expensive thing in the game. Off unless armed.
+    const CP = ctx.__zsCutProf;
+    const t0 = CP ? performance.now() : 0;
     let res;
     try { res = cutGeometry(f.mesh.geometry, localPlane, rind); }
     catch (err) { return; }
+    if (CP) CP.geom.push(performance.now() - t0);
     if (!res || !res.pos || !res.neg) return;
 
     const halves = [];
@@ -175,7 +233,9 @@ export function createSlicer() {
         .addScaledVector(stroke.dir, stroke.speed * 0.021);
       const mesh = new THREE.Mesh(geom, f.mesh.material);
       mesh.frustumCulled = false;
-      geom.computeBoundingSphere();
+      // r19: `recenter` now leaves an EXACT bounding sphere centred on the
+      // origin, so this recompute was a third full pass over the geometry on
+      // the cut path for a value it already had.
       const h = {
         id: nextId(), species: f.species, mesh, pos, vel,
         quat: f.quat.clone(),
@@ -194,6 +254,7 @@ export function createSlicer() {
       halves.push(h);
     }
 
+    if (CP) CP.halves.push(performance.now() - t0);
     ctx.fruits.remove(f);
     ctx.fruits.noteSlice?.();
 
@@ -240,6 +301,11 @@ export function createSlicer() {
         radius: capR * 0.95, amount, inherit: f.vel.clone().multiplyScalar(0.8),
       });
     }
+    if (CP) CP.juice.push(performance.now() - t0);
+    // r19: mark the frame so the profiler can separate CUT frames from
+    // steady-state. Averaging a cut into the steady-state is exactly how a
+    // spike disappears into a good-looking mean.
+    ctx.__zsCutThisFrame = true;
     ctx.bus.emit('slice', { stroke, fruit: f, halves });
   }
 

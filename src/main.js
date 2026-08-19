@@ -173,9 +173,70 @@ export async function boot(canvas) {
    * of the session — a hook that throws once throws every frame, and a console
    * full of the same stack hides the next real problem.
    */
+  // ══ r19: PER-MODULE, PER-PHASE ATTRIBUTION, OPT-IN ══════════════════════
+  // He reports "we lag or skip frames here and there" — which is TAIL latency,
+  // not a mean, and the existing cpu probe reports one aggregate number for
+  // `step()`. An aggregate cannot tell you WHICH of nine modules spent the
+  // 12 ms, and "here and there" means the answer is in the p99 and the max, not
+  // the median. `performance.now()` per call is ~40 ns and this is off unless
+  // `ZS.profile(true)` turns it on, so the shipping path is unchanged.
+  let prof = null;
+  function profReset() {
+    prof = { frames: 0, t0: 0, mod: Object.create(null), frameMs: [], cutFrames: [] };
+  }
+  // ⚠ `let`, declared HERE. It was previously assigned two lines above its own
+  // `let` further down — a temporal dead zone violation that threw
+  // "Cannot access 'K' before initialization" at boot, i.e. a blank canvas. The
+  // build was clean; esbuild does not evaluate. Only running it finds this.
+  let api_profile = (on) => { if (on) profReset(); else prof = null; return prof; };
+
+  /** Percentiles are computed here rather than in the harness so every caller
+   *  gets the same definition. p99 and max are the point of this instrument:
+   *  "we skip frames here and there" is a statement about the tail. */
+  function __profSnapshot() {
+    if (!prof) return null;
+    const pct = (a, q) => {
+      if (!a.length) return 0;
+      const b = Float64Array.from(a).sort();
+      return +b[Math.min(b.length - 1, Math.floor(b.length * q))].toFixed(3);
+    };
+    const mods = {};
+    for (const k in prof.mod) {
+      const e = prof.mod[k];
+      mods[k] = { calls: e.n, meanMs: +(e.sum / e.n).toFixed(4), totalMs: +e.sum.toFixed(1),
+                  p50: pct(e.s, 0.5), p95: pct(e.s, 0.95), p99: pct(e.s, 0.99),
+                  max: +e.max.toFixed(3) };
+    }
+    const rank = Object.entries(mods).sort((a, b) => b[1].totalMs - a[1].totalMs);
+    return {
+      frames: prof.frames,
+      frame: { p50: pct(prof.frameMs, 0.5), p95: pct(prof.frameMs, 0.95),
+               p99: pct(prof.frameMs, 0.99), max: +Math.max(0, ...prof.frameMs).toFixed(3) },
+      cutFrames: { n: prof.cutFrames.length, p50: pct(prof.cutFrames, 0.5),
+                   p95: pct(prof.cutFrames, 0.95), max: +Math.max(0, ...prof.cutFrames, 0).toFixed(3) },
+      byTotal: rank.map(([k, v]) => ({ module: k, ...v })),
+    };
+  }
+  function profFail(m, phase, e) {
+    m.__zsDead = true;
+    const rec = { module: m.__zsName, phase, error: String(e && e.stack ? e.stack : e).slice(0, 400) };
+    moduleErrors.push(rec);
+    console.error(`[zs] module "${rec.module}" disabled: ${phase}() threw`, e);
+  }
+
   function safe(m, phase, a, b, c) {
     const fn = m[phase];
     if (fn === undefined || m.__zsDead) return;
+    if (prof) {
+      const t = performance.now();
+      try { fn.call(m, a, b, c); } catch (e) { profFail(m, phase, e); return; }
+      const d = performance.now() - t;
+      const key = m.__zsName + '.' + phase;
+      const e = prof.mod[key] || (prof.mod[key] = { n: 0, sum: 0, max: 0, s: [] });
+      e.n++; e.sum += d; if (d > e.max) e.max = d;
+      if (e.s.length < 40000) e.s.push(d);
+      return;
+    }
     try {
       fn.call(m, a, b, c);
     } catch (e) {
@@ -271,6 +332,14 @@ export async function boot(canvas) {
     if (doRender) safe(stage, 'render');
 
     const ms = performance.now() - wallStart;
+    if (prof) {
+      prof.frames++;
+      prof.frameMs.push(ms);
+      // A CUT is the event he is describing — "every swipe is full framerate" —
+      // so cut frames are recorded separately. Averaging them into the
+      // steady-state is how a spike disappears into a good-looking mean.
+      if (ctx.__zsCutThisFrame) { prof.cutFrames.push(ms); ctx.__zsCutThisFrame = false; }
+    }
     if (!useVirtual) governor(ms, dt); else emaMs += (ms - emaMs) * 0.05;
     fpsAcc += dt; fpsN++;
     if (fpsAcc > 0.5) { stats.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
@@ -306,6 +375,11 @@ export async function boot(canvas) {
       return renderer.isWebGLRenderer ? 'webgl2' : 'unknown';
     },
     swizzleCompat,
+    /** r19: opt-in per-module profiler. ZS.profile(true) to arm, ZS.profileRead()
+     *  for the report, ZS.profile(false) to disarm. Off costs nothing. */
+    profile: (on) => { api_profile(on); },
+    /** Snapshot WITHOUT resetting — reading a profiler must never disturb it. */
+    profileRead: () => __profSnapshot(),
     setTier: applyTier,
     pause: () => { running = false; },
     resume: () => { running = true; useVirtual = false; Clock.virtual = false; firstFrame = true; requestAnimationFrame(frame); },

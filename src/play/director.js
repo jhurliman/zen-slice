@@ -114,7 +114,12 @@ export function createDirector({ seed = 20260806 } = {}) {
     liveTris += f._tris;
     api.live.push(f);
     ctx.scene.add(f.mesh);
+    // r19 measurement hook: Rapier builds a convex hull here, synchronously,
+    // and for a CUT this runs inside the pointer handler rather than a frame.
+    const CP = ctx && ctx.__zsCutProf;
+    const t0 = CP ? performance.now() : 0;
     physics.addBody(f);
+    if (CP) (CP.phys || (CP.phys = [])).push(performance.now() - t0);
   };
   api.remove = (f) => {
     const i = api.live.indexOf(f);
