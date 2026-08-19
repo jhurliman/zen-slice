@@ -190,6 +190,18 @@ export function createHarmony() {
       return out;
     },
 
+    /**
+     * A melodic degree for the level motifs (conductor.js): degree `d` walks
+     * the chord's tones then its color, `oct` shifts register around the
+     * octave above middle. Always in-chord, always in the kit's span.
+     */
+    melNote(d, oct = 0) {
+      const chord = palette[idx];
+      const set = chord.tones.concat([chord.color]);
+      const pc = set[((d % set.length) + set.length) % set.length];
+      return place(pc, 12 + oct * 7);
+    },
+
     /** Ascending flourish notes for the 5+ combo gliss: chord tones + color
      *  across two octaves, starting just above middle register. Every note is
      *  re-clamped AFTER the octave shifts — the kit's playable span is a hard

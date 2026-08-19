@@ -34,6 +34,7 @@ const ok = (cond, label) => { if (!cond) failures.push(label); return !!cond; };
 
 // ── PART 1: the harmonic field's laws, checked in pure node ─────────────────
 const { createHarmony } = await import(join(root, 'src/audio/harmony.js'));
+const { MOTIFS, BASSES } = await import(join(root, 'src/audio/conductor.js'));
 const SPECIES = ['watermelon', 'pineapple', 'orange', 'apple', 'kiwi', 'strawberry'];
 const E2 = -17;
 {
@@ -73,6 +74,14 @@ const E2 = -17;
       // the flourish/arp pool and pad voicing stay inside the kit's span
       for (const n of h.glissNotes()) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: gliss note ${n} out of range`);
       for (const n of h.padNotes(5)) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: pad note ${n} out of range`);
+      // every level-motif entry voices in-chord and in-range in this chord
+      for (const m of MOTIFS[level]) {
+        const n = h.melNote(m.d, m.o);
+        ok(legal.has(((n % 12) + 12) % 12), `L${level} ${chord.name}: motif step ${m.s} → ${n} off-chord`);
+        ok(n >= -25 && n <= 31, `L${level} ${chord.name}: motif step ${m.s} → ${n} out of range`);
+        ok(m.s >= 0 && m.s <= 15, `L${level}: motif step ${m.s} off the 16-step grid`);
+      }
+      for (const b of BASSES[level]) ok(b.s >= 0 && b.s <= 15, `L${level}: bass step ${b.s} off the grid`);
       h.advance();
     }
     ok(seen.size >= 2, `L${level}: progression did not move (${[...seen]})`);

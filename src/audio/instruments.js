@@ -118,6 +118,38 @@ async function renderPianoNote(sr, f0, idx) {
   return buf;
 }
 
+/**
+ * The cut sound, pre-rendered: three variant "swish" buffers so no two cuts
+ * are the same grain. r17 — the r16 cut was raw white noise through a
+ * bandpass with a 6 ms attack, and the player heard exactly what that is:
+ * "quickly tearing paper". What reads as a blade through wet fruit instead:
+ * pink-shaded noise (one-pole lowpass whose coefficient DARKENS over the
+ * sound's life — falling brightness is the "swish"), a soft 14 ms rise, and
+ * a ~110 ms breathy decay. Synchronous JS math, ~50k samples total.
+ */
+export function makeSwishBank(actx) {
+  const sr = actx.sampleRate, dur = 0.38;
+  const bank = [];
+  for (let vnt = 0; vnt < 3; vnt++) {
+    const len = (sr * dur) | 0;
+    const buf = actx.createBuffer(1, len, sr);
+    const d = buf.getChannelData(0);
+    let lp = 0, lp2 = 0;
+    const seed = 0.9 + vnt * 0.12;
+    for (let i = 0; i < len; i++) {
+      const t = i / sr;
+      // brightness falls from open to closed across the sound
+      const k = (0.30 - 0.24 * Math.min(1, t / (0.22 * seed))) / seed;
+      lp += ((Math.random() * 2 - 1) - lp) * k;
+      lp2 += (lp - lp2) * 0.5;             // second pole: kills the papery top
+      const env = Math.min(1, t / 0.014) * Math.exp(-t / (0.11 * seed));
+      d[i] = lp2 * env * 3.0;
+    }
+    bank.push(buf);
+  }
+  return bank;
+}
+
 /** The wet splat under a cut, pre-rendered once: sine drop 130→45 Hz.
  *  playbackRate at play time scales it by species mass. Synchronous — it is
  *  ~16k samples of straight math. */
@@ -137,32 +169,62 @@ export function makeThumpBuffer(actx) {
 }
 
 /**
- * The ambient drone — the same four A/E partials the game has had since
- * round 1, with one change: the LOWEST oscillator is now the progression's
- * moving bass. setBass() glides it to the current chord's bass note while
- * the upper A/E partials stay put; a moving bass under a static pedal is the
- * cheapest possible "composed" sound. Routed through the pad bus so the idle
- * breathing filter closes over it too.
+ * The ambient drone — the A/E pedal the game has had since round 1, reworked
+ * in r17 after the player heard it as "a little rough… buggy?". Two causes,
+ * both fixed here:
+ *
+ *   · the bass oscillator GLIDED between chord basses over ~2 s, sweeping
+ *     through every dissonant beating region on the way. Now the bass is a
+ *     CROSSFADED PAIR: the new note fades in at pitch while the old fades
+ *     out — motion with no wobble;
+ *   · the triangle partials + cent-deep pitch LFOs put gritty beating high
+ *     harmonics on top. All partials are sine now, and the low ones breathe
+ *     in AMPLITUDE (slow gain LFO) instead of pitch; only the top partial
+ *     keeps a whisper of detune movement.
+ *
+ * Routed through the pad bus so the idle breathing filter closes over it too.
  */
 export function makeDrone(engine) {
   const actx = engine.actx;
-  const oscs = [];
-  [55, 82.4, 110, 164.8].forEach((f, i) => {
-    const o = actx.createOscillator();
-    o.type = i % 2 ? 'sine' : 'triangle';
-    o.frequency.value = f;
-    const g = actx.createGain(); g.gain.value = 0.055 * (0.35 / (i + 1));
-    const lfo = actx.createOscillator(); lfo.frequency.value = 0.03 + i * 0.017;
-    const lfg = actx.createGain(); lfg.gain.value = 0.5 + i * 0.35;
-    lfo.connect(lfg); lfg.connect(o.detune); lfo.start();
+
+  // crossfaded bass pair (starts on A1)
+  const bass = [0, 1].map(() => {
+    const o = actx.createOscillator(); o.type = 'sine'; o.frequency.value = 55;
+    const g = actx.createGain(); g.gain.value = 0;
     o.connect(g); g.connect(engine.padBus); o.start();
-    oscs.push(o);
+    return { o, g };
   });
+  const BASS_LEVEL = 0.055 * 0.35;
+  let bassActive = 0, bassSemis = -1e9;
+  bass[0].g.gain.value = BASS_LEVEL;
+
+  // static pedal partials: E2, A2, E3 — all sine, amplitude breathing
+  [82.4, 110, 164.8].forEach((f, i) => {
+    const o = actx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    const base = 0.055 * (0.35 / (i + 2));
+    const g = actx.createGain(); g.gain.value = base;
+    const lfo = actx.createOscillator(); lfo.frequency.value = 0.04 + i * 0.023;
+    const lfg = actx.createGain(); lfg.gain.value = base * 0.25;
+    lfo.connect(lfg); lfg.connect(g.gain); lfo.start();
+    if (i === 2) {
+      const dl = actx.createOscillator(); dl.frequency.value = 0.07;
+      const dg = actx.createGain(); dg.gain.value = 0.6;   // cents — a whisper
+      dl.connect(dg); dg.connect(o.detune); dl.start();
+    }
+    o.connect(g); g.connect(engine.padBus); o.start();
+  });
+
   return {
-    /** glide the bass oscillator to `semis` (from A3), an octave below A1 range */
+    /** crossfade the bass pair to `semis` (from A3) — never glide */
     setBass(semis) {
-      const f = semisToFreq(semis);
-      oscs[0].frequency.setTargetAtTime(f, engine.now(), 0.8);
+      if (semis === bassSemis) return;
+      bassSemis = semis;
+      const t = engine.now();
+      const from = bass[bassActive], to = bass[1 - bassActive];
+      bassActive = 1 - bassActive;
+      to.o.frequency.setValueAtTime(semisToFreq(semis), t);
+      to.g.gain.setTargetAtTime(BASS_LEVEL, t, 0.6);
+      from.g.gain.setTargetAtTime(0, t, 0.6);
     },
   };
 }
@@ -177,11 +239,13 @@ export function makePadBank(engine, max = 5) {
   const voices = [];
   for (let i = 0; i < max; i++) {
     const o = actx.createOscillator();
-    o.type = i % 2 ? 'triangle' : 'sine';
+    // r17: sine below, triangle only for the top sparkle voices, and detune
+    // movement halved — part of the "rough hum" was chorus beating here
+    o.type = i >= 3 ? 'triangle' : 'sine';
     o.frequency.value = 220;
     const g = actx.createGain(); g.gain.value = 0;
     const lfo = actx.createOscillator(); lfo.frequency.value = 0.05 + i * 0.021;
-    const lfg = actx.createGain(); lfg.gain.value = 1.1 + i * 0.4;
+    const lfg = actx.createGain(); lfg.gain.value = 0.55 + i * 0.2;
     lfo.connect(lfg); lfg.connect(o.detune); lfo.start();
     o.connect(g); g.connect(engine.padBus);
     o.start();
