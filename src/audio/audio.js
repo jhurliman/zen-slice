@@ -35,7 +35,7 @@ import { createEngine } from './engine.js';
 import { createHarmony } from './harmony.js';
 import { createConductor } from './conductor.js';
 import {
-  renderPianoKit, pianoSample, makeThumpBuffer,
+  renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank,
   playPluck, playRiser, playSigh, playBloom,
 } from './instruments.js';
 
@@ -50,7 +50,7 @@ export function createAudio() {
   const conductor = createConductor(engine, harmony);
 
   let ctxRef = null, started = false, unlockers = null;
-  let pianoKit = null, thumpBuf = null;
+  let pianoKit = null, thumpBuf = null, swishBank = null;
   let pending = [];            // gathered notes of the current stroke
   let pendingAt = -1;          // engine time of the stroke's first cut
   let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9;
@@ -96,6 +96,7 @@ export function createAudio() {
     engine.resume();
     engine.setMaster(0.85, 0.8);
     thumpBuf = makeThumpBuffer(engine.actx);
+    swishBank = makeSwishBank(engine.actx);
     conductor.start(playNote);
     conductor.setCaps(caps);
     engine.setPianoCap(caps.voices);
@@ -140,7 +141,9 @@ export function createAudio() {
     const wasIdle = conductor.isIdle();
 
     // ── immediate, per fruit: the cut and the weight ──
-    engine.playShhk(t, 0.26 + v * 0.26, 700 + v * 2600, pan);
+    engine.playSwish(swishBank[(Math.random() * swishBank.length) | 0],
+      0.92 + v * 0.25 + Math.random() * 0.08,
+      t, 0.24 + v * 0.2, 900 + v * 2200, pan);
     engine.playThump(thumpBuf, Math.min(2.2, Math.max(0.8, 0.8 + 0.5 / mass)),
       t, 0.16 * Math.min(1.4, mass * 0.5));
 
@@ -178,17 +181,24 @@ export function createAudio() {
     if (n === 1) {
       const p = pending[0];
       playNote(semis[0], p.v, panOf(p.x), t, brightOf(p.v), wetOf(p.y));
+      conductor.echo(semis[0], p.v, panOf(p.x));
     } else {
       // strum in fruit x-order; an up-swipe rolls ascending, down descending
       const order = pending.map((_, i) => i);
       const d = pending[0].dirY;
       if (Math.abs(d) > 0.5) order.sort((a, b) => (semis[a] - semis[b]) * Math.sign(d));
       else order.sort((a, b) => pending[a].x - pending[b].x);
+      // the top three of a chord (by PITCH, not strum position — a descending
+      // roll's last notes are its lowest) come back as the answer; a full
+      // five-note echo would be a blob, not a phrase
+      const byPitch = pending.map((_, i) => i).sort((a, b) => semis[b] - semis[a]);
+      const echoes = new Set(byPitch.slice(0, 3));
       for (let k = 0; k < order.length; k++) {
         const i = order[k];
         const p = pending[i];
         const taper = 1 - k * 0.06;
         playNote(semis[i], p.v * taper, panOf(p.x), t + k * STRUM, brightOf(p.v), wetOf(p.y));
+        if (echoes.has(i)) conductor.echo(semis[i], p.v * taper, panOf(p.x));
       }
       // five and up earns the harp flourish
       if (n >= 5) {
@@ -262,6 +272,7 @@ export function createAudio() {
     level: harmony.level(),
     levelPending: harmony.levelPending(),
     intensity: Math.round(conductor.intensity * 100) / 100,
+    bloom: Math.round(conductor.bloom * 100) / 100,
     voicesActive: engine.ready ? engine.voicesActive() : 0,
     nodesCreated: engine.nodesCreated,
     pending: pending.length,

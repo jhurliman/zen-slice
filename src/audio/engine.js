@@ -63,13 +63,17 @@ export function createEngine() {
     conv.buffer = makeIR(actx, 2.4);
     eng.reverbIn.connect(conv); conv.connect(eng.wet); eng.wet.connect(eng.comp);
 
-    // pad bus: its lowpass is the "breathing" filter the conductor drives
+    // pad bus: its lowpass is the "breathing" filter the conductor drives.
+    // r17: the pad/drone route AROUND the compressor, straight into master —
+    // the player heard the comp duck the drone under every piano hit, and a
+    // sustained bed that pumps with the notes reads as "rough… buggy?". The
+    // percussive material still compresses; the bed stays still.
     eng.padLp = mk(actx.createBiquadFilter());
     eng.padLp.type = 'lowpass'; eng.padLp.frequency.value = 2200; eng.padLp.Q.value = 0.4;
     eng.padGain = mk(actx.createGain()); eng.padGain.gain.value = 1.0;
     eng.padBus = mk(actx.createGain()); eng.padBus.gain.value = 1.0;
     eng.padBus.connect(eng.padLp); eng.padLp.connect(eng.padGain);
-    eng.padGain.connect(eng.dry);
+    eng.padGain.connect(eng.master);
     const padSend = mk(actx.createGain()); padSend.gain.value = 0.8;
     eng.padGain.connect(padSend); padSend.connect(eng.reverbIn);
 
@@ -89,14 +93,17 @@ export function createEngine() {
       pan.connect(send); send.connect(eng.reverbIn);
       return { lpf, gain, pan, send, src: null, until: 0 };
     };
-    const mkShhk = () => {
-      const bp = mk(actx.createBiquadFilter()); bp.type = 'bandpass'; bp.Q.value = 0.9;
+    const mkSwish = () => {
+      // r17: lowpass, not bandpass — the raw white-noise bandpass burst read
+      // as tearing paper. The swish buffers are pink-shaded and pre-enveloped;
+      // this filter just tracks velocity and sweeps darker through the sound.
+      const lp = mk(actx.createBiquadFilter()); lp.type = 'lowpass'; lp.Q.value = 0.5;
       const gain = mk(actx.createGain()); gain.gain.value = 0.0;
       const pan = mk(actx.createStereoPanner());
-      bp.connect(gain); gain.connect(pan); pan.connect(eng.dry);
-      const send = mk(actx.createGain()); send.gain.value = 0.18;
+      lp.connect(gain); gain.connect(pan); pan.connect(eng.dry);
+      const send = mk(actx.createGain()); send.gain.value = 0.3;
       pan.connect(send); send.connect(eng.reverbIn);
-      return { bp, gain, pan, src: null, until: 0 };
+      return { lp, gain, pan, src: null, until: 0 };
     };
     const mkThump = () => {
       const gain = mk(actx.createGain()); gain.gain.value = 0.0;
@@ -104,7 +111,7 @@ export function createEngine() {
       return { gain, src: null, until: 0 };
     };
     pianoPool = []; for (let i = 0; i < 16; i++) pianoPool.push(mkPiano());
-    shhkPool = []; for (let i = 0; i < 6; i++) shhkPool.push(mkShhk());
+    shhkPool = []; for (let i = 0; i < 6; i++) shhkPool.push(mkSwish());
     thumpPool = []; for (let i = 0; i < 4; i++) thumpPool.push(mkThump());
 
     eng.ready = true;
@@ -169,26 +176,26 @@ export function createEngine() {
     v.src = src; v.until = t + dur;
   };
 
-  /** The cut noise. Envelope is scheduled here (no pre-rendered buffer). */
-  eng.playShhk = (when, loud, centerHz, pan) => {
+  /** The cut: a pre-rendered swish buffer (pink-shaded, self-enveloped),
+   *  rate-varied so no two cuts are identical, through a velocity-tracked
+   *  lowpass that sweeps darker over the sound's life. */
+  eng.playSwish = (buffer, rate, when, loud, cutoffHz, pan) => {
     const actx = eng.actx;
     const v = acquire(shhkPool, shhkPool.length, when);
     const t = Math.max(when, actx.currentTime);
     const src = actx.createBufferSource();
-    src.buffer = eng.noise;
-    // random read offset so back-to-back cuts don't phase against each other
-    const off = Math.random() * (eng.noise.duration - 0.35);
-    src.connect(v.bp);
-    v.bp.frequency.cancelScheduledValues(t);
-    v.bp.frequency.setValueAtTime(centerHz, t);
-    v.bp.frequency.exponentialRampToValueAtTime(280, t + 0.22);
+    src.buffer = buffer; src.playbackRate.value = rate;
+    src.connect(v.lp);
+    v.lp.frequency.cancelScheduledValues(t);
+    v.lp.frequency.setValueAtTime(cutoffHz, t);
+    v.lp.frequency.exponentialRampToValueAtTime(Math.max(300, cutoffHz * 0.35), t + 0.18);
     v.gain.gain.cancelScheduledValues(t);
-    v.gain.gain.setValueAtTime(0, t);
-    v.gain.gain.linearRampToValueAtTime(loud, t + 0.006);
-    v.gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.26);
+    v.gain.gain.setValueAtTime(loud, t);
     v.pan.pan.setValueAtTime(pan, t);
-    src.start(t, off, 0.32);
-    v.src = src; v.until = t + 0.3;
+    src.start(t);
+    const dur = buffer.duration / rate;
+    src.stop(t + dur + 0.02);
+    v.src = src; v.until = t + dur;
   };
 
   eng.voicesActive = () => {
