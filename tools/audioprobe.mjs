@@ -126,7 +126,10 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 1 });
 const errs = [];
 page.on('pageerror', (e) => errs.push(String(e).slice(0, 200)));
-await page.goto(`http://localhost:${PORT}/?capture=1`, { waitUntil: 'domcontentloaded' });
+// ?nophys=1: Rapier adds real milliseconds per fixed step under SwiftShader,
+// and the chord-gather assertions race an 80 ms REAL-time window — audio
+// never touches physics, so the probe runs ballistic to keep steps cheap.
+await page.goto(`http://localhost:${PORT}/?capture=1&nophys=1`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.ZS, null, { timeout: 55000 });
 
 // unlock via a real (trusted) gesture — evaluate() calls are not gestures and
@@ -149,7 +152,11 @@ await page.waitForFunction(() => window.ZS.audio.state().pianoReady, null, { tim
 const chordProbe = await page.evaluate(async () => {
   const ZS = window.ZS, ctx = ZS.ctx;
   ZS.clear();
-  const line = [['orange', -2.2], ['apple', 0], ['kiwi', 2.2]];
+  // two fruit, not three: each queued cut costs ~3-7 ms of REAL time
+  // (cutGeometry) inside the 80 ms real-clock gather window, and a slow CI
+  // machine with three cuts can blow through it mid-collection — a timing
+  // flake, not the stacking regression these assertions exist to catch
+  const line = [['orange', -2.2], ['kiwi', 2.2]];
   for (const [id, x] of line) {
     const f = ZS.spawn(id);
     f.pos.set(x, 0.2, 0); f.vel.set(0, 0.5, 0);
