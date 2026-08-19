@@ -2801,8 +2801,22 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // instead of a pink crust.
     const nCling = Math.round(q.cling * amtK * (0.10 + 0.90 * filmness) * bk);
     if (nCling > 0) {
-      const sep = cl(0.7 + S * 0.045, 0.8, 3.2);
-      _j.copy(B.inh).addScaledVector(B.N, -sep * 0.5).addScaledVector(B.D, S * 0.05);
+      // ══ r14b: RIDE THE HALF, DO NOT RE-DERIVE IT ═══════════════════════
+      // This used to restate slicer.js's launch arithmetic — `0.7 + S*0.045`
+      // clamped to 3.2, and `D * S*0.05` — as a second copy against
+      // `stroke.speed`. When r14 retuned the cut force in slicer.js, the copy
+      // here did not move, and cling was launched at `0.05*S` while the half it
+      // is painted on moved at `0.021*S`: ~2.8 units/s of relative motion at a
+      // flick, about a world unit of drift over cling's 0.345 s life. Foam
+      // detaching from the face and outrunning the fruit. Caught in review.
+      // `faceVel` is now on the bus payload — the ACTUAL velocity of the half
+      // that carries this face — so there is nothing left here to fall out of
+      // sync. The fallback keeps a burst emitted by anything other than the
+      // slicer working, at the old shape but with r14's constants.
+      if (e.faceVel) _j.copy(e.faceVel);
+      else _j.copy(B.inh)
+        .addScaledVector(B.N, -cl(0.45 + S * 0.0097, 0.5, 1.45) * 0.5)
+        .addScaledVector(B.D, S * 0.021);
       for (let i = 0; i < nCling; i++) {
         const ai = (rng() * NA) | 0, o7 = ai * 7, radf = Math.sqrt(rng()) * 0.97;
         _o.set(TBL[o7], TBL[o7 + 1], TBL[o7 + 2]).sub(B.O).multiplyScalar(radf).add(B.O)

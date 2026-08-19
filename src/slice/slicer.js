@@ -203,10 +203,31 @@ export function createSlicer() {
       : f.radius * 0.8;
     const amount = f.species.juiciness * (f.generation === 0 ? 1.0 : 0.5)
       * clamp(0.55 + stroke.speed * 0.03, 0.6, 1.5);
-    for (const sign of [+1, -1]) {
+    // ══ r14b: `faceVel` — STOP fluid.js RE-DERIVING THIS FROM THE CONSTANTS ══
+    // The `cling` class is foam sitting ON a cut face, so it has to travel with
+    // the half that carries that face. It was riding a SECOND COPY of the
+    // launch arithmetic, written out again in fluid.js against `stroke.speed`:
+    //     const sep = cl(0.7 + S*0.045, 0.8, 3.2);
+    //     _j.copy(B.inh).addScaledVector(B.N, -sep*0.5).addScaledVector(B.D, S*0.05);
+    // Review caught the consequence the moment this round retuned the kick:
+    // fluid.js still launched cling at `0.05*S` while the half moved at
+    // `0.021*S`, which at a flick is ~2.8 units/s of relative motion — about a
+    // world unit of drift over cling's 0.345 s life, i.e. the foam detaching
+    // from the face and outrunning the fruit.
+    //
+    // Re-syncing the two copies would fix this instance and guarantee the next
+    // one. The halves' velocities EXIST here, three lines up, and the bus
+    // payload is the contract between these two files — so send the real thing
+    // and delete the duplicate. `halves` is built in the [+1, -1] order this
+    // loop uses, so index i is the half whose exposed face this burst is on.
+    // This is the r3 lesson (`geometry.js` encoded a contract in a comment and
+    // `species.js` did not honour it) with the fix applied for once.
+    for (let i = 0; i < 2; i++) {
+      const sign = i === 0 ? +1 : -1;
       ctx.bus.emit('juice', {
         stroke, species: f.species, at: stroke.at.clone(),
         normal: stroke.plane.n.clone().multiplyScalar(sign),
+        faceVel: halves[i] ? halves[i].vel.clone() : null,
         radius: capR * 0.95, amount, inherit: f.vel.clone().multiplyScalar(0.8),
       });
     }
