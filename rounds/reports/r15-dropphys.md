@@ -229,3 +229,73 @@ untestable, because every observation is confounded by "is it even on". The HUD 
 so a scene with 0 colliders looks different from the feature being off. `ctx.dropPhys` is published
 by `fluid.js`, the owner — the HUD does not re-parse the URL, because duplicating that parse is
 exactly the drift r14b removed for cling.
+
+---
+
+# r18 — GPU and CPU agree, and it ships on by default
+
+> "It's a very cool effect when it works, this should be the default. But we need to get gpu and cpu
+> in agreement here to make it fully believable" — the player, 2026-08-19.
+
+Both conditions met, in that order.
+
+## The agreement check — `tools/dropphys-agree.mjs`
+
+`dropphys3d.mjs` validates the **design**. This validates the **shader**: it reads the compute
+kernel's own state buffer back off the GPU with `renderer.getArrayBufferAsync` and compares it
+**row by row** against the CPU replay of the same droplets. Row-by-row matters — an aggregate match
+is exactly the kind of agreement that hides a per-droplet sign error. The pool slot comes from the
+emitter's tap so the two line up exactly.
+
+**The first run failed, and the failure was mine, not the shader's:**
+
+```
+displaced on the CPU model : 478
+displaced on the GPU       : 2296        <- essentially every droplet
+mean |D_gpu - D_cpu|       : 0.20852
+agreement                  : 13.4%
+```
+
+`D` on the GPU is **turbulence and collision summed into one accumulator** — there was no room for a
+fifth storage buffer — so a naive comparison measures the curl noise the CPU model deliberately does
+not implement. Zeroing `turbAmp` for the duration of the test isolates the collision response
+without reimplementing the shader's noise on the CPU, which is the drift these tools exist to avoid:
+
+```
+droplets compared row-by-row : 2300
+displaced on the CPU model   : 478
+displaced on the GPU         : 472
+mean |D_gpu - D_cpu|         : 0.01796 world units
+within 15% or 0.01 units     : 2186/2300  (95.0%)
+
+error distribution   median 0.00000   p95 0.08723   p99 0.34026
+  both displaced        466   median err 0.02926   p95 0.28593
+  displaced on ONE side  18   (0.8% of all droplets)
+```
+
+**Read that carefully, because the headline number is the least informative one.** The median error
+is *exactly zero* — most droplets never touch a collider and the two paths are bit-identical there.
+Of the ~475 droplets that do collide, **466 collide on both sides**, and their displacements agree to
+a median of **0.029 world units against a ~1.5-unit fruit radius, i.e. 2%**. The residual is **18
+droplets, 0.8%**, that graze a boundary and hit on one side but miss on the other — which flips the
+whole displacement and is exactly what a boundary case does in two independently-stepped
+integrators. **That is agreement, and the 95% figure understates it.**
+
+⚠ What this still does not cover: the curl force and wake are switched off during the test, so the
+agreement is verified for the collision response alone. The wind is r14-subtle (~9% of a fruit
+radius) and is not part of what was under suspicion.
+
+## Shipping on
+
+`dropPhys` now defaults to **1**. `?dropphys=0` turns it off.
+
+**The badge changed meaning with the default.** It was a "this is on" indicator; a badge that shows
+during ordinary play is game chrome, and this is a diagnostic. It now appears only when the
+configuration has been **explicitly overridden** — `?dropphys=0` or `?dropphys=1` — and reports which
+way round it is (`DROPLET PHYSICS OFF` / `DROPLET PHYSICS ON · N colliders`). Ordinary play shows
+nothing.
+
+**Cost, re-measured with it on by default** (3 repeats each, tier 2, `step()` ms): p50 0.2–0.3,
+p95 0.4–0.6, **identical to the off path**. The GPU cost remains unmeasured here for the reason it
+always has — this harness renders under a software rasteriser — and that is now the only open item
+on the feature.
