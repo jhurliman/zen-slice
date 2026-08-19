@@ -51,6 +51,7 @@
  * a screen shake in either — the founding spec asks for "relaxing, meditative".
  */
 import { nowSec } from '../core/contract.js';
+import { loadPrefs, savePref } from '../core/prefs.js';
 
 // Real seconds. NOT sim seconds: a player's hand moves in real time, and this
 // is the only clock in the game that should stay wall-clock even if a future
@@ -80,11 +81,17 @@ import { nowSec } from '../core/contract.js';
 const COMBO_WINDOW = 0.55;
 
 export function createScore() {
-  const api = { score: 0, combo: 0, best: 0, total: 0, level: 0, levelName: 'Still Water' };
+  const api = { score: 0, combo: 0, best: 0, total: 0, level: 0, levelName: 'Still Water', bestScore: 0 };
   let ctx, lastSliceT = -1e9;
+  // r21: the all-time best persists (prefs.js/localStorage). Saved at most
+  // every few seconds — a write per slice would be storage churn for nothing —
+  // and announced ONCE per session the moment it is first exceeded, so the
+  // HUD can whisper 'personal best' exactly when it happens.
+  let lastBestSave = -1e9, announcedBest = false;
 
   api.init = (c) => {
     ctx = c;
+    api.bestScore = Math.max(0, loadPrefs().bestScore | 0);
     c.bus.on('slice', (e) => {
       const now = e.stroke.t;
       if (now - lastSliceT < COMBO_WINDOW) api.combo++; else api.combo = 1;
@@ -106,6 +113,16 @@ export function createScore() {
       const gain = Math.round(base * mult);
       api.score += gain;
 
+      if (api.score > api.bestScore) {
+        if (api.bestScore > 0 && !announcedBest) {
+          announcedBest = true;
+          c.bus.emit('newbest', { score: api.score });
+        }
+        api.bestScore = api.score;
+        const now = nowSec();
+        if (now - lastBestSave > 5) { lastBestSave = now; savePref('bestScore', api.bestScore); }
+      }
+
       // The one combo signal on the bus. Payload widened this round so the
       // pieces that CAN answer a combo visually — hud.js's callout, blade.js's
       // streak, audio.js's chime — have something to scale by without any of
@@ -119,6 +136,14 @@ export function createScore() {
       }
     });
     c.bus.on('level', (e) => { api.level = e.level; api.levelName = e.name; });
+
+    // the rate-limited save above can be up to 5 s stale — flush it when the
+    // app backgrounds, which on a phone is how sessions actually end
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && api.bestScore > (loadPrefs().bestScore | 0)) {
+        savePref('bestScore', api.bestScore);
+      }
+    });
 
     // ══ r20: THE ROCK PENALTY ═══════════════════════════════════════════════
     // A fixed sting, not a scaling one: −25 is about one good combo cut, so a

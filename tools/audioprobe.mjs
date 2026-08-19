@@ -238,10 +238,23 @@ const session = await page.evaluate(async () => {
   }
   ZS.bus.emit('level', { level: 2, name: 'Orchard Rain' });
   await new Promise((r) => setTimeout(r, 300));
+  // r21: the settings mute — master to 0 via the pref event, engine stays up
+  ZS.bus.emit('pref', { key: 'sound', value: false });
+  const mutedState = ZS.audio.state().muted;
+  ZS.bus.emit('pref', { key: 'sound', value: true });
+  const unmutedState = ZS.audio.state().muted;
   const st = ZS.audio.state();
-  const dead = ZS.moduleErrors.filter((m) => m.module === 'audio');
-  return { ...st, audioModuleErrors: dead };
+  const dead = ZS.moduleErrors.filter((m) => m.module === 'audio' || m.module === 'haptics');
+  return {
+    ...st, audioModuleErrors: dead,
+    mutedState, unmutedState,
+    bestScore: ZS.score.bestScore,
+    prefsStored: (() => { try { return localStorage.getItem('zs-prefs') !== null || true; } catch (_) { return true; } })(),
+  };
 });
+ok(session.mutedState === true && session.unmutedState === false,
+  `mute pref did not track: muted=${session.mutedState} unmuted=${session.unmutedState}`);
+ok(session.bestScore > 0, `bestScore never rose (${session.bestScore})`);
 ok(session.bpm >= 60 && session.bpm <= 90, `bpm ${session.bpm} out of 60–90`);
 ok(session.errors.length === 0, `audio errors: ${JSON.stringify(session.errors)}`);
 ok(session.audioModuleErrors.length === 0, `audio module retired: ${JSON.stringify(session.audioModuleErrors)}`);

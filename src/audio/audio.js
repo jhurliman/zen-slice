@@ -31,6 +31,7 @@
  * safe() wrapper in main.js would otherwise retire audio for the session.
  */
 
+import { loadPrefs } from '../core/prefs.js';
 import { createEngine } from './engine.js';
 import { createHarmony } from './harmony.js';
 import { createConductor } from './conductor.js';
@@ -55,6 +56,10 @@ export function createAudio() {
   let pendingAt = -1;          // engine time of the stroke's first cut
   let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9;
   let lastWatchdog = 0, swishCount = 0;
+  // r21: the settings mute. Everything keeps RUNNING (engine, conductor,
+  // scheduler) — mute is just the master fader at 0, so unmute is instant.
+  let soundOn = loadPrefs().sound !== false;
+  const masterLevel = () => (soundOn ? 0.85 : 0);
   let caps = { background: true, arps: true, voices: 16, wet: 1.0 };
 
   const nosound = (() => {
@@ -102,7 +107,7 @@ export function createAudio() {
     }
     started = true;
     engine.resume();
-    engine.setMaster(0.85, 0.25);   // audible within ~0.5 s, not ~2.5
+    engine.setMaster(masterLevel(), 0.25);   // audible within ~0.5 s, not ~2.5
     thumpBuf = makeThumpBuffer(engine.actx);
     swishBank = makeSwishBank(engine.actx);
     tickBuf = makeTickBuffer(engine.actx);
@@ -136,8 +141,14 @@ export function createAudio() {
         engine.setMaster(0, 0.05);
       } else {
         engine.resume();
-        engine.setMaster(0.85, 0.4);
+        engine.setMaster(masterLevel(), 0.4);
       }
+    }));
+
+    c.bus.on('pref', guard((e) => {
+      if (e.key !== 'sound') return;
+      soundOn = !!e.value;
+      if (started) engine.setMaster(masterLevel(), 0.1);
     }));
 
     c.bus.on('slice', guard(onSlice));
@@ -343,6 +354,7 @@ export function createAudio() {
   /** Harness surface (ZS.audio) — sound made assertable without ears. */
   api.state = () => ({
     started, pianoReady: !!pianoKit,
+    muted: !soundOn,
     actxState: engine.actx ? engine.actx.state : 'none',
     bpm: Math.round(conductor.bpm * 10) / 10,
     chord: harmony.chordName(),

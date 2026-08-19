@@ -4,6 +4,7 @@
  * Nothing boxed, nothing chunky, nothing that competes with the fruit.
  */
 import * as THREE from 'three';
+import { loadPrefs, savePref } from '../core/prefs.js';
 
 // ── the callout's motion constants ──────────────────────────────────────────
 // SHARED, because the placement clamp and the animation have to agree about how
@@ -22,6 +23,13 @@ export function createHud() {
   let debugOn = false, debugEl = null, debugTxt = null, debugAcc = 0;
   let shownScore = 0;
   const floats = [];
+  // r21: the settings glyph and its three-row panel; idle is TOUCH idle —
+  // the director tosses fruit whether or not anyone plays, so "no fruit in
+  // the air" never holds and the sky's quiet is measured at the fingertip
+  let settingsEl = null, panelEl = null, gearEl = null;
+  let idleT = 0, panelOpen = false, captureMode = false, reducedMotion = false;
+  let swipeCount = 0;
+  const IDLE_SHOW_S = 6;
 
   /**
    * Place a callout over a world point and keep it on screen. ONE function
@@ -162,6 +170,78 @@ export function createHud() {
 
     c.bus.on('slice', () => { if (hintEl) { hintEl.classList.add('gone'); } });
 
+    // ══ r21: THE HINT LETS GO AFTER THREE SWIPES ═════════════════════════════
+    // The first-slice hide (above) never fires for a player who swipes and
+    // misses — they kept a pulsing tutorial forever. Three pointerdowns is
+    // three attempts: whoever is doing that has understood the game. Taps on
+    // the settings UI are not swipes and don't count; this listener also
+    // feeds the idle clock for the glyph below.
+    try {
+      const q = new URLSearchParams(location.search || '');
+      captureMode = q.has('capture') && q.get('capture') !== '0';
+      debugOn = q.has('debug') && q.get('debug') !== '0';
+    } catch (_) { /* */ }
+    try { reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { /* */ }
+    window.addEventListener('pointerdown', (ev) => {
+      if (settingsEl && ev.target && settingsEl.contains(ev.target)) return;
+      idleT = 0;
+      if (panelOpen) togglePanel(false);
+      else if (gearEl) gearEl.classList.remove('show');
+      if (++swipeCount >= 3 && hintEl) hintEl.classList.add('gone');
+    }, { passive: true });
+
+    // ══ r21: THE SETTINGS GLYPH ══════════════════════════════════════════════
+    // Three choices, no screen. The glyph exists only when the fingertip has
+    // been still for a while, in the hint's own typographic voice, and any
+    // return to play dismisses everything. Suppressed under ?capture so the
+    // screenshot corpus never sees it.
+    if (!captureMode) {
+      settingsEl = document.createElement('div');
+      settingsEl.className = 'zs-settings';
+      const p = loadPrefs();
+      settingsEl.innerHTML =
+        `<button class="zs-gear" id="zs-gear" aria-label="settings">···</button>`
+        + `<div class="zs-panel" id="zs-panel">`
+        + `<button data-k="sound">sound ${p.sound !== false ? 'on' : 'off'}</button>`
+        + `<button data-k="haptics">haptics ${p.haptics !== false ? 'on' : 'off'}</button>`
+        + `<button data-k="again">begin again</button>`
+        + `</div>`;
+      root.appendChild(settingsEl);
+      gearEl = settingsEl.querySelector('#zs-gear');
+      panelEl = settingsEl.querySelector('#zs-panel');
+      // NO stopPropagation anywhere here — the window pointerdown listener in
+      // audio.js is the guaranteed iOS resume path and must see every tap.
+      gearEl.addEventListener('pointerdown', () => togglePanel(!panelOpen));
+      panelEl.addEventListener('pointerdown', (ev) => {
+        const b = ev.target && ev.target.closest ? ev.target.closest('button[data-k]') : null;
+        if (!b) return;
+        const k = b.dataset.k;
+        if (k === 'again') {
+          ctx.fruits?.reset?.();
+          togglePanel(false);
+          gearEl.classList.remove('show');
+          idleT = 0;
+          return;
+        }
+        const now = !(loadPrefs()[k] !== false);   // flip
+        savePref(k, now);
+        b.textContent = `${k} ${now ? 'on' : 'off'}`;
+        ctx.bus.emit('pref', { key: k, value: now });
+      });
+    }
+
+    // ══ r21: THE PERSONAL-BEST WHISPER ═══════════════════════════════════════
+    // Once per session, the moment the stored best is passed: thin text under
+    // the score, in and out like the level name. A trophy case would be noise.
+    c.bus.on('newbest', () => {
+      const el = document.createElement('div');
+      el.className = 'zs-best';
+      el.textContent = 'personal best';
+      root.appendChild(el);
+      requestAnimationFrame(() => el.classList.add('show'));
+      setTimeout(() => el.remove(), 4200);
+    });
+
     // ══ r20: ?debug — THE LEVEL REMOTE ═══════════════════════════════════════
     // Music iteration needs to HEAR each level without playing 27 minutes to
     // reach it. With ?debug: a small monospace strip at the bottom shows
@@ -169,10 +249,7 @@ export function createHud() {
     // ◀ ▶ jump levels via director.jumpLevel — which emits the same 'level'
     // event a natural advance does, so palettes/motifs/spawn pools all follow.
     // Diagnostic chrome, so it exists only behind the flag, like ?dropphys.
-    try {
-      const q = new URLSearchParams(location.search || '');
-      debugOn = q.has('debug') && q.get('debug') !== '0';
-    } catch (_) { debugOn = false; }
+    // debugOn was parsed above alongside captureMode
     if (debugOn) {
       debugEl = document.createElement('div');
       debugEl.className = 'zs-debug';
@@ -194,6 +271,12 @@ export function createHud() {
     // first level name
     setTimeout(() => c.bus.emit('level', { level: 0, name: 'Still Water' }), 700);
   };
+
+  function togglePanel(open) {
+    panelOpen = open;
+    if (panelEl) panelEl.classList.toggle('open', open);
+    if (gearEl && open) gearEl.classList.add('show');
+  }
 
   api.frame = (dt, alpha, c) => {
     // ══ r17: SAY WHEN AN EXPERIMENT IS ON ═══════════════════════════════════
@@ -222,6 +305,14 @@ export function createHud() {
     const s = c.score?.score ?? 0;
     shownScore += (s - shownScore) * Math.min(1, dt * 9);
     scoreEl.textContent = Math.round(shownScore);
+    // r21: the settings glyph earns its existence by absence — visible only
+    // after the fingertip has been still for IDLE_SHOW_S
+    if (gearEl) {
+      idleT += dt;
+      const show = idleT >= IDLE_SHOW_S;
+      if (show !== gearEl.classList.contains('show')) gearEl.classList.toggle('show', show);
+      if (!show && panelOpen) togglePanel(false);
+    }
     // ?debug strip: ~2 Hz poll, and never let a debug read throw the module
     if (debugOn && debugTxt) {
       debugAcc += dt;
@@ -249,20 +340,24 @@ export function createHud() {
       const u = f.t / f.life;
       // POP: overshoot to 1.14 in the first 90 ms, settle by 260 ms. A callout
       // that fades up reads as a notification; one that punches reads as a hit.
-      const pop = f.t < 0.09
-        ? 0.55 + (POP_MAX - 0.55) * (f.t / 0.09)
-        : POP_MAX - (POP_MAX - 1) * Math.min(1, (f.t - 0.09) / 0.17);
+      // prefers-reduced-motion (r21): the callout appears and fades in place —
+      // no punch, no travel, no tilt. Same information, still air.
+      const pop = reducedMotion ? 1
+        : f.t < 0.09
+          ? 0.55 + (POP_MAX - 0.55) * (f.t / 0.09)
+          : POP_MAX - (POP_MAX - 1) * Math.min(1, (f.t - 0.09) / 0.17);
       // RISE: fast out of the cut, then eased, so the eye is pulled up off the
       // fruit rather than the text drifting away at a constant speed.
       // riseK 1 = the combo's upward pull; a negative riseK (the penalty)
       // sinks the callout the same eased way, just shorter and downward
-      const rise = -RISE_MAX * (f.riseK ?? 1) * (1 - Math.pow(1 - Math.min(1, f.t / 0.75), 2));
+      const rise = reducedMotion ? 0
+        : -RISE_MAX * (f.riseK ?? 1) * (1 - Math.pow(1 - Math.min(1, f.t / 0.75), 2));
       // Hold full opacity for the first 55% of life; a callout that starts
       // fading immediately never reads at all on a 120 Hz display.
       const fade = u < 0.55 ? 1 : Math.max(0, 1 - (u - 0.55) / 0.45);
       f.el.style.transform =
         `translate(-50%,-50%) translateY(${rise.toFixed(1)}px) `
-        + `rotate(${f.tilt}deg) scale(${(pop * f.fit).toFixed(3)})`;
+        + `rotate(${reducedMotion ? 0 : f.tilt}deg) scale(${(pop * f.fit).toFixed(3)})`;
       f.el.style.opacity = fade.toFixed(3);
       if (f.t > f.life) { f.el.remove(); floats.splice(i, 1); }
     }
