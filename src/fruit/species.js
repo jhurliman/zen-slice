@@ -2254,6 +2254,28 @@ export function setSpeciesQuality(q) {
 export const SPECIES = {};
 
 function def(s) {
+  // ══ r16: juiceHex IS PRE-COMPENSATED FOR THE WARM KEY, AND MEASURED ══════
+  // THE PLAYER, 2026-08-19: "the droplets out of the orange are red when they
+  // should be a more orange color ... the apple droplets match the green skin
+  // which isn't technically correct".
+  //
+  // The authored values were NOT the problem — orange juice was already
+  // #ffa321, a proper orange. The droplet shader tints as white * exp(-A*dpt),
+  // and that `white` is the LIT white, so every droplet's hue is dragged toward
+  // the key light's. Measured on rendered droplet pixels (tools/.r16hue.mjs,
+  // streak band and fruit body excluded geometrically):
+  //     orange      authored hue  35deg  ->  rendered  17deg   (-18)
+  //     watermelon  authored hue 350deg  ->  rendered   8deg   (+18)
+  // Both converge on ~15deg, which is the light, not the juice. Watermelon
+  // survives it because red-shifted red is still red; ORANGE DOES NOT, because
+  // it only starts 20deg from red to begin with.
+  //
+  // The right fix is to stop the key from bleeding into the transmission term,
+  // which is a change to the droplet shader in fluid.js — the most calibrated
+  // code in the project, and not this file's to make. So these two values are
+  // pre-compensated instead, and the compensation is stated rather than
+  // hidden: orange 35 -> 50deg authored so it LANDS near 35, apple pushed off
+  // the green edge toward the amber that apple juice actually is.
   s.juiceColor = C(s.juiceHex);
   s.fleshColor = C(s.fleshHex);
   s.rindColor = C(s.rindHex);
@@ -3231,7 +3253,7 @@ def({
   // fleshHex was '#ff9d1e' — linear R 1.00, i.e. the top of the gamut used as a
   // base albedo. r2 measured the citrus half at mean (173, 105, 46) with 31.2%
   // of pixels at R=255 against plate-02's (142, 99, 46) and 0.00%.
-  rindHex: '#b56b1f', fleshHex: '#cb7c23', juiceHex: '#ffa321',
+  rindHex: '#b56b1f', fleshHex: '#cb7c23', juiceHex: '#ffc61a',
   shape: { squash: 0.97, lumps: 0.012, freq: 3.0 },
 
   makeSkinMaterial() {
@@ -3546,7 +3568,7 @@ function apLayers(cc) {
 def({
   id: 'apple', label: 'Green Apple',
   radius: 0.92, mass: 1.0, juiciness: 0.6, sss: 0.22, pitch: 4,
-  rindHex: '#7ca430', fleshHex: '#cecab1', juiceHex: '#e9f2b0',
+  rindHex: '#7ca430', fleshHex: '#cecab1', juiceHex: '#f6e7a4',
   shape: { squash: 0.93, lumps: 0.02, freq: 2.6, waist: 0.13 },
 
   makeSkinMaterial() {
