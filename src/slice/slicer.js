@@ -34,11 +34,26 @@ export function createSlicer() {
   const _localPlaneN = new THREE.Vector3();
   const _m = new THREE.Matrix4();
 
-  /** Drain at most ONE queued cut per fixed step, and reopen the budget for the
-   *  next one. Runs in `fixed` so the cost lands inside a frame the governor can
-   *  see, instead of in a pointer handler it cannot. A fruit that died or was
-   *  already re-cut while queued is dropped. */
-  api.fixed = () => {
+  /** Drain at most ONE queued cut per RENDERED FRAME, and reopen the budget for
+   *  the next one.
+   *
+   *  ⚠ THIS MUST BE `frame`, NOT `fixed`, AND THE DIFFERENCE IS THE WHOLE POINT.
+   *  `main.js` runs `fixed` inside an accumulator loop, up to MAX_SUBSTEPS = 4
+   *  times per rendered tick — twice on a 60 Hz display as a matter of course,
+   *  and up to four times while recovering from a stall. Draining there reopened
+   *  the allowance on every substep, so ONE frame could perform 2-4 cuts and
+   *  re-concentrate exactly the work this queue exists to spread — and it did so
+   *  hardest during stall recovery, i.e. it made a bad frame worse. Caught in
+   *  review. `frame` runs exactly once per rendered tick, which is the unit the
+   *  budget is actually denominated in.
+   *
+   *  Running after `fluid.frame` costs nothing visible: `api.burst` writes and
+   *  flushes the droplet attributes synchronously, and `stage.render` runs after
+   *  every module's `frame`, so a cut made here still draws this frame. Only the
+   *  turbulence compute for those droplets starts one tick later.
+   *
+   *  A fruit that died or was already re-cut while queued is dropped. */
+  api.frame = () => {
     cutsThisTick = 0;
     while (pending.length) {
       const job = pending.shift();
