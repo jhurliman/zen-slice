@@ -176,10 +176,17 @@ export function createHud() {
     // re-parse the URL, because duplicating that parse is exactly the drift
     // r14b removed for cling.
     if (flagEl) {
+      // r18: droplet physics is the DEFAULT now, so the badge is no longer a
+      // "this is on" indicator — it is an "you have overridden the default"
+      // indicator, and it reports which way. A diagnostic that shows during
+      // ordinary play is game chrome, and this is not that.
+      const show = !!c.dropPhysExplicit;
       const on = !!c.dropPhys;
-      const txt = on ? `DROPLET PHYSICS ON · ${c.dropPhysSpheres | 0} colliders` : '';
+      const txt = !show ? ''
+        : (on ? `DROPLET PHYSICS ON · ${c.dropPhysSpheres | 0} colliders`
+              : 'DROPLET PHYSICS OFF');
       if (flagEl.textContent !== txt) flagEl.textContent = txt;
-      if (on !== flagEl.classList.contains('on')) flagEl.classList.toggle('on', on);
+      if (show !== flagEl.classList.contains('on')) flagEl.classList.toggle('on', show);
     }
     const s = c.score?.score ?? 0;
     shownScore += (s - shownScore) * Math.min(1, dt * 9);

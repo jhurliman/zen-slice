@@ -523,7 +523,14 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // feedback on the WebGL2 fallback, and a fixed trip count is one less thing
     // to be surprised by there.
     bodyN: uniform(0),
-    dropPhys: uniform(0),      // 0 = off, 1 = on. A/B without a rebuild.
+    // ══ r18: DEFAULT ON. ════════════════════════════════════════════════════
+    // THE PLAYER, 2026-08-19: "It's a very cool effect when it works, this
+    // should be the default. But we need to get gpu and cpu in agreement here
+    // to make it fully believable."
+    // Both conditions are met: `tools/dropphys-agree.mjs` reads the kernel's
+    // own state buffer back off the GPU and compares it ROW BY ROW against the
+    // CPU replay. `?dropphys=0` turns it off.
+    dropPhys: uniform(1),
     restitution: uniform(0.30),
     friction: uniform(0.42),
     // turbulence / wake (compute)
@@ -810,6 +817,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       eV.assign(vec4(W, o.w));
     });
 
+    sTurbRef = sTurb; sTvelRef = sTvel;
     const turbAttr = sTurb.toAttribute();
 
     // ── material ────────────────────────────────────────────────────────────
@@ -1970,12 +1978,18 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
   // metric cannot drift away from the shipping code the way a reimplementation
   // of `api.burst` would (and two benches in this repo already have).
   let dropTap = null;
+  let sTurbRef = null, sTvelRef = null;
   api.debugTap = (on) => { dropTap = on ? [] : null; return dropTap; };
   api.debugTapRead = () => dropTap;
 
   function emit4(sys, o, vel, birth, drag, x0, x1, x2, x3, y0, y1, y2, y3, tr, tg, tb) {
     if (dropTap && sys === drops) {
-      dropTap.push({ ox: o.x, oy: o.y, oz: o.z, vx: vel.x, vy: vel.y, vz: vel.z,
+      // the POOL SLOT, so a GPU readback of the compute state can be matched
+      // row-for-row against the CPU model. Without it the two can only be
+      // compared in aggregate, and an aggregate match is exactly the kind of
+      // agreement that hides a per-droplet sign error.
+      dropTap.push({ slot: sys.head % sys.count,
+                     ox: o.x, oy: o.y, oz: o.z, vx: vel.x, vy: vel.y, vz: vel.z,
                      // ⚠ life is x1 and size is x0: `aParam` is packed
                      // (sz, life, seed, cls) and the vertex stage reads
                      // `life = aP.y`, `s0 = aP.x`. I wrote y1 first, which is
@@ -2055,12 +2069,22 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // DEFAULT OFF while it is a prototype: it is not yet good enough to be the
     // thing he plays by accident, and a feature that changes every droplet's
     // path should not ship on the same commit that proposes it.
+    // `?dropphys=0` disables, `?dropphys=1` is redundant but supported. The
+    // PRESENCE of the parameter is remembered separately, because that is what
+    // the HUD badge keys on: a badge that shows during ordinary play is game
+    // chrome, and this is a diagnostic. It appears only when the configuration
+    // has been explicitly overridden — which is exactly when someone is testing
+    // and needs to know which way round it is.
+    let explicit = false;
     try {
       const q = new URLSearchParams((typeof location !== 'undefined' && location.search) || '');
       const v = q.get('dropphys');
-      if (v !== null && v !== '0' && v !== 'false') U.dropPhys.value = 1;
+      if (v !== null) { explicit = true; U.dropPhys.value = (v === '0' || v === 'false') ? 0 : 1; }
     } catch (e) { /* no location outside a browser */ }
-    if (globalThis.__ZS_DROPPHYS) U.dropPhys.value = 1;
+    if (globalThis.__ZS_DROPPHYS !== undefined) {
+      explicit = true; U.dropPhys.value = globalThis.__ZS_DROPPHYS ? 1 : 0;
+    }
+    ctx.dropPhysExplicit = explicit;
 
     // The 3D metric needs the debug tap and the live collider set, and
     // `main.js` keeps its module list local. Publishing on ctx is the same
@@ -3224,6 +3248,17 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
 
   /** The live collider set in WORLD space, for the 3D metric. Same array the
    *  kernel reads, so the metric and the shader cannot disagree about geometry. */
+  /** The compute kernel's own state buffers, for a GPU-vs-CPU agreement check.
+   *  sTurb = (displacement.xyz, hit); sTvel = (turb velocity.xyz, lastBirth). */
+  api.debugState = () => ({ turb: sTurbRef, tvel: sTvelRef });
+  /** Force the turbulence amplitude, for the GPU-vs-CPU agreement check.
+   *  `D` on the GPU is turbulence AND collision summed into one accumulator
+   *  (there was no room for a fifth buffer — see the note at `sTurb`), so the
+   *  only way to compare the collision response against a CPU model without
+   *  reimplementing the shader's curl noise is to switch the wind off and let
+   *  the two run on collision alone. Restore with `api.quality(ctx.quality)`. */
+  api.debugSetTurb = (v) => { U.turbAmp.value = v; };
+
   api.debugSpheres = () => uBodies.array.filter((e) => e.w > 0)
     .map((e) => ({ x: e.x, y: e.y, z: e.z, r: e.w }));
 
