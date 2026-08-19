@@ -227,7 +227,16 @@ export function createSlicer() {
       ctx.bus.emit('juice', {
         stroke, species: f.species, at: stroke.at.clone(),
         normal: stroke.plane.n.clone().multiplyScalar(sign),
-        faceVel: halves[i] ? halves[i].vel.clone() : null,
+        // ⚠ THE OPPOSITE HALF, AND cutter.js SAYS SO IN SO MANY WORDS:
+        // `addCap` is documented "`sign` = +1 for the positive half (its face
+        // points along -plane.n)", and builds the cap normal as `-sign * n`.
+        // So the face whose outward normal is +n belongs to the NEGATIVE half.
+        // This burst is aimed along `+n` at i = 0, so its foam rides halves[1].
+        // I had it as halves[i], which gave every cling burst the velocity of
+        // the half on the far side of the cut — foam moving AWAY from the face
+        // it is painted on, which is the bug this payload was added to fix,
+        // reintroduced by the same commit. Caught in review.
+        faceVel: halves[1 - i] ? halves[1 - i].vel.clone() : null,
         radius: capR * 0.95, amount, inherit: f.vel.clone().multiplyScalar(0.8),
       });
     }

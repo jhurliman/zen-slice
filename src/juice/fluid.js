@@ -718,16 +718,31 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
               const dist = max(length(rel), 1e-4).toVar();
               If(dist.lessThan(bd.w), () => {
                 const n = rel.div(dist).toVar();
-                // positional correction: out to the surface, plus a sliver so a
-                // droplet resting exactly on it does not re-trigger every frame
-                D.addAssign(n.mul(bd.w.sub(dist).add(0.002)));
                 const vel = wv.add(W).toVar();
                 const vn = dot(vel, n).toVar();
+                // ⚠ NOTHING HAPPENS UNLESS THE DROPLET IS APPROACHING. Review
+                // caught why this matters and it is not an edge case: every
+                // droplet is BORN ON THE CUT PLANE, which at the instant of the
+                // cut lies inside the bounding spheres of BOTH halves that
+                // emitted it. An unconditional positional correction therefore
+                // shoves the entire burst outward at birth — and where the two
+                // source spheres overlap, shoves it two contradictory ways in
+                // the same loop.
+                // Gating on `vn < 0` makes initial overlap a non-event: a
+                // droplet already leaving a face is untouched, which is exactly
+                // the case at emission, and only a droplet moving INTO a
+                // surface is treated as an impact. It costs one dot product
+                // that the impulse needed anyway, and it needs no per-droplet
+                // "is this my source half" state — which is fortunate, because
+                // the four-buffer budget has nowhere to put it.
                 If(vn.lessThan(0.0), () => {
+                  // out to the surface, plus a sliver so a droplet resting on
+                  // it does not re-trigger every frame
+                  D.addAssign(n.mul(bd.w.sub(dist).add(0.002)));
                   W.subAssign(n.mul(vn.mul(float(1.0).add(U.restitution))));
                   W.subAssign(vel.sub(n.mul(vn)).mul(U.friction));
+                  hit.assign(1.0);
                 });
-                hit.assign(1.0);
               });
             });
           });
@@ -848,6 +863,14 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         dir.x.negate().mul(ex2).add(dir.y.mul(ey2))
       );
       const clip = cameraProjectionMatrix.mul(vec4(mv.xy.add(off), mv.z, mv.w));
+      // ⚠ THE CULL IS TESTED ON THE BILLBOARD CENTRE, NOT ON `clip`.
+      // `clip` carries the per-vertex corner offset `off`, so the four vertices
+      // of one quad can disagree about `onScreen` while the droplet straddles a
+      // boundary — and an indexed quad that mixes real vertices with the
+      // (2,2,2,1) sentinel is not a retired droplet, it is a clipped triangle
+      // spanning the frame. `mv` is per-INSTANCE, so `clipC` is identical for
+      // all four vertices and the decision cannot split. Caught in review.
+      const clipC = cameraProjectionMatrix.mul(mv);
       // ══ r15: RETIRE BY VISIBILITY, NOT BY PREDICTED EXIT TIME ═══════════════
       // The player's suggestion, and it is the load-bearing one — it is what
       // makes stateful droplets possible at all.
@@ -872,11 +895,11 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // Sides and floor are tight (1.22x, i.e. just past the sprite's own
       // corner), the ceiling is 5x.
       const M = float(1.22);
-      const w = max(clip.w, 1e-4).toVar();
-      const onScreen = clip.w.greaterThan(0.0)
-        .and(abs(clip.x).lessThan(w.mul(M)))
-        .and(clip.y.greaterThan(w.mul(M).negate()))
-        .and(clip.y.lessThan(w.mul(5.0)));
+      const w = max(clipC.w, 1e-4).toVar();
+      const onScreen = clipC.w.greaterThan(0.0)
+        .and(abs(clipC.x).lessThan(w.mul(M)))
+        .and(clipC.y.greaterThan(w.mul(M).negate()))
+        .and(clipC.y.lessThan(w.mul(5.0)));
       return select(alive.and(onScreen), clip, vec4(2.0, 2.0, 2.0, 1.0));
     })();
 
