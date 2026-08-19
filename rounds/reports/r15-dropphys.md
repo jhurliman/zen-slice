@@ -266,11 +266,11 @@ droplets compared row-by-row : 2300
 displaced on the CPU model   : 478
 displaced on the GPU         : 472
 mean |D_gpu - D_cpu|         : 0.01796 world units
-within 15% or 0.01 units     : 2186/2300  (95.0%)
+within 15% or 0.01 units     : 2231/2300  (97.0%)
 
-error distribution   median 0.00000   p95 0.08723   p99 0.34026
-  both displaced        466   median err 0.02926   p95 0.28593
-  displaced on ONE side  18   (0.8% of all droplets)
+error distribution   median 0.00000   p95 0.06339   p99 0.34654
+  both displaced        475   median err 0.01800   p95 0.27378
+  displaced on ONE side  12   (0.5% of all droplets)
 ```
 
 **Read that carefully, because the headline number is the least informative one.** The median error
@@ -280,6 +280,33 @@ a median of **0.029 world units against a ~1.5-unit fruit radius, i.e. 2%**. The
 droplets, 0.8%**, that graze a boundary and hit on one side but miss on the other — which flips the
 whole displacement and is exactly what a boundary case does in two independently-stepped
 integrators. **That is agreement, and the 95% figure understates it.**
+
+### ⚠ Two corrections to the agreement check, both caught in review
+
+**(1) It compared the two paths at DIFFERENT INSTANTS.** The kernel's compute gate is
+`t > maxAge` (5.4 s); `life` only gates *rendering*, in the vertex stage. So the GPU keeps
+integrating a droplet's displacement long after it stops being drawn, while the replay froze at
+`life` — and the readback happens at a fixed 0.5 s. Every droplet with a life shorter than that
+(ligaments are 0.105–0.390 s) was being compared **GPU-at-0.5 s against CPU-at-its-own-death**, and
+reported as an agreement figure. Corrected, agreement **improved**:
+
+| | before (wrong gate) | after |
+|---|---|---|
+| displaced CPU / GPU | 478 / 472 | **475 / 475** |
+| mean \|D_gpu − D_cpu\| | 0.01796 | **0.01587** |
+| median error, colliding droplets | 0.02926 | **0.01800** |
+| displaced on ONE side | 19 (0.8%) | **12 (0.5%)** |
+| agreement | 95.0% | **97.0%** |
+
+The two tools now use **different gates on purpose**: `dropphys3d.mjs` counts what a player sees, so
+it stops at `life`; the agreement tool asks whether the shader matches the model, so it runs to
+`maxAge`. Same closed form, two questions.
+
+**(2) It could not fail.** It printed a ratio and exited 0 no matter what it found — `agree === 0`
+and a staging change that displaced nothing both returned success, so no automation and no hurried
+human could have used it to catch a shader regression. It now exits non-zero unless **both** gates
+pass: at least 50 droplets actually displaced (a broken staging reports perfect agreement about
+nothing) and agreement ≥ 90%. Both failure paths were verified by forcing them.
 
 ⚠ What this still does not cover: the curl force and wake are switched off during the test, so the
 agreement is verified for the collision response alone. The wind is r14-subtle (~9% of a fruit

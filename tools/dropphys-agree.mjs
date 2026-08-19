@@ -84,7 +84,7 @@ const data = await p.evaluate(async (STEPS) => {
     gpu = Array.from(new Float32Array(ab));
   } catch (e) { readErr = String(e).slice(0, 200); }
   return { drops, frames, gpu, readErr, simT: ZS.ctx.time, grav: -14.0,
-           turbDamp: 7.0, dispMax: 0.34, hitDecay: 0.7, hitGain: 11.0 };
+           turbDamp: 7.0, dispMax: 0.34, hitDecay: 0.7, hitGain: 11.0, maxAge: 5.4 };
 }, STEPS);
 await b.close(); server.close();
 
@@ -99,6 +99,7 @@ console.log(`read back ${data.gpu.length / 4} droplet slots from the GPU`);
 
 const G = data.grav, DT = 1 / 120;
 const { turbDamp, dispMax, hitDecay, hitGain } = data;
+const MAXAGE = data.maxAge;
 const posAt = (d, t) => { const k = Math.max(d.k, 0.05); const ex = Math.exp(-k * t), e = (1 - ex) / k;
   return [d.ox + d.vx * e, d.oy + d.vy * e + G * (t - e) / k, d.oz + d.vz * e]; };
 const velAt = (d, t) => { const k = Math.max(d.k, 0.05); const ex = Math.exp(-k * t);
@@ -111,7 +112,15 @@ for (const d of data.drops) {
   const D = [0, 0, 0], W = [0, 0, 0]; let hit = 0;
   for (const fr of data.frames) {
     const t = fr.t - d.birth;
-    if (t < 0 || t > d.life) continue;
+    // ⚠ `maxAge`, NOT `life`, AND THE DIFFERENCE INVALIDATED THE FIRST RESULT.
+    // The kernel's compute gate is `t > U.maxAge` (5.4 s); `life` only gates
+    // RENDERING, in the vertex stage. So the GPU keeps integrating a droplet's
+    // displacement long after it stops being drawn, while this replay used to
+    // freeze at `life` — and the readback happens at a fixed 0.5 s. Every
+    // droplet with a life shorter than that (ligaments are 0.105-0.390 s) was
+    // therefore compared GPU-at-0.5s against CPU-at-its-own-death: two
+    // different instants, reported as an agreement figure. Caught in review.
+    if (t < 0 || t > MAXAGE) continue;
     const P = posAt(d, t); const Pw = [P[0] + D[0], P[1] + D[1], P[2] + D[2]];
     for (let i = 0; i < 3; i++) { W[i] -= W[i] * turbDamp * DT; D[i] += W[i] * DT; }
     for (const s of fr.sph) {
@@ -164,3 +173,32 @@ console.log(`  displaced on ONE side   : ${onlyOne.length}  (${(onlyOne.length /
 console.log('  -> a droplet that grazes a collider boundary can hit on one side and');
 console.log('     miss on the other; that flips its whole displacement and is the');
 console.log('     expected residual, not a shader defect.');
+
+// ── ACCEPTANCE. An agreement check that always exits 0 is not a check ────────
+// It printed a ratio and succeeded no matter what it found — `agree === 0` and
+// a staging change that displaced NOTHING both returned status 0, so no
+// automation and no hurried human could ever have used it to catch a shader
+// regression. Caught in review. Two gates, because either alone is foolable:
+//   · the scene must actually have exercised collisions, or a broken staging
+//     reports perfect agreement about nothing (the same failure dropphys3d.mjs
+//     already aborts on);
+//   · agreement must clear the bar.
+const MIN_DISPLACED = 50;
+const MIN_AGREE = 0.90;
+let bad = 0;
+console.log();
+if (Math.min(cpuMoved, gpuMoved) < MIN_DISPLACED) {
+  console.error(`FAIL: only ${Math.min(cpuMoved, gpuMoved)} droplets were displaced (need >= ${MIN_DISPLACED}).`);
+  console.error('      The scene did not exercise collision. Fix the staging, not the threshold —');
+  console.error('      an agreement figure measured on an empty test is the most dangerous number here.');
+  bad = 1;
+}
+const ratio = agree / Math.max(n, 1);
+if (ratio < MIN_AGREE) {
+  console.error(`FAIL: agreement ${(ratio * 100).toFixed(1)}% is below the ${(MIN_AGREE * 100).toFixed(0)}% bar.`);
+  console.error('      The shader and the CPU model disagree. Do NOT ship droplet physics on');
+  console.error('      claiming verified agreement.');
+  bad = 1;
+}
+if (!bad) console.log(`PASS: ${Math.min(cpuMoved, gpuMoved)} droplets displaced, agreement ${(ratio * 100).toFixed(1)}% >= ${(MIN_AGREE * 100).toFixed(0)}%.`);
+process.exit(bad);

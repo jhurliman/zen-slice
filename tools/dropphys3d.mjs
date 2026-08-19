@@ -159,6 +159,14 @@ function run(scale, correct) {
     void resp;   // used only by the omitted curl term; kept so the omission is visible
     for (const fr of data.frames) {
       const t = fr.t - d.birth;
+      // ⚠ `life` HERE, `maxAge` IN dropphys-agree.mjs, AND THE DIFFERENCE IS
+      // DELIBERATE. This tool counts droplet-frames spent inside a fruit, and
+      // that is a question about what a PLAYER SEES — a droplet past `life` is
+      // not drawn, so its penetrating a melon costs nothing and must not be
+      // counted. The agreement tool asks a different question, whether the
+      // shader matches the model, and the shader's compute gate is `maxAge`;
+      // using `life` there compared two different instants and cost that tool
+      // its first result. Same closed form, two gates, because two questions.
       if (t < 0 || t > d.life) continue;
       frames++;
       const P = posAt(d, t);
