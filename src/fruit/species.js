@@ -3270,16 +3270,43 @@ def({
     // so nothing but this surface moves, and the jitter that is left (0.40..0.60
     // of a cell on a 46-column grid) is still wider than a real citrus pore
     // lattice's.
-    const pits = ({ lon, lat }) => {
+    //
+    // ROUND 20, the player's tell: "the orange's texture looks kind of weird
+    // and procedural". Three causes, all in this closure and the grain below:
+    // (1) the pores sat on a near-perfect 46-column lat/long lattice — the
+    // r5 margin fix stopped the SQUARE dots but at 0.40 the remaining jitter
+    // (0.40..0.60 of a cell) kept the grid alignment plainly visible. The
+    // lookup coordinate is now DOMAIN-WARPED by a low-frequency fbm before
+    // the cell hash, which bends the rows themselves; margin relaxes to 0.30
+    // and the pore radius shrinks to [0.16, 0.26] so every pore still closes
+    // inside its own cell (the r5 invariant, kept). (2) there was no
+    // mid-frequency band between the K2.6/6.0 blot and the 16..46 pore/grain
+    // scales — `mid` fills it and also modulates pore DEPTH so pores cluster
+    // the way real peel does instead of tiling. (3) the grain was a fixed 2D
+    // projection that streaks along its own axes — it is triplanar now (see
+    // grain3 below).
+    const midOf = ({ P }, u) => fbm2(vec2(P.x.add(P.z), P.y.mul(1.3)).mul(7.0), 2, u.detail);
+    const pits = ({ lon, lat, P }, u) => {
       const p = vec2(lon.mul(INV_TAU).add(0.5).mul(46.0), lat.add(1.6).mul(14.0)).toVar();
-      const c = cellPt(p, 9.0, 1.0, 46, 0.40);
-      const r = c.id.mul(0.20).add(0.20).toVar();
-      return { pit: blob(c.d, r.mul(0.40), r).mul(cellFade(p)), id: c.id };
+      const warp = fbm2(vec2(P.x.sub(P.z), P.y.add(P.x.mul(0.5))).mul(2.6), 2, u.detail);
+      p.addAssign(vec2(warp.mul(1.7), warp.mul(-1.3)));
+      const c = cellPt(p, 9.0, 0.82, 46, 0.30);
+      const r = c.id.mul(0.10).add(0.16).toVar();
+      const depth = midOf({ P }, u).mul(0.8).add(0.55);   // pores cluster with the mid band
+      return { pit: blob(c.d, r.mul(0.40), r).mul(cellFade(p)).mul(depth), id: c.id };
+    };
+    // triplanar grain: three taps blended by |normal| weights — no streak axis
+    const grain3 = (P, freq, u) => {
+      const w = abs(normalGeometry).add(0.001).toVar();
+      const wn = w.div(w.x.add(w.y).add(w.z));
+      return fbm2(vec2(P.y, P.z).mul(freq), 2, u.detail).mul(wn.x)
+        .add(fbm2(vec2(P.z, P.x).mul(freq), 2, u.detail).mul(wn.y))
+        .add(fbm2(vec2(P.x, P.y).mul(freq), 2, u.detail).mul(wn.z));
     };
     return skinMaterial(this, {
       albedo: (f, u) => {
         const { P, lon, lat, graze } = f;
-        const { pit, id } = pits(f);
+        const { pit, id } = pits(f, u);
         // THE SINGLE WORST SURFACE IN ROUND 3: the critic measured the near
         // citrus half at 54.0% of its pixels with R = 255, up from 39.3% in
         // round 2, "a single featureless cream-orange blob with the pore
@@ -3301,22 +3328,25 @@ def({
         const peel = vec3(0.4600, 0.1463, 0.0136);
         const blot = ringN(lon, 2.6, lat.mul(3.0)).add(ringN(lon, 6.0, lat.mul(7.0)).mul(0.5));
         const alb = peel.mul(blot.mul(0.34).add(0.86)).toVar();
+        // the mid band (r20): between the blot and the grain, ±8% — purely
+        // multiplicative around 1.0, so the exposure budget is untouched
+        alb.mulAssign(midOf(f, u).mul(0.16).add(0.92));
         // Pores read as SHADOW, not as a lighter speckle: with the lit shoulder
         // no longer sitting on the ceiling the pits are the texture that comes
         // back, so they are deepened 0.22 -> 0.30 (a purely subtractive term —
         // it cannot cost headroom).
         alb.mulAssign(pit.mul(-0.30).add(1.0));                 // pits sit in shadow
         alb.addAssign(vec3(0.026, 0.016, 0.002).mul(pit.oneMinus()).mul(step(0.55, id)));
-        const gr = fbm2(vec2(P.x.add(P.y), P.z.sub(P.y)).mul(16.0), 2, u.detail);
+        const gr = grain3(P, 16.0, u);
         alb.mulAssign(gr.mul(0.18).add(0.94));
         alb.addAssign(vec3(0.021, 0.011, 0.002).mul(pow(graze, 3.0)));
         return alb;
       },
-      rough: (f) => pits(f).pit.mul(0.28).add(0.52),
+      rough: (f, u) => pits(f, u).pit.mul(0.28).add(0.52),
       relief: (f, u) => {
         const { P } = f;
-        const gr = fbm2(vec2(P.x.add(P.y), P.z.sub(P.y)).mul(22.0), 2, u.detail);
-        return pits(f).pit.mul(-1.4).add(gr.mul(0.5));
+        const gr = grain3(P, 22.0, u);
+        return pits(f, u).pit.mul(-1.4).add(gr.mul(0.5));
       },
     }, { bump: 0.0075, mat: { roughness: 0.62, clearcoat: 0.22, clearcoatRoughness: 0.55 } });
   },
@@ -3863,6 +3893,63 @@ def({
       },
     }, { rough: 0.32, wet: 0.95, bump: 0.0298, floor: [0.1300, 0.0770, 0.0110] });
   },
+});
+
+// ══ r20: THE RIVER STONE ═════════════════════════════════════════════════════
+// The hazard. `noCut: true` is the whole gameplay contract: slicer.js takes the
+// same hit test but never calls cut() — the stone deflects, emits 'rockhit',
+// and stays whole. It therefore never shows a cap (group 1 is empty on an
+// uncut solid) and never emits juice, but matsFor()/the warm loop call BOTH
+// material factories unconditionally, so makeFleshMaterial must exist.
+//
+// The skin is the one material in the game with a PER-INSTANCE uniform:
+// `_zsDamage` (0..3) fades in pale fracture veins and scuff darkening as the
+// stone is struck. director.spawn gives rocks fresh material instances (same
+// compiled program) precisely so this uniform is per-stone.
+def({
+  id: 'rock', label: 'River Stone',
+  radius: 0.85, mass: 2.8, juiciness: 0, sss: 0, pitch: 0,
+  rindHex: '#6e6a63', fleshHex: '#4a4741', juiceHex: '#777777',
+  noCut: true,
+  shape: { squash: 0.9 },   // the real shape is geometry.js SHAPE.rock; squash feeds the material's normal warp
+
+  makeSkinMaterial() {
+    const damage = uniform(0.0);
+    const veinsOf = (P) => rdg2(vec2(P.x.mul(1.3).add(P.z), P.y.mul(1.4).sub(P.z)).mul(4.6), 2);
+    const m = skinMaterial(this, {
+      albedo: (f, u) => {
+        const { P, graze } = f;
+        // two projections at different scales — big mineral mottle + fine grit
+        const mottle = fbm2(vec2(P.x.add(P.y), P.z.sub(P.y)).mul(5.0), 2, u.detail);
+        const grit = fbm2(vec2(P.z.add(P.x.mul(0.7)), P.y.sub(P.x.mul(0.3))).mul(16.0), 2, u.detail);
+        const seam = rdg2(vec2(P.x, P.z.add(P.y.mul(0.6))).mul(3.0), 2);
+        const alb = vec3(0.0880, 0.0845, 0.0790).mul(mottle.mul(0.55).add(0.72)).toVar();
+        alb.mulAssign(grit.mul(0.22).add(0.89));
+        // faint pale mineral seams, always present
+        alb.addAssign(vec3(0.0180, 0.0176, 0.0168).mul(ss(0.78, 0.96, seam)));
+        // river dust catching the light at the rim
+        alb.addAssign(vec3(0.0340, 0.0330, 0.0310).mul(pow(graze, 2.0)));
+        // damage: fresh fracture veins brighten (broken stone is paler inside)
+        // while the body scuffs darker — both scale with the strike count
+        const dmg = damage.mul(1 / 3);
+        alb.addAssign(vec3(0.0950, 0.0930, 0.0870).mul(ss(0.60, 0.90, veinsOf(P))).mul(dmg));
+        alb.mulAssign(dmg.mul(0.16).oneMinus());
+        return alb;
+      },
+      rough: () => float(0.96),
+      relief: (f, u) => {
+        const { P } = f;
+        const g = fbm2(vec2(P.x.add(P.y), P.z.sub(P.y)).mul(9.0), 2, u.detail);
+        return g.mul(0.8).sub(ss(0.60, 0.90, veinsOf(P)).mul(damage.mul(1 / 3)).mul(0.9));
+      },
+    }, { bump: 0.0065, mat: { roughness: 0.96, specularIntensity: 0.25 } });
+    m._zsDamage = damage;
+    return m;
+  },
+
+  // never rendered (rocks are never cut, and the cap group is empty on a whole
+  // solid) but required by matsFor() and the init warm loop
+  makeFleshMaterial() { return this.makeSkinMaterial(); },
 });
 
 export const SPECIES_LIST = Object.values(SPECIES);

@@ -35,7 +35,7 @@ import { createEngine } from './engine.js';
 import { createHarmony } from './harmony.js';
 import { createConductor } from './conductor.js';
 import {
-  renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank, SWISH_FOR_LEVEL,
+  renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank, makeTickBuffer, SWISH_FOR_LEVEL,
   playPluck, playRiser, playSigh, playBloom,
 } from './instruments.js';
 
@@ -50,7 +50,7 @@ export function createAudio() {
   const conductor = createConductor(engine, harmony);
 
   let ctxRef = null, started = false;
-  let pianoKit = null, thumpBuf = null, swishBank = null;
+  let pianoKit = null, thumpBuf = null, swishBank = null, tickBuf = null;
   let pending = [];            // gathered notes of the current stroke
   let pendingAt = -1;          // engine time of the stroke's first cut
   let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9;
@@ -105,6 +105,7 @@ export function createAudio() {
     engine.setMaster(0.85, 0.25);   // audible within ~0.5 s, not ~2.5
     thumpBuf = makeThumpBuffer(engine.actx);
     swishBank = makeSwishBank(engine.actx);
+    tickBuf = makeTickBuffer(engine.actx);
     conductor.start(playNote);
     conductor.setCaps(caps);
     engine.setPianoCap(caps.voices);
@@ -140,6 +141,7 @@ export function createAudio() {
     }));
 
     c.bus.on('slice', guard(onSlice));
+    c.bus.on('rockhit', guard(onRockHit));
     c.bus.on('combo', guard(onCombo));
     c.bus.on('spawn', guard(onSpawn));
     c.bus.on('expire', guard(onExpire));
@@ -172,10 +174,13 @@ export function createAudio() {
         0.92 + v * 0.22 + Math.random() * 0.08,
         t, 0.14 + v * 0.12, 1100 + v * 2400, pan);
     }
-    // the thump stays per-fruit as the tactile tick — at half the r17 gain it
-    // must never read as a drum hit again
+    // the CONTACT (r20, the latency fix): a ~15 ms tick per fruit at the
+    // exact cut instant. The swish is a texture and the piano waits out the
+    // chord gather — this is the sound that says "the blade touched it NOW".
+    engine.playThump(tickBuf, 0.9 + v * 0.3, t, 0.05 + v * 0.07);
+    // the wet weight under it, slightly firmer than r18
     engine.playThump(thumpBuf, Math.min(2.2, Math.max(0.8, 0.8 + 0.5 / mass)),
-      t, 0.08 * Math.min(1.4, mass * 0.5));
+      t, 0.10 * Math.min(1.4, mass * 0.5));
 
     conductor.onSlice();
 
@@ -270,8 +275,27 @@ export function createAudio() {
     }
   }
 
+  /**
+   * The rock (r20): the one deliberately unmusical sound in the game. A dead,
+   * heavy thud (the thump buffer pitched way down) and a low dissonant
+   * cluster — the current chord root smeared against its minor 2nd and
+   * tritone, dark and quick. No swish, no tick, no echo, no heat: the world
+   * does not celebrate a mistake, it just… clunks.
+   */
+  function onRockHit(e) {
+    if (!engine.ready || !api.enabled) return;
+    const t = engine.now();
+    engine.playThump(thumpBuf, 0.55, t, 0.24);
+    let root;
+    try { root = harmony.noteFor('watermelon', 0) + 12; } catch (_) { root = -12; }
+    playNote(root, 0.5, 0, t, 900, 0.3);
+    playNote(root + 1, 0.42, -0.15, t + 0.015, 800, 0.3);
+    playNote(root + 6, 0.36, 0.15, t + 0.03, 800, 0.3);
+  }
+
   function onSpawn(e) {
     if (!started || !api.enabled) return;
+    if (e.fruit.species.noCut) return;   // a riser promises reward; rocks aren't one
     const t = engine.now();
     if (conductor.intensity >= 0.5 || t - lastRiser < 1.2) return;
     lastRiser = t;
@@ -280,6 +304,7 @@ export function createAudio() {
 
   function onExpire(e) {
     if (!started || !api.enabled || e.reason !== 'missed') return;
+    if (e.fruit.species.noCut) return;   // letting a rock fall IS the correct play — no regret sigh
     const t = engine.now();
     if (t - lastSigh < 2.0) return;
     lastSigh = t;

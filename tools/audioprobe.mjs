@@ -160,6 +160,11 @@ const chordProbe = await page.evaluate(async () => {
   const swishesBefore = ZS.audio.state().swishes;
   ZS.newStroke();
   ZS.swipe(-0.9, 0.03, 0.9, 0.03, 14, 6.0);
+  // r19-perf queues all but the first cut of a stroke to one-per-fixed-step —
+  // drain the queue NOW (a few 1/120 steps, well inside the 80 ms real-time
+  // chord gather), then hand the clock back to the rAF loop for the flush
+  ZS.step(1 / 120, 6, false);
+  ZS.resume();
   const atSwipe = ZS.audio.state();
   off();
   return { slices, pendingAtSwipe: atSwipe.pending, swishesFired: atSwipe.swishes - swishesBefore };
@@ -181,6 +186,43 @@ ok(chordProbe.swishesFired === 1,
   `one stroke through ${chordProbe.slices} fruit fired ${chordProbe.swishesFired} swishes — must be exactly 1 (r18)`);
 ok(chordProbe.pendingAfter === 0, `gather never flushed (pending=${chordProbe.pendingAfter})`);
 ok(chordProbe.voices >= chordProbe.slices, `chord flushed but only ${chordProbe.voices} voices active`);
+
+// ── the rock (r20): hit test without a cut, penalty, crack, no juice ──
+const rockProbe = await page.evaluate(async () => {
+  const ZS = window.ZS, ctx = ZS.ctx;
+  ZS.clear();
+  ZS.score.score = 100;
+  const r = ZS.spawn('rock');
+  r.pos.set(0, 0.2, 0); r.vel.set(0, 0.5, 0);
+  await new Promise((res) => setTimeout(res, 60));
+  let slices = 0, juices = 0, hits = 0, penalties = 0;
+  const offs = [
+    ctx.bus.on('slice', () => slices++),
+    ctx.bus.on('juice', () => juices++),
+    ctx.bus.on('rockhit', () => hits++),
+    ctx.bus.on('penalty', () => penalties++),
+  ];
+  ZS.newStroke();
+  ZS.swipe(-0.8, 0.03, 0.8, 0.03, 12, 6.0);
+  ZS.step(1 / 120, 6, false);
+  ZS.resume();
+  offs.forEach((f) => f());
+  const dmg = r.mesh.material[0]?._zsDamage ? r.mesh.material[0]._zsDamage.value : -1;
+  return {
+    slices, juices, hits, penalties,
+    score: ZS.score.score, combo: ZS.score.combo, damage: dmg, dead: r.dead,
+    errors: ZS.audio.state().errors,
+  };
+});
+ok(rockProbe.hits === 1, `rock swipe fired ${rockProbe.hits} rockhits, expected 1`);
+ok(rockProbe.slices === 0 && rockProbe.juices === 0,
+  `rock emitted slice=${rockProbe.slices} juice=${rockProbe.juices} — a rock must never cut or spray`);
+ok(rockProbe.penalties === 1, `rock fired ${rockProbe.penalties} penalties, expected 1`);
+ok(rockProbe.score === 75, `score after rock: ${rockProbe.score}, expected 75 (100 − 25)`);
+ok(rockProbe.combo === 0, `combo after rock: ${rockProbe.combo}, expected 0`);
+ok(rockProbe.damage === 1, `rock damage uniform is ${rockProbe.damage}, expected 1`);
+ok(rockProbe.dead === false, 'the rock was removed/cut by the stroke');
+ok(rockProbe.errors.length === 0, `audio errors after rockhit: ${JSON.stringify(rockProbe.errors)}`);
 
 // ── a scripted session: rhythmic slicing, tempo bounds, zero errors ──
 const session = await page.evaluate(async () => {

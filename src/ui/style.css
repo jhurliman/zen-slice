@@ -139,6 +139,57 @@ html, body {
     drop-shadow(0 0 0.55em rgba(255,168,50,0.72))
     drop-shadow(0 0.06em 0.22em rgba(0,0,0,0.7));
 }
+/* r20 — the penalty callout: the combo's voice in cool slate. Same three-layer
+ * build (outline/bevel ::before, gradient fill, drop-shadow bloom) so it reads
+ * as the same family; the palette is the only thing that says "loss", plus the
+ * sink the JS applies instead of the rise. */
+.zs-combo.penalty .zs-c1::before, .zs-combo.penalty .zs-c2::before {
+  color: #0d1118;
+  -webkit-text-stroke: 0.17em #0d1118;
+  text-shadow:
+    0 0.030em 0 #3a4250,
+    0 0.060em 0 #2b323e,
+    0 0.090em 0 #1c222c,
+    0 0.130em 0.05em rgba(0,0,0,0.55);
+}
+.zs-combo.penalty .zs-c1, .zs-combo.penalty .zs-c2 {
+  background-image: linear-gradient(
+    180deg,
+    #e8edf4 0%, #b9c4d4 30%, #8b98ac 55%, #6c7789 70%, #a7b2c4 88%, #dbe2ec 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.zs-combo.penalty {
+  filter:
+    drop-shadow(0 0 0.10em rgba(160,180,210,0.6))
+    drop-shadow(0 0 0.36em rgba(90,110,140,0.4))
+    drop-shadow(0 0.06em 0.20em rgba(0,0,0,0.65));
+}
+
+/* r20 — the ?debug level remote. A diagnostic like .zs-flag: plain, monospace,
+ * bottom-centre above the hint, and only present behind the flag. The buttons
+ * are the one piece of the HUD that takes pointer events. */
+.zs-debug {
+  position: absolute;
+  left: 50%; transform: translateX(-50%);
+  bottom: max(52px, calc(env(safe-area-inset-bottom) + 40px));
+  display: flex; align-items: center; gap: 10px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px; letter-spacing: 0.06em;
+  color: rgba(160, 200, 255, 0.9);
+  text-shadow: 0 0 10px rgba(0,0,0,0.9);
+  pointer-events: none;
+}
+.zs-debug button {
+  pointer-events: auto;
+  background: rgba(30, 40, 60, 0.6);
+  border: 1px solid rgba(160, 200, 255, 0.35);
+  border-radius: 6px;
+  color: rgba(160, 200, 255, 0.9);
+  font: inherit; padding: 4px 12px;
+  touch-action: manipulation;
+}
+
 .zs-hint {
   position: absolute; bottom: max(30px, env(safe-area-inset-bottom)); left: 50%;
   transform: translateX(-50%);

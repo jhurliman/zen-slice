@@ -114,7 +114,9 @@ export function createEngine() {
     };
     pianoPool = []; for (let i = 0; i < 16; i++) pianoPool.push(mkPiano());
     shhkPool = []; for (let i = 0; i < 6; i++) shhkPool.push(mkSwish());
-    thumpPool = []; for (let i = 0; i < 4; i++) thumpPool.push(mkThump());
+    // r20: the pool doubles — the contact tick and the wet thump both play
+    // through it, per fruit, so a 3-fruit combo is six one-shots in one tick
+    thumpPool = []; for (let i = 0; i < 8; i++) thumpPool.push(mkThump());
 
     eng.ready = true;
     return true;

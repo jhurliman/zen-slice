@@ -1,0 +1,27 @@
+{
+  "seed": 7,
+  "zoom": false,
+  "shots": [
+    {
+      "name": "rock-side",
+      "luma": 4.255,
+      "ms": 1882,
+      "ok": true
+    },
+    {
+      "name": "rock-top",
+      "luma": 4.15,
+      "ms": 887,
+      "ok": true
+    },
+    {
+      "name": "rock-threequarter",
+      "luma": 4.262,
+      "ms": 836,
+      "ok": true
+    }
+  ],
+  "errors": [],
+  "timedOut": false,
+  "complete": true
+}

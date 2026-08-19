@@ -19,8 +19,53 @@ const POP_MAX = 1.20;     // peak overshoot of the punch-in
 export function createHud() {
   const api = {};
   let ctx, root, scoreEl, levelEl, comboLayer, hintEl, flagEl;
+  let debugOn = false, debugEl = null, debugTxt = null, debugAcc = 0;
   let shownScore = 0;
   const floats = [];
+
+  /**
+   * Place a callout over a world point and keep it on screen. ONE function
+   * for both the combo and the penalty (r20) — a copy of this block drifted
+   * once in review, dropping the glow gap, which is exactly why it is shared.
+   * Everything here is hard-won; the short version of each lesson:
+   *
+   *  · ONE CALLOUT AT A TIME: anything still on screen retires into a fast
+   *    fade so the newest number is always the readable one.
+   *  · FIT BEFORE YOU CLAMP, AGAINST THE POP: the callout overshoots to
+   *    POP_MAX during its punch-in; fitting the resting width leaves it 20%
+   *    too wide for the frames a viewer actually notices.
+   *  · pad 16 covers the text-shaped glow (~0.35em past the glyphs).
+   *  · THE BOUND MUST RESERVE THE WHOLE TRAVEL: frame() translates by
+   *    RISE_MAX·riseK, so the clamp reserves it above (risers) or below
+   *    (sinkers), or the glyph box ends its ride at the viewport edge.
+   *  · The score clearance is `pad + 12` because getBoundingClientRect does
+   *    not include the drop-shadow spill (~0.42em at landscape type size).
+   *  · Everything is measured in the COMBO LAYER'S coordinates — .zs-hud
+   *    carries the safe-area padding, so viewport rects differ by the notch.
+   *
+   * Returns `fit` for the caller's float record.
+   */
+  function placeFloat(el, at, c, riseK) {
+    for (const f of floats) if (f.t < f.life - 0.18) { f.t = f.life - 0.18; f.life -= 0.10; }
+    comboLayer.appendChild(el);               // appended first so offsetWidth is real
+    const p = at.clone().project(c.camera);
+    const cw = comboLayer.clientWidth || 1, ch = comboLayer.clientHeight || 1;
+    const pad = 16;
+    const fit = Math.min(1, (cw - 2 * pad) / Math.max(1, el.offsetWidth * POP_MAX));
+    const halfW = el.offsetWidth * fit * POP_MAX * 0.5;
+    const halfH = el.offsetHeight * fit * POP_MAX * 0.5;
+    const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) * 0.5 : v < lo ? lo : v > hi ? hi : v);
+    // start ABOVE the cut — the blade streak is bright and lies along the slice
+    const lift = halfH + 14;
+    const layerTop = comboLayer.getBoundingClientRect().top;
+    const scoreBottom = scoreEl ? scoreEl.getBoundingClientRect().bottom - layerTop : 60;
+    const travelUp = RISE_MAX * Math.max(0, riseK);
+    const travelDown = RISE_MAX * Math.max(0, -riseK);
+    const topBound = scoreBottom + (pad + 12) + halfH + pad + travelUp;
+    el.style.left = `${clamp((p.x * 0.5 + 0.5) * cw, halfW + pad, cw - halfW - pad).toFixed(1)}px`;
+    el.style.top = `${clamp((-p.y * 0.5 + 0.5) * ch - lift, topBound, ch - halfH - pad - travelDown).toFixed(1)}px`;
+    return fit;
+  }
 
   api.init = (c) => {
     ctx = c;
@@ -82,73 +127,7 @@ export function createHud() {
       // CSS px across: the first version put the text 12 px from the left edge
       // and cut the glow off. This is the same class of mistake as r10's
       // GRAIN_PX note — state the bound in the unit the thing is measured in.
-      // ONE CALLOUT AT A TIME. Combos land inside a 0.55 s window (COMBO_WINDOW
-      // in score.js), so two of these can overlap by construction — and two
-      // overlapping slabs of gold outlined type are not "exciting", they are
-      // illegible. Caught by rendering the worst case rather than by reasoning
-      // about it. Anything still on screen is retired into a fast fade so the
-      // newest number is always the readable one.
-      for (const f of floats) if (f.t < f.life - 0.18) { f.t = f.life - 0.18; f.life -= 0.10; }
-
-      // Appended first so offsetWidth is real.
-      comboLayer.appendChild(el);
-      const p = e.at.clone().project(c.camera);
-      const cw = comboLayer.clientWidth || 1, ch = comboLayer.clientHeight || 1;
-      // 16, not 10: the text-shaped glow spills ~0.35em past the glyphs, so a
-      // pad sized to the glyph box lets the bloom kiss the rim.
-      const pad0 = 16;
-      // ⚠ FIT BEFORE YOU CLAMP. At `peak` size "5 FRUIT COMBO" is wider than a
-      // 430 px portrait viewport, so clamping alone centres a string that is
-      // still clipped at BOTH edges — which is exactly what the first version
-      // did, and it took rendering the widest case at the rim to see it.
-      // `fit` is folded into the pop scale in api.frame below, so the callout
-      // shrinks only as far as it has to and a desktop never sees it move.
-      // ⚠ AND FIT AGAINST THE POP, NOT THE RESTING SIZE. The callout overshoots
-      // to POP_MAX during its punch-in, so a `fit` computed against the resting
-      // width leaves it 20% too wide for the two frames a viewer actually
-      // notices — which is what the second render still showed, clipped on the
-      // right. Measure the widest moment, not the average one.
-      const avail = cw - 2 * pad0;
-      const fit = Math.min(1, avail / Math.max(1, el.offsetWidth * POP_MAX));
-      const halfW = el.offsetWidth * fit * POP_MAX * 0.5;
-      const halfH = el.offsetHeight * fit * POP_MAX * 0.5;
-      // `pad` also covers the text-shaped glow, which spills ~0.35em past the
-      // glyphs, and keeps the callout clear of the score readout at the top.
-      const pad = pad0;
-      const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) * 0.5 : v < lo ? lo : v > hi ? hi : v);
-      // start ABOVE the cut rather than on it — the blade streak is bright and
-      // lies exactly along the slice, so a callout centred on the cut point
-      // lands on top of the one element it must not fight with
-      const lift = halfH + 14;
-
-      // ⚠ THE TOP BOUND MUST RESERVE THE WHOLE RISE, AND THE SCORE'S REAL BOX.
-      // Two things were wrong here and review caught both at once. (1) The
-      // clamp reserved room for the resting box, then `frame()` translated the
-      // callout up by RISE_MAX, so at the end of the rise the glyph box sat
-      // 4 px from the viewport edge. (2) The clearance under the score was a
-      // hard-coded 46, but `.zs-score` is `clamp(30px, 6vmin, 62px)` — 30 px in
-      // portrait and 43 px in landscape — so one number could not be right on
-      // both. Measure the element instead of guessing at it.
-      //
-      // ⚠ AND IT HAS TO BE MEASURED IN THE COMBO LAYER'S OWN COORDINATES.
-      // `.zs-hud` is `position: fixed; inset: 0` WITH padding (the safe-area
-      // insets), and `.zs-combos` is `inset: 0` inside that padding box — so
-      // `el.style.top` is relative to the layer while `getBoundingClientRect()`
-      // is relative to the viewport, and they differ by the notch inset. On a
-      // phone that is not a rounding error.
-      const layerTop = comboLayer.getBoundingClientRect().top;
-      const scoreBottom = scoreEl
-        ? scoreEl.getBoundingClientRect().bottom - layerTop
-        : 60;
-      // The gap to the score is `pad + 12`, not a token 8. `getBoundingClientRect`
-      // does NOT include a `filter: drop-shadow` spill, so the measurement that
-      // says "clear of the score" is measuring the glyph box while the thing a
-      // viewer sees touching is the glow — which is ~0.42em, i.e. 22 px at
-      // landscape's 52 px type. Measured at the end of the rise before this
-      // widening: glyph box cleared the score by 20 px and the glow by −2.
-      const topBound = scoreBottom + (pad + 12) + halfH + pad + RISE_MAX;
-      el.style.left = `${clamp((p.x * 0.5 + 0.5) * cw, halfW + pad, cw - halfW - pad).toFixed(1)}px`;
-      el.style.top = `${clamp((-p.y * 0.5 + 0.5) * ch - lift, topBound, ch - halfH - pad).toFixed(1)}px`;
+      const fit = placeFloat(el, e.at, c, 1);
 
       // A small deterministic tilt so it reads as hand-placed rather than
       // pasted on. Derived from the count, NOT from Math.random(), so that a
@@ -156,9 +135,61 @@ export function createHud() {
       // that frames could be compared byte for byte, and a random rotation here
       // would put that back.
       const tilt = ((e.count * 37) % 11) - 5;
-      floats.push({ el, t: 0, tilt, fit, life: 1.15 });
+      floats.push({ el, t: 0, tilt, fit, riseK: 1, life: 1.15 });
     });
+
+    // ══ r20: THE PENALTY CALLOUT ═════════════════════════════════════════════
+    // A struck stone answers in the same voice as the combo — same element,
+    // same floats array, same dt-driven animation — but cool slate instead of
+    // gold, and it SINKS a little instead of rising: the eye reads "down" as
+    // loss without a single word of scolding. Placement goes through the
+    // SAME placeFloat() the combo uses (including its glow gap under the
+    // score, `pad + 12` — a copy of that block had already drifted once, in
+    // review, which is why it is a helper now); the only difference is the
+    // travel reservation: RISE_MAX above for a riser, the short sink below
+    // for this.
+    c.bus.on('penalty', (e) => {
+      const el = document.createElement('div');
+      el.className = 'zs-combo penalty';
+      const taken = Math.round(e.taken ?? e.amount ?? 0);
+      const l1 = 'STONE';
+      // never fabricate a deduction: at score 0 nothing was taken, so no number
+      el.innerHTML = `<span class="zs-c1" data-t="${l1}">${l1}</span>`
+        + (taken > 0 ? `<span class="zs-c2" data-t="−${taken}">−${taken}</span>` : '');
+      const fit = placeFloat(el, e.at, c, -0.35);
+      floats.push({ el, t: 0, tilt: -3, fit, riseK: -0.35, life: 1.0 });
+    });
+
     c.bus.on('slice', () => { if (hintEl) { hintEl.classList.add('gone'); } });
+
+    // ══ r20: ?debug — THE LEVEL REMOTE ═══════════════════════════════════════
+    // Music iteration needs to HEAR each level without playing 27 minutes to
+    // reach it. With ?debug: a small monospace strip at the bottom shows
+    // level · chord · bpm · bloom (polled ~2 Hz from ZS.audio.state()) and
+    // ◀ ▶ jump levels via director.jumpLevel — which emits the same 'level'
+    // event a natural advance does, so palettes/motifs/spawn pools all follow.
+    // Diagnostic chrome, so it exists only behind the flag, like ?dropphys.
+    try {
+      const q = new URLSearchParams(location.search || '');
+      debugOn = q.has('debug') && q.get('debug') !== '0';
+    } catch (_) { debugOn = false; }
+    if (debugOn) {
+      debugEl = document.createElement('div');
+      debugEl.className = 'zs-debug';
+      debugEl.innerHTML = `<button id="zs-dbg-prev">◀</button>`
+        + `<span id="zs-dbg-txt"></span>`
+        + `<button id="zs-dbg-next">▶</button>`;
+      root.appendChild(debugEl);
+      debugTxt = debugEl.querySelector('#zs-dbg-txt');
+      // NO stopPropagation here: the window-level pointerdown listener in
+      // audio.js is the documented only guaranteed iOS resume path, and a tap
+      // on these buttons must still reach it. The buttons sit above the
+      // canvas, so the blade never sees these taps anyway (its listeners are
+      // on the canvas element, and the event target is the button).
+      const jump = (d) => { const dir = ctx.fruits; if (dir?.jumpLevel) dir.jumpLevel((dir.level | 0) + d); };
+      debugEl.querySelector('#zs-dbg-prev').addEventListener('pointerdown', () => jump(-1));
+      debugEl.querySelector('#zs-dbg-next').addEventListener('pointerdown', () => jump(1));
+    }
 
     // first level name
     setTimeout(() => c.bus.emit('level', { level: 0, name: 'Still Water' }), 700);
@@ -191,6 +222,21 @@ export function createHud() {
     const s = c.score?.score ?? 0;
     shownScore += (s - shownScore) * Math.min(1, dt * 9);
     scoreEl.textContent = Math.round(shownScore);
+    // ?debug strip: ~2 Hz poll, and never let a debug read throw the module
+    if (debugOn && debugTxt) {
+      debugAcc += dt;
+      if (debugAcc > 0.5) {
+        debugAcc = 0;
+        try {
+          const st = window.ZS?.audio?.state?.();
+          const dir = c.fruits;
+          const txt = st
+            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · bloom ${st.bloom}`
+            : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}`;
+          if (debugTxt.textContent !== txt) debugTxt.textContent = txt;
+        } catch (_) { /* diagnostic only */ }
+      }
+    }
     // The callout's motion is driven HERE rather than by a CSS animation, so it
     // runs on the game's own `dt`. A CSS keyframe would keep playing while the
     // game is paused and would ignore `ctx.timeScale` if slow-motion is ever
@@ -208,7 +254,9 @@ export function createHud() {
         : POP_MAX - (POP_MAX - 1) * Math.min(1, (f.t - 0.09) / 0.17);
       // RISE: fast out of the cut, then eased, so the eye is pulled up off the
       // fruit rather than the text drifting away at a constant speed.
-      const rise = -RISE_MAX * (1 - Math.pow(1 - Math.min(1, f.t / 0.75), 2));
+      // riseK 1 = the combo's upward pull; a negative riseK (the penalty)
+      // sinks the callout the same eased way, just shorter and downward
+      const rise = -RISE_MAX * (f.riseK ?? 1) * (1 - Math.pow(1 - Math.min(1, f.t / 0.75), 2));
       // Hold full opacity for the first 55% of life; a callout that starts
       // fading immediately never reads at all on a 120 Hz display.
       const fade = u < 0.55 ? 1 : Math.max(0, 1 - (u - 0.55) / 0.45);

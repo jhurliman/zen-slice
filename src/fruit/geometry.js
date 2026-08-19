@@ -1052,6 +1052,31 @@ const BASE = {
 };
 
 const SHAPE = {
+  // ── r20: THE RIVER STONE ────────────────────────────────────────────────
+  // The hazard (species.js `noCut`). A squat irregular boulder: chunky
+  // superellipse mass, heavy direction-domain asymmetry (cannot be hidden by
+  // any toss orientation), three soft facet planes for fractured flat faces
+  // (the one existing feature built for exactly this — star-shape safe while
+  // every plane's half-space contains the origin), and no appendages of any
+  // kind. No D overlay exists for 'rock', so this entry ships as-authored.
+  rock: {
+    rx: 1.0, ry: 0.88, rz: 0.95,
+    pTop: 2.9, pBot: 2.7,
+    taper: 0.05, taperK: 1.6,
+    asym: 0.15, asymFreq: 1.3, asymOct: 2,
+    lumps: 0.030, lumpFreq: 2.4,
+    pebble: 0.018, pebbleFreq: 8.0,
+    facets: [
+      { d: [0.72, 0.55, 0.42], p: 0.86, k: 0.16 },
+      { d: [-0.60, 0.30, 0.74], p: 0.90, k: 0.14 },
+      { d: [0.10, -0.85, -0.52], p: 0.92, k: 0.18 },
+    ],
+    stem: null, crown: null,
+    wellTop: 0, wellBot: 0,
+    lobeN: 0, lobeAmp: 0, rib: 0,
+    bend: 0.015,
+  },
+
   // Prolate, faintly barrelled, smooth skin, a short thick stub of a stem and a
   // shallow blossom scar. The hero: its job is to be big and unmistakably heavy.
   watermelon: {
@@ -1098,7 +1123,9 @@ const SHAPE = {
     rib: 0.008, ribN: 7, ribPhase: 0.9,
     asym: 0.030, asymFreq: 1.35,
     wellTop: 0.150, wellTopW: 0.26, wellBot: 0.170, wellBotW: 0.30,
-    stem: { r: 0.125, len: 0.16, taper: 0.40, tip: 0.55 },
+    // r20: grown from a 0.16 scar into a readable pole stub — with the D
+    // overlay's off-axis crown nub deleted, this IS the melon's stem now
+    stem: { r: 0.115, len: 0.30, taper: 0.35, tip: 0.60 },
     // ROUND 9 — THE GROUND SPOT IS BACK, AND THE r6 REASON FOR DELETING IT WAS
     // A `separation` REASON. The note 12 lines up says the facet was deleted
     // because "under the r5 pose it swings on and off the limb with roll — pure
@@ -1886,13 +1913,16 @@ export const SHAPE_VARIANTS = {
         // shoulder of the hero fruit (visible top-left in the A and B sheets).
         // If we want the pale patch it belongs to species.js's albedo.
         facets: null,
-        // a real melon's stem is a short fat woody stub, and that is all.
-        crown: {
-          cols: 48, woody: true,
-          whorls: [
-            { n: 1, a: 0.72, len: 0.26, wArc: 0.205, wp: 0.245, pPol: 1.25, pAz: 1.80, round: true, phase: 0.13, jit: 0, jitA: 0 },
-          ],
-        },
+        // ── r20: THE OFF-AXIS "STEM" COMES OFF TOO ──────────────────────────
+        // The r4 trade (stem as a 41°-off-pole crown nub so it survives the
+        // top-down silhouette metric) is exactly the class of metric-gaming
+        // this file now forbids, and the player saw the consequence on
+        // device: "a funky stem lump coming out of one side but offset
+        // instead of where the stem should be." The nub is deleted; the
+        // profile stem in SHAPE (not overridden here) grows into a readable
+        // pole stub instead — a real constant-width tapered cylinder, which
+        // is what a stalk is (the apple entry's own argument, r4 note).
+        crown: null,
       },
       orange: {
         // A SPHERE WITH A DIMPLE AT EACH END. No lobe, no navel nubs, no rib.
@@ -1914,7 +1944,12 @@ export const SHAPE_VARIANTS = {
         // visibly flat-ended barrel — nothing else in the table has flat ends at
         // all — with the corners rounded off. Elongation, which is the actual
         // species label, is untouched.
-        pTop: 3.90, pBot: 3.40,
+        // r20: 3.90/3.40 → 2.85/2.65. The player's read of the D sheet was
+        // "a little too boxy or rectangular although it's close" — at p≈3.9
+        // the flanks stay above 95% radius until |u|=0.75 and then drop, i.e.
+        // straight sides with corners. p≈2.8 keeps a hint of the flat-ended
+        // barrel (the one thing no other species has) with real curvature.
+        pTop: 2.85, pBot: 2.65,
         // a kiwi's stem scar is a tiny woody dot, not a 0.44 spur.
         crown: {
           cols: 28, woody: true,
@@ -1963,10 +1998,17 @@ export const SHAPE_VARIANTS = {
         // broad green star with leaves that lie back over the shoulder and turn
         // up at the tips; wide leaves at 1.45x crown columns are 9 columns each,
         // so they shade as leaves. This is the fruit that most needs its crown.
+        // r20: the player's verdict on that version — "growing out of the top
+        // sides… little horns or bumps, not leaves". The horn was structural:
+        // a radial bump peaking mid-shoulder. The new `lean` field (see
+        // bladeHeight) lets the sepal peak AT its attachment near the stem
+        // (a 0.78→0.55) and tail off 2.2× down the shoulder — a leaf lying
+        // back — while len drops (0.60→0.36, flat not proud), the azimuth
+        // widens (wArc 0.125→0.165) and softens (pAz 1.10→1.55).
         crown: {
           cols: 96,
           whorls: [
-            { n: 6, a: 0.78, len: 0.60, wArc: 0.125, round: true, skew: 0.34, wp: 0.230, pPol: 2.30, pAz: 1.10, phase: 0.00, jit: 0.07, jitA: 0.030 },
+            { n: 6, a: 0.55, len: 0.36, wArc: 0.165, round: true, skew: 0.22, wp: 0.240, lean: 2.2, pPol: 1.60, pAz: 1.55, phase: 0.00, jit: 0.07, jitA: 0.030 },
           ],
         },
       },
@@ -2220,9 +2262,12 @@ function crownBands(S) {
   let lo = 9, hi = -9;
   for (const w of S.crown.whorls) {
     const m = w.wp * 1.10 + w.jitA;
-    bands.push({ lo: Math.max(0, w.a - m), hi: w.a + m, axis: w.a });
+    // lean (r20) stretches the down-slope footprint by (1 + lean)× — the band
+    // has to cover the tail or the leaf's laid-back half is under-sampled
+    const mDown = w.wp * (1 + (w.lean || 0)) * 1.10 + w.jitA;
+    bands.push({ lo: Math.max(0, w.a - m), hi: w.a + mDown, axis: w.a });
     lo = Math.min(lo, w.a - m);
-    hi = Math.max(hi, w.a + m);
+    hi = Math.max(hi, w.a + mDown);
   }
   bands.zone = [Math.max(0, lo), hi];
   return bands;
@@ -2346,6 +2391,13 @@ function buildBlades(crown, cols) {
         // the cross-section is an ellipse instead of a blade with a spine. Used
         // for stem spurs and the orange's navel pucker.
         round: !!w.round,
+        // r20 — LEAN: stretch the blade's polar footprint on the DOWN-slope
+        // side only (x2s > 0, away from the pole), so a sepal's height field
+        // peaks at its attachment and tails off down the shoulder — a leaf
+        // LYING BACK instead of a radial horn. Still h(direction): the field
+        // stays a pure function of polar/azimuth, so the star-shape invariant
+        // cutter.js needs is untouched.
+        lean: w.lean || 0,
         len: w.len * (1 - w.jit * 0.5 + w.jit * s3),
       });
     }
@@ -2409,7 +2461,10 @@ function bladeHeight(blades, a, phi) {
   for (let i = 0; i < blades.length; i++) {
     const b = blades[i];
     const x2s = (a - b.ax) / b.wp;
-    const x2 = x2s < 0 ? -x2s : x2s;
+    // lean (r20): the down-slope side of the footprint is (1 + lean)× longer,
+    // so the profile is asymmetric — peak at the attachment, tail down the
+    // shoulder. lean 0 is the old symmetric blade exactly.
+    const x2 = x2s < 0 ? -x2s : x2s / (1 + b.lean);
     if (x2 >= 1) continue;
     let dphi = phi - b.az;
     dphi -= TAU * Math.round(dphi / TAU);

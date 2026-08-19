@@ -150,11 +150,13 @@ async function renderPianoNote(sr, f0, idx) {
  *
  * Synchronous JS math, 8 buffers × ~0.45 s ≈ 170k samples — trivial.
  */
+// r20: wind/breath decays lengthened — the player asked for more
+// sustain/release on the swipe sounds ("sprinkled on top", lingering)
 const SWISH_RECIPES = {
-  breath: { attack: 0.060, decay: 0.30, dur: 0.55, k0: 0.10, k1: 0.04, grainHz: 0, hp: false },
-  wind: { attack: 0.035, decay: 0.22, dur: 0.45, k0: 0.22, k1: 0.07, grainHz: 0, hp: false },
-  rain: { attack: 0.040, decay: 0.24, dur: 0.45, k0: 0.26, k1: 0.10, grainHz: 30, hp: true },
-  leaves: { attack: 0.030, decay: 0.18, dur: 0.40, k0: 0.30, k1: 0.12, grainHz: 70, hp: true },
+  breath: { attack: 0.060, decay: 0.42, dur: 0.75, k0: 0.10, k1: 0.04, grainHz: 0, hp: false },
+  wind: { attack: 0.035, decay: 0.30, dur: 0.58, k0: 0.22, k1: 0.07, grainHz: 0, hp: false },
+  rain: { attack: 0.040, decay: 0.26, dur: 0.50, k0: 0.26, k1: 0.10, grainHz: 30, hp: true },
+  leaves: { attack: 0.030, decay: 0.20, dur: 0.42, k0: 0.30, k1: 0.12, grainHz: 70, hp: true },
 };
 
 /** level index (the 10-level day arc) → swish recipe name */
@@ -199,6 +201,30 @@ export function makeSwishBank(actx) {
     });
   }
   return bank;
+}
+
+/**
+ * The contact tick (r20): ~15 ms of bandpassed noise with a 1.5 ms rise — a
+ * fingertip tap, not a click. This is the latency fix: r18 made the swish a
+ * slow-rising texture and halved the thump, which deleted the immediate
+ * "blade touched the fruit" percept; the piano then waits out the 80 ms
+ * chord gather, so the whole cut read as sluggish. The tick fires PER FRUIT
+ * at the instant of the cut and restores the contact without undoing the
+ * texture redesign.
+ */
+export function makeTickBuffer(actx) {
+  const sr = actx.sampleRate, dur = 0.03, len = (sr * dur) | 0;
+  const buf = actx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  let lp = 0, prev = 0;
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    lp += ((Math.random() * 2 - 1) - lp) * 0.55;    // bright but not white
+    const bp = lp - prev; prev = lp;                 // first-difference: no low thump
+    const env = Math.min(1, t / 0.0015) * Math.exp(-t / 0.012);
+    d[i] = bp * env * 2.2;
+  }
+  return buf;
 }
 
 /** The wet splat under a cut, pre-rendered once: sine drop 130→45 Hz.
