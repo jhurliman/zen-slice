@@ -199,7 +199,10 @@ export function createHarmony() {
       const chord = palette[idx];
       const set = chord.tones.concat([chord.color]);
       const pc = set[((d % set.length) + set.length) % set.length];
-      return place(pc, 12 + oct * 7);
+      // ±12 per octave, never less: place() snaps to the NEAREST realization
+      // of the pitch class, so any center shift under a tritone can round
+      // back to the same note and silently erase an authored rise or fall
+      return place(pc, 12 + oct * 12);
     },
 
     /** Ascending flourish notes for the 5+ combo gliss: chord tones + color

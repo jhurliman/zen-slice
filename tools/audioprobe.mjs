@@ -80,6 +80,12 @@ const E2 = -17;
         ok(legal.has(((n % 12) + 12) % 12), `L${level} ${chord.name}: motif step ${m.s} → ${n} off-chord`);
         ok(n >= -25 && n <= 31, `L${level} ${chord.name}: motif step ${m.s} → ${n} out of range`);
         ok(m.s >= 0 && m.s <= 15, `L${level}: motif step ${m.s} off the 16-step grid`);
+        // an authored octave shift is EXACTLY 12·o from the o:0 voicing —
+        // place()'s nearest-realization rounding must never eat it (codex
+        // P2). Only authored o values are asserted: one octave beyond them
+        // the range clamp legitimately folds.
+        ok(n - h.melNote(m.d, 0) === 12 * m.o,
+          `L${level} ${chord.name}: melNote(${m.d}, ${m.o}) not ${12 * m.o} above o:0`);
       }
       for (const b of BASSES[level]) ok(b.s >= 0 && b.s <= 15, `L${level}: bass step ${b.s} off the grid`);
       h.advance();

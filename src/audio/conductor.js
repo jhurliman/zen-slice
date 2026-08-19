@@ -110,6 +110,14 @@ export function createConductor(engine, harmony) {
   // layer presences, derived from bloom each frame
   let gBass = 0, gMotif = 0, gEcho = 0;
 
+  // pending echoes, oldest-first; drained by frame() inside the look-ahead
+  const echoQ = [];
+  const ECHO_Q_MAX = 24;
+  function queueEcho(t, semis, vel, pan, bright, wet) {
+    if (echoQ.length >= ECHO_Q_MAX) echoQ.shift();
+    echoQ.push({ t, semis, vel, pan, bright, wet });
+  }
+
   const api = {
     get bpm() { return bpm; },
     get intensity() { return intensity; },
@@ -144,9 +152,12 @@ export function createConductor(engine, harmony) {
 
     /**
      * The answer: play this note back 8 grid steps (2 beats) later, snapped
-     * to the grid, an octave up, quiet and wet. Scheduled at record time —
-     * the grid is known 2 beats out, and a few ms of tempo drift is
-     * inaudible at echo levels.
+     * to the grid, an octave up, quiet and wet. The grid time is fixed at
+     * record time (a few ms of tempo drift is inaudible at echo levels), but
+     * the note is QUEUED, not played: engine.playPiano marks its pooled
+     * voice busy from acquisition to the note's end, so handing it a time
+     * seconds out would reserve voices the live foreground needs now. The
+     * queue drains in frame() as each echo enters the look-ahead window.
      */
     echo(semis, vel, pan) {
       if (!started || !background || gEcho < 0.05 || !playNote) return;
@@ -158,9 +169,9 @@ export function createConductor(engine, harmony) {
       // up an octave unless that leaves the kit's span — never Math.min a
       // pitch: clamping transposes to a different note, not a softer one
       const n = semis + 12 <= 31 ? semis + 12 : semis;
-      playNote(n, vel * 0.32 * gEcho, pan * 0.5, t, 3600, 0.85);
+      queueEcho(t, n, vel * 0.32 * gEcho, pan * 0.5, 3600, 0.85);
       if (gEcho > 0.7) {
-        playNote(n, vel * 0.13 * gEcho, -pan * 0.5, t + 8 * stepDur, 3000, 0.9);
+        queueEcho(t + 8 * stepDur, n, vel * 0.13 * gEcho, -pan * 0.5, 3000, 0.9);
       }
     },
 
@@ -182,6 +193,7 @@ export function createConductor(engine, harmony) {
       level = 0; heat = 0; bloom = 0; bpm = bpmTarget = 66;
       lastSliceT = -1e9;
       barInChord = 0; nudged = false;
+      echoQ.length = 0;
       if (started) retarget(2.0);
     },
 
@@ -209,6 +221,18 @@ export function createConductor(engine, harmony) {
       if (Math.abs(lpTarget - padLpNow) > 60) {
         engine.padLp.frequency.setTargetAtTime(lpTarget, now, lpTarget < padLpNow ? 2.5 : 0.6);
         padLpNow = lpTarget;
+      }
+
+      // release queued echoes as they enter the look-ahead window, so their
+      // pooled voices are only held for the ~120 ms they actually need. Full
+      // scan, not head-only: a second tap queues with a LATER time than
+      // echoes recorded after it, so the queue is not time-sorted.
+      for (let i = 0; i < echoQ.length;) {
+        if (echoQ[i].t < now + LOOKAHEAD) {
+          const e = echoQ[i];
+          echoQ[i] = echoQ[echoQ.length - 1]; echoQ.pop();
+          if (e.t > now - 0.05 && playNote) playNote(e.semis, e.vel, e.pan, e.t, e.bright, e.wet);
+        } else i++;
       }
 
       // a long suspend leaves the cursor in the past; jump, don't catch up

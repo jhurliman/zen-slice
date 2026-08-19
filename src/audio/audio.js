@@ -188,14 +188,17 @@ export function createAudio() {
       const d = pending[0].dirY;
       if (Math.abs(d) > 0.5) order.sort((a, b) => (semis[a] - semis[b]) * Math.sign(d));
       else order.sort((a, b) => pending[a].x - pending[b].x);
+      // the top three of a chord (by PITCH, not strum position — a descending
+      // roll's last notes are its lowest) come back as the answer; a full
+      // five-note echo would be a blob, not a phrase
+      const byPitch = pending.map((_, i) => i).sort((a, b) => semis[b] - semis[a]);
+      const echoes = new Set(byPitch.slice(0, 3));
       for (let k = 0; k < order.length; k++) {
         const i = order[k];
         const p = pending[i];
         const taper = 1 - k * 0.06;
         playNote(semis[i], p.v * taper, panOf(p.x), t + k * STRUM, brightOf(p.v), wetOf(p.y));
-        // the top three of a chord come back as the answer — a full 5-note
-        // echo would be a blob, not a phrase
-        if (k >= order.length - 3) conductor.echo(semis[i], p.v * taper, panOf(p.x));
+        if (echoes.has(i)) conductor.echo(semis[i], p.v * taper, panOf(p.x));
       }
       // five and up earns the harp flourish
       if (n >= 5) {
