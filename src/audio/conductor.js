@@ -39,7 +39,7 @@
 import { makeDrone, makePadBank, playBloom } from './instruments.js';
 
 const LOOKAHEAD = 0.12;   // seconds of actx time scheduled ahead
-const PAD_COUNT = [2, 2, 3, 3, 4, 5];   // pad voices per level
+export const PAD_COUNT = [2, 2, 3, 3, 3, 4, 4, 4, 5, 5];   // pad voices per level (r18: 10-level day arc)
 
 /**
  * Per-level motifs: 16 steps per bar (16ths), each entry {s, d, o, v} —
@@ -52,20 +52,30 @@ export const MOTIFS = [
   [],
   /* 1 First Light — two soft notes rocking on the offbeats */
   [{ s: 4, d: 1, o: 0, v: 0.5 }, { s: 12, d: 2, o: 0, v: 0.42 }],
-  /* 2 Orchard Rain — raindrop 8ths, falling then lifting */
+  /* 2 Morning Dew — sparse high dewdrops, barely there */
+  [
+    { s: 2, d: 3, o: 1, v: 0.34 }, { s: 4, d: 2, o: 1, v: 0.30 },
+    { s: 10, d: 3, o: 1, v: 0.32 }, { s: 12, d: 1, o: 1, v: 0.28 },
+  ],
+  /* 3 Orchard Rain — raindrop 8ths, falling then lifting */
   [
     { s: 0, d: 3, o: 1, v: 0.42 }, { s: 2, d: 2, o: 1, v: 0.34 },
     { s: 4, d: 1, o: 1, v: 0.38 }, { s: 6, d: 3, o: 0, v: 0.30 },
     { s: 8, d: 2, o: 0, v: 0.40 }, { s: 10, d: 1, o: 1, v: 0.32 },
     { s: 12, d: 0, o: 1, v: 0.36 }, { s: 14, d: 2, o: 1, v: 0.30 },
   ],
-  /* 3 Summer Weight — dotted, unhurried, mid register */
+  /* 4 Noon Bloom — open climbing quarters, full sun */
+  [
+    { s: 0, d: 0, o: 0, v: 0.45 }, { s: 4, d: 1, o: 0, v: 0.40 },
+    { s: 8, d: 2, o: 0, v: 0.42 }, { s: 12, d: 3, o: 0, v: 0.38 },
+  ],
+  /* 5 Summer Weight — dotted, unhurried, mid register */
   [
     { s: 0, d: 0, o: 0, v: 0.5 }, { s: 3, d: 1, o: 0, v: 0.36 },
     { s: 6, d: 2, o: 0, v: 0.44 }, { s: 10, d: 3, o: 0, v: 0.38 },
     { s: 12, d: 2, o: 0, v: 0.32 },
   ],
-  /* 4 Golden Hour — a 16th-note wave, up and over */
+  /* 6 Golden Hour — a 16th-note wave, up and over */
   [
     { s: 0, d: 0, o: 0, v: 0.42 }, { s: 1, d: 1, o: 0, v: 0.30 },
     { s: 2, d: 2, o: 0, v: 0.34 }, { s: 3, d: 3, o: 0, v: 0.30 },
@@ -73,7 +83,17 @@ export const MOTIFS = [
     { s: 8, d: 0, o: 1, v: 0.38 }, { s: 11, d: 3, o: 0, v: 0.30 },
     { s: 12, d: 2, o: 0, v: 0.34 }, { s: 14, d: 1, o: 0, v: 0.28 },
   ],
-  /* 5 Deep Calm — wide slow arcs */
+  /* 7 Dusk Ember — falling sighs as the light goes */
+  [
+    { s: 0, d: 3, o: 0, v: 0.42 }, { s: 6, d: 2, o: 0, v: 0.36 },
+    { s: 8, d: 1, o: 0, v: 0.40 }, { s: 14, d: 0, o: 0, v: 0.32 },
+  ],
+  /* 8 Night Jasmine — low and high pairs across the dark */
+  [
+    { s: 0, d: 0, o: -1, v: 0.40 }, { s: 7, d: 3, o: 1, v: 0.30 },
+    { s: 8, d: 2, o: 0, v: 0.36 }, { s: 15, d: 3, o: 1, v: 0.26 },
+  ],
+  /* 9 Deep Calm — wide slow arcs */
   [
     { s: 0, d: 0, o: -1, v: 0.5 }, { s: 6, d: 2, o: 0, v: 0.4 },
     { s: 8, d: 3, o: 0, v: 0.44 }, { s: 14, d: 1, o: 1, v: 0.34 },
@@ -84,9 +104,13 @@ export const MOTIFS = [
 export const BASSES = [
   [],
   [{ s: 0, f: 'root', v: 0.5 }],
+  [{ s: 0, f: 'root', v: 0.5 }],
   [{ s: 0, f: 'root', v: 0.55 }, { s: 8, f: 'fifth', v: 0.42 }],
+  [{ s: 0, f: 'root', v: 0.55 }, { s: 8, f: 'fifth', v: 0.45 }],
   [{ s: 0, f: 'root', v: 0.6 }, { s: 8, f: 'fifth', v: 0.48 }, { s: 12, f: 'oct', v: 0.36 }],
   [{ s: 0, f: 'root', v: 0.6 }, { s: 6, f: 'fifth', v: 0.42 }, { s: 8, f: 'root', v: 0.5 }, { s: 14, f: 'fifth', v: 0.38 }],
+  [{ s: 0, f: 'root', v: 0.55 }, { s: 8, f: 'fifth', v: 0.45 }, { s: 12, f: 'oct', v: 0.34 }],
+  [{ s: 0, f: 'root', v: 0.5 }, { s: 6, f: 'fifth', v: 0.4 }],
   [{ s: 0, f: 'root', v: 0.55 }, { s: 8, f: 'fifth', v: 0.4 }],
 ];
 
@@ -106,6 +130,7 @@ export function createConductor(engine, harmony) {
   let arpPool = null;
   let padLpNow = 2200;
   let background = true, arps = true;
+  let arrived = false, arrivalPending = false;   // the one-time Deep Calm arrival
 
   // layer presences, derived from bloom each frame
   let gBass = 0, gMotif = 0, gEcho = 0;
@@ -182,8 +207,10 @@ export function createConductor(engine, harmony) {
     onComboPeak() { nudged = true; },
 
     setLevel(l) {
-      level = Math.max(0, Math.min(5, l | 0));
+      level = Math.max(0, Math.min(PAD_COUNT.length - 1, l | 0));
       harmony.setLevel(level);   // palette lands at the next chord boundary
+      // the end of the 30-minute journey earns an arrival, once per session
+      if (level === PAD_COUNT.length - 1 && !arrived) { arrived = true; arrivalPending = true; }
     },
 
     setCaps(caps) { background = caps.background; arps = caps.arps; },
@@ -193,6 +220,7 @@ export function createConductor(engine, harmony) {
       level = 0; heat = 0; bloom = 0; bpm = bpmTarget = 66;
       lastSliceT = -1e9;
       barInChord = 0; nudged = false;
+      arrived = false; arrivalPending = false;
       echoQ.length = 0;
       if (started) retarget(2.0);
     },
@@ -253,8 +281,24 @@ export function createConductor(engine, harmony) {
       const paletteArrived = harmony.advance();
       barInChord = 0; nudged = false;
       retarget(1.5);
-      // the level's palette landing gets its tonic bloom
-      if (paletteArrived) playBloom(engine, harmony.noteFor('orange', 0), t);
+      if (paletteArrived) {
+        if (arrivalPending) {
+          // ── THE ARRIVAL ── the journey's end, marked once: tonic, fifth,
+          // and tonic-above blooming in sequence, the pad thrown fully open,
+          // and the arrangement at full growth. Warm, not a fanfare.
+          arrivalPending = false;
+          const root = harmony.noteFor('orange', 0);
+          playBloom(engine, root, t);
+          playBloom(engine, root + 7, t + 0.12);
+          playBloom(engine, root + 12, t + 0.26);
+          bloom = 1.0;
+          engine.padLp.frequency.setTargetAtTime(5200, t, 0.8);
+          padLpNow = 5200;
+        } else {
+          // an ordinary level palette landing gets its single tonic bloom
+          playBloom(engine, harmony.noteFor('orange', 0), t);
+        }
+      }
     }
   }
 

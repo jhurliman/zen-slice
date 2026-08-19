@@ -35,7 +35,7 @@ import { createEngine } from './engine.js';
 import { createHarmony } from './harmony.js';
 import { createConductor } from './conductor.js';
 import {
-  renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank,
+  renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank, SWISH_FOR_LEVEL,
   playPluck, playRiser, playSigh, playBloom,
 } from './instruments.js';
 
@@ -49,11 +49,12 @@ export function createAudio() {
   const harmony = createHarmony();
   const conductor = createConductor(engine, harmony);
 
-  let ctxRef = null, started = false, unlockers = null;
+  let ctxRef = null, started = false;
   let pianoKit = null, thumpBuf = null, swishBank = null;
   let pending = [];            // gathered notes of the current stroke
   let pendingAt = -1;          // engine time of the stroke's first cut
-  let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9;
+  let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9;
+  let lastWatchdog = 0, swishCount = 0;
   let caps = { background: true, arps: true, voices: 16, wet: 1.0 };
 
   const nosound = (() => {
@@ -91,34 +92,51 @@ export function createAudio() {
   function unlock() {
     if (nosound) return;
     if (!engine.ensure()) { api.enabled = false; return; }
-    if (started) return;
+    if (started) {
+      // r18: the gesture listeners stay attached FOREVER, and after first
+      // unlock every tap becomes a resume retry. iOS rejects resume() outside
+      // a gesture (backgrounding, interruptions, a phone call), so this is
+      // the one path guaranteed to be able to bring audio back.
+      if (engine.actx.state !== 'running') engine.resume();
+      return;
+    }
     started = true;
     engine.resume();
-    engine.setMaster(0.85, 0.8);
+    engine.setMaster(0.85, 0.25);   // audible within ~0.5 s, not ~2.5
     thumpBuf = makeThumpBuffer(engine.actx);
     swishBank = makeSwishBank(engine.actx);
     conductor.start(playNote);
     conductor.setCaps(caps);
     engine.setPianoCap(caps.voices);
     engine.setWetScale(caps.wet);
-    // renders off the main thread; slices use the pluck until it lands
-    renderPianoKit(engine.actx.sampleRate)
-      .then((kit) => { pianoKit = kit; })
-      .catch(fail);
-    if (unlockers) { unlockers(); unlockers = null; }
+    // r18: the piano render WAITS 1.5 s. Firing ten OfflineAudioContext
+    // renders at the exact moment the live context starts starved the media
+    // thread on the phone — measured as "15+ seconds before any audio". The
+    // pluck fallback covers the gap; the kit lands quietly a few seconds in.
+    setTimeout(() => {
+      renderPianoKit().then((kit) => { pianoKit = kit; }).catch(fail);
+    }, 1500);
   }
   api.unlock = unlock;   // harness path: no real gesture ever fires
 
   api.init = (c) => {
     ctxRef = c;
-    const evs = ['pointerdown', 'touchstart', 'keydown'];
-    evs.forEach((ev) => window.addEventListener(ev, unlock, { passive: true }));
-    unlockers = () => evs.forEach((ev) => window.removeEventListener(ev, unlock));
+    // permanent — see unlock(): after first use these are the resume path
+    ['pointerdown', 'touchstart', 'keydown'].forEach((ev) =>
+      window.addEventListener(ev, unlock, { passive: true }));
 
     document.addEventListener('visibilitychange', guard(() => {
       if (!started) return;
-      if (document.hidden) { engine.setMaster(0, 0.05); engine.suspend(); }
-      else { engine.resume(); engine.setMaster(0.85, 0.8); }
+      if (document.hidden) {
+        // mute only — NEVER self-suspend. iOS suspends the context itself on
+        // background, and our own suspend() + a gesture-less resume() was the
+        // "audio is gone when I come back" bug: the resume was rejected and
+        // nothing retried. Let the OS own the context; we own the fader.
+        engine.setMaster(0, 0.05);
+      } else {
+        engine.resume();
+        engine.setMaster(0.85, 0.4);
+      }
     }));
 
     c.bus.on('slice', guard(onSlice));
@@ -140,12 +158,24 @@ export function createAudio() {
     const mass = e.fruit.species.mass;
     const wasIdle = conductor.isIdle();
 
-    // ── immediate, per fruit: the cut and the weight ──
-    engine.playSwish(swishBank[(Math.random() * swishBank.length) | 0],
-      0.92 + v * 0.25 + Math.random() * 0.08,
-      t, 0.24 + v * 0.2, 900 + v * 2200, pan);
+    // ── immediate: the cut and the weight ──
+    // The swish is per STROKE, not per fruit (r18): pending.length === 1
+    // below means this is the stroke's first cut, and a hard 120 ms floor
+    // stops even separate rapid strokes from clattering. The recipe follows
+    // the level — a breath at dawn, rain grains in the orchard, dry leaves
+    // at dusk — so the cut is part of the scenery, not an effect on top.
+    if (pending.length === 0 && t - lastSwish > 0.12) {
+      lastSwish = t;
+      swishCount++;
+      const recipe = swishBank[SWISH_FOR_LEVEL[harmony.level()]] || swishBank.wind;
+      engine.playSwish(recipe[(Math.random() * recipe.length) | 0],
+        0.92 + v * 0.22 + Math.random() * 0.08,
+        t, 0.14 + v * 0.12, 1100 + v * 2400, pan);
+    }
+    // the thump stays per-fruit as the tactile tick — at half the r17 gain it
+    // must never read as a drum hit again
     engine.playThump(thumpBuf, Math.min(2.2, Math.max(0.8, 0.8 + 0.5 / mass)),
-      t, 0.16 * Math.min(1.4, mass * 0.5));
+      t, 0.08 * Math.min(1.4, mass * 0.5));
 
     conductor.onSlice();
 
@@ -193,12 +223,23 @@ export function createAudio() {
       // five-note echo would be a blob, not a phrase
       const byPitch = pending.map((_, i) => i).sort((a, b) => semis[b] - semis[a]);
       const echoes = new Set(byPitch.slice(0, 3));
+      // r18: chords land FULLER than single notes — a combo is the game's
+      // reward moment and the player asked for "a touch more oomph"
+      const boost = Math.min(1.35, 1.1 + 0.07 * n);
       for (let k = 0; k < order.length; k++) {
         const i = order[k];
         const p = pending[i];
-        const taper = 1 - k * 0.06;
-        playNote(semis[i], p.v * taper, panOf(p.x), t + k * STRUM, brightOf(p.v), wetOf(p.y));
+        const taper = 1 - k * 0.04;
+        const bv = Math.min(1, p.v * boost) * taper;
+        playNote(semis[i], bv, panOf(p.x), t + k * STRUM, brightOf(bv), wetOf(p.y));
         if (echoes.has(i)) conductor.echo(semis[i], p.v * taper, panOf(p.x));
+      }
+      // 3+ fruit: reinforce the chord's foundation an octave under its lowest
+      // voice — body, not mud (the low register stays wide by voicing law)
+      if (n >= 3) {
+        const low = semis[byPitch[byPitch.length - 1]];
+        const sub = Math.max(-25, low - 12);
+        if (sub < low) playNote(sub, Math.min(1, pending[0].v * boost) * 0.5, 0, t, 900, 0.45);
       }
       // five and up earns the harp flourish
       if (n >= 5) {
@@ -246,6 +287,15 @@ export function createAudio() {
   api.frame = (dt) => {
     if (!started || !api.enabled) return;
     try {
+      // watchdog (r18, ~1 Hz): a context that should be running but is not —
+      // an OS interruption ended, a rejected resume — gets nudged every
+      // second while the page is visible. Combined with the permanent
+      // gesture listeners this is why "audio never comes back" cannot recur.
+      lastWatchdog += dt;
+      if (lastWatchdog > 1) {
+        lastWatchdog = 0;
+        if (!document.hidden && engine.actx && engine.actx.state !== 'running') engine.resume();
+      }
       conductor.frame(dt);
       if (pendingAt >= 0 && engine.now() - pendingAt >= CHORD_GATHER) flush();
     } catch (err) { fail(err); }
@@ -276,6 +326,7 @@ export function createAudio() {
     voicesActive: engine.ready ? engine.voicesActive() : 0,
     nodesCreated: engine.nodesCreated,
     pending: pending.length,
+    swishes: swishCount,
     errors: api.errors,
   });
 
