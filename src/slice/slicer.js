@@ -155,6 +155,19 @@ export function createSlicer() {
       const at = new THREE.Vector3().copy(f.pos).addScaledVector(plane.n, -d);
       const worldSpeed = sw.speedNdc * _e.distanceTo(f.pos) * axisScale;
       const stroke = new SliceStroke(plane, dir.clone(), worldSpeed, at, sw.t);
+      // ══ r20: ROCKS DON'T CUT ═════════════════════════════════════════════
+      // A noCut body (the river stone) takes the same hit test but never
+      // reaches cut(): the blade shoves it a little (external pos/vel/spin
+      // mutation is authoritative over Rapier — physics.js header), and one
+      // 'rockhit' fires per stroke (lastStroke is already stamped above).
+      // Everything downstream of cut() — juice, slice, noteSlice — is
+      // skipped wholesale, so a rock never advances levels or sprays.
+      if (f.species.noCut) {
+        f.vel.addScaledVector(stroke.dir, clamp(worldSpeed * 0.012, 0.2, 1.2));
+        f.spin.addScaledVector(plane.n, 0.9);
+        ctx.bus.emit('rockhit', { stroke, rock: f, at });
+        continue;
+      }
       // ══ r19: ONE CUT PER FRAME. THE REST ARE QUEUED. ═════════════════════
       // Measured (tools/perfprofile.mjs): one cut costs ~3.1 ms at p50 and
       // 7.5 ms at max, and this loop ran ALL of a stroke's cuts back-to-back —

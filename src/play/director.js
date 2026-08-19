@@ -35,18 +35,28 @@ import { createPhysics } from './physics.js';
  * Each level also has a musical identity (palette/motif/cut-timbre) owned by
  * src/audio/ — the arrays there are index-matched to this table.
  */
+/**
+ * `rock` (r20) is the per-spawn chance that a toss is a river stone instead
+ * of a fruit — the hazard: slicing one thuds, sounds a dissonant cluster,
+ * costs points, and breaks the combo. Zero through First Light (dawn stays
+ * pure and the guard below never draws rng when it is zero, so levels 0–1's
+ * frozen probe baselines stay byte-identical); a slow introduction at
+ * Morning Dew, ramping through the night. ⚠ For levels with rock > 0 every
+ * spawn draws one extra rng, so later-level probe baselines shift —
+ * re-baselining those is expected, not a regression.
+ */
 export const LEVELS = [
-  { name: 'Still Water', pool: ['orange', 'apple'], every: [1.9, 2.6], burst: 1, need: 12, dur: 90 },
-  { name: 'First Light', pool: ['orange', 'apple', 'kiwi'], every: [1.7, 2.3], burst: 1, need: 20, dur: 120 },
-  { name: 'Morning Dew', pool: ['apple', 'kiwi', 'strawberry'], every: [1.5, 2.1], burst: 1, need: 30, dur: 150 },
-  { name: 'Orchard Rain', pool: ['orange', 'apple', 'kiwi', 'strawberry'], every: [1.3, 1.9], burst: 2, need: 40, dur: 180 },
-  { name: 'Noon Bloom', pool: ['watermelon', 'orange', 'apple', 'strawberry'], every: [1.2, 1.8], burst: 2, need: 45, dur: 180 },
-  { name: 'Summer Weight', pool: ['watermelon', 'pineapple', 'orange', 'kiwi'], every: [1.2, 1.7], burst: 2, need: 50, dur: 210 },
-  { name: 'Golden Hour', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [1.0, 1.6], burst: 2, need: 50, dur: 210 },
-  { name: 'Dusk Ember', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [1.0, 1.5], burst: 2, need: 55, dur: 240 },
-  { name: 'Night Jasmine', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.9, 1.4], burst: 3, need: 55, dur: 240 },
+  { name: 'Still Water', pool: ['orange', 'apple'], every: [1.9, 2.6], burst: 1, need: 12, dur: 90, rock: 0 },
+  { name: 'First Light', pool: ['orange', 'apple', 'kiwi'], every: [1.7, 2.3], burst: 1, need: 20, dur: 120, rock: 0 },
+  { name: 'Morning Dew', pool: ['apple', 'kiwi', 'strawberry'], every: [1.5, 2.1], burst: 1, need: 30, dur: 150, rock: 0.035 },
+  { name: 'Orchard Rain', pool: ['orange', 'apple', 'kiwi', 'strawberry'], every: [1.3, 1.9], burst: 2, need: 40, dur: 180, rock: 0.05 },
+  { name: 'Noon Bloom', pool: ['watermelon', 'orange', 'apple', 'strawberry'], every: [1.2, 1.8], burst: 2, need: 45, dur: 180, rock: 0.06 },
+  { name: 'Summer Weight', pool: ['watermelon', 'pineapple', 'orange', 'kiwi'], every: [1.2, 1.7], burst: 2, need: 50, dur: 210, rock: 0.08 },
+  { name: 'Golden Hour', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [1.0, 1.6], burst: 2, need: 50, dur: 210, rock: 0.09 },
+  { name: 'Dusk Ember', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [1.0, 1.5], burst: 2, need: 55, dur: 240, rock: 0.11 },
+  { name: 'Night Jasmine', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.9, 1.4], burst: 3, need: 55, dur: 240, rock: 0.13 },
   // the endless coda — the journey arrives here and stays
-  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.35], burst: 3, need: Infinity, dur: Infinity },
+  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.35], burst: 3, need: Infinity, dur: Infinity, rock: 0.12 },
 ];
 
 export function createDirector({ seed = 20260806 } = {}) {
@@ -87,8 +97,16 @@ export function createDirector({ seed = 20260806 } = {}) {
     ctx.fruits = api;
     ctx.physics = physics;
     physics.init(c);
-    // warm the caches so the first slice never hitches
+    // warm the caches so the first slice never hitches (this also compiles
+    // the rock's shader programs once, even though rock spawns then use
+    // fresh per-instance materials for the damage uniform)
     for (const sp of SPECIES_LIST) { geomFor(sp, ctx.quality.fruitSegments); matsFor(sp); }
+    // r20: a struck rock takes a visible crack — the registry owns the mesh,
+    // so the damage bump lives here, not in the slicer
+    c.bus.on('rockhit', (e) => {
+      const m = e.rock?.mesh?.material?.[0];
+      if (m && m._zsDamage) m._zsDamage.value = Math.min(3, m._zsDamage.value + 1);
+    });
   };
 
   // ── ROUND 10 (perf). Everything that enters the world goes through add(), so
@@ -133,7 +151,15 @@ export function createDirector({ seed = 20260806 } = {}) {
   function spawn(speciesId) {
     const sp = SPECIES[speciesId];
     const geom = geomFor(sp, ctx.quality.fruitSegments);
-    const mesh = new THREE.Mesh(geom, matsFor(sp));
+    // r20: rocks carry a per-instance crack `damage` uniform, so they get a
+    // FRESH material instance (same compiled shader program — only the
+    // uniform values are per-mesh) instead of the shared cache. The skin
+    // fills BOTH group slots: a rock is never cut, so its cap group is empty
+    // and a second material would be dead weight built per spawn.
+    let mats;
+    if (sp.noCut) { const m = sp.makeSkinMaterial(); mats = [m, m]; }
+    else mats = matsFor(sp);
+    const mesh = new THREE.Mesh(geom, mats);
 
     const x = rr(rng, -STAGE.halfWidth * 0.62, STAGE.halfWidth * 0.62);
     const z = rr(rng, STAGE.nearZ * 0.6, STAGE.farZ * 0.6);
@@ -279,7 +305,12 @@ export function createDirector({ seed = 20260806 } = {}) {
       for (let i = 0; i < api.live.length; i++) if (api.live[i].generation === 0) whole++;
       if (whole < ctx.quality.maxFruit) {
         const n = 1 + Math.floor(rng() * L.burst);
-        for (let i = 0; i < n; i++) spawn(L.pool[Math.floor(rng() * L.pool.length)]);
+        for (let i = 0; i < n; i++) {
+          // the L.rock > 0 guard keeps levels with no rocks from drawing rng,
+          // so their spawn streams (and frozen probe baselines) are untouched
+          if (L.rock > 0 && rng() < L.rock) spawn('rock');
+          else spawn(L.pool[Math.floor(rng() * L.pool.length)]);
+        }
         nextSpawn = rr(rng, L.every[0], L.every[1]) + (n - 1) * 0.25;
       }
     }
@@ -381,6 +412,14 @@ export function createDirector({ seed = 20260806 } = {}) {
       api.level++; api.sliced = 0; levelT = 0;
       ctx.bus.emit('level', { level: api.level, name: LEVELS[api.level].name });
     }
+  };
+
+  /** r20, for the ?debug overlay: jump straight to a level. Emits the same
+   *  'level' event a natural advance does, so audio/hud react identically. */
+  api.jumpLevel = (n) => {
+    const l = Math.max(0, Math.min(LEVELS.length - 1, n | 0));
+    api.level = l; api.sliced = 0; levelT = 0;
+    ctx.bus.emit('level', { level: l, name: LEVELS[l].name });
   };
 
   api.reset = () => {

@@ -119,6 +119,21 @@ export function createScore() {
       }
     });
     c.bus.on('level', (e) => { api.level = e.level; api.levelName = e.name; });
+
+    // ══ r20: THE ROCK PENALTY ═══════════════════════════════════════════════
+    // A fixed sting, not a scaling one: −25 is about one good combo cut, so a
+    // careless swipe costs a moment's progress and never a session's. The
+    // combo chain breaks (lastSliceT is pushed to −∞ so the NEXT slice starts
+    // a fresh chain rather than inheriting the window), the score floors at
+    // zero, and the 'penalty' event is the HUD's cue — same payload shape the
+    // combo event set the precedent for.
+    c.bus.on('rockhit', (e) => {
+      api.combo = 0;
+      lastSliceT = -1e9;
+      const pen = Math.min(25, api.score);
+      api.score -= pen;
+      c.bus.emit('penalty', { amount: 25, taken: pen, at: e.at.clone() });
+    });
   };
 
   api.frame = () => {

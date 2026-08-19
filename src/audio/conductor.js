@@ -207,8 +207,10 @@ export function createConductor(engine, harmony) {
     onComboPeak() { nudged = true; },
 
     setLevel(l) {
-      level = Math.max(0, Math.min(PAD_COUNT.length - 1, l | 0));
-      harmony.setLevel(level);   // palette lands at the next chord boundary
+      const next = Math.max(0, Math.min(PAD_COUNT.length - 1, l | 0));
+      if (next !== level) nudged = true;   // r20: a level change lands its palette at the NEXT BAR
+      level = next;
+      harmony.setLevel(level);
       // the end of the 30-minute journey earns an arrival, once per session
       if (level === PAD_COUNT.length - 1 && !arrived) { arrived = true; arrivalPending = true; }
     },
