@@ -291,7 +291,8 @@ ok(rockProbe.hits === 1, `rock swipe fired ${rockProbe.hits} rockhits, expected 
 ok(rockProbe.slices === 0 && rockProbe.juices === 0,
   `rock emitted slice=${rockProbe.slices} juice=${rockProbe.juices} — a rock must never cut or spray`);
 ok(rockProbe.penalties === 1, `rock fired ${rockProbe.penalties} penalties, expected 1`);
-ok(rockProbe.score === 75, `score after rock: ${rockProbe.score}, expected 75 (100 − 25)`);
+// r36: the rock resets the STREAK — the whole score, not r20's −25 sting
+ok(rockProbe.score === 0, `score after rock: ${rockProbe.score}, expected 0 (r36: the streak resets)`);
 ok(rockProbe.combo === 0, `combo after rock: ${rockProbe.combo}, expected 0`);
 ok(rockProbe.damage === 1, `rock damage uniform is ${rockProbe.damage}, expected 1`);
 ok(rockProbe.dead === false, 'the rock was removed/cut by the stroke');

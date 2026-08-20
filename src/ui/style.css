@@ -266,6 +266,15 @@ html, body {
   padding: 10px 10px;
   touch-action: manipulation;
 }
+/* r36: the best-streak line — the panel's voice, but quieter and inert:
+ * no pointer-events, so a tap on it falls through like any other idle tap */
+.zs-pbest {
+  display: block; width: 100%;
+  font-size: 13px; letter-spacing: 0.28em; text-transform: uppercase;
+  text-align: right;
+  color: rgba(255,255,255,0.32);
+  padding: 10px 10px;
+}
 
 /* r22 — the phrase whisper: a sustained run of chained cuts, acknowledged
  * once when it ends, in the hint's quiet voice just above it */

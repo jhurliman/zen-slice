@@ -44,6 +44,7 @@ zero wrapper bytes in the web/PWA build.
 | AVAudioSession `.playback` insurance | `ios/App/App/AppDelegate.swift` (see caveat below) |
 | Haptics → UIImpactFeedbackGenerator | `src/input/haptics.js` backend `'native'` (LIGHT/MEDIUM/HEAVY by event weight) |
 | Screen keep-awake + status bar re-hide | `src/core/native.js` |
+| Game Center best-streak submission (no in-app UI) | `ios/App/App/GameCenterPlugin.swift` (app-local plugin, registered in `GameViewController.capacitorDidLoad`), called from `src/play/score.js`; entitlement in `App.entitlements` |
 | Plugins | `@capacitor/haptics` `@capacitor/status-bar` `@capacitor/app` `@capacitor-community/keep-awake` |
 
 ## Build loop
@@ -83,6 +84,12 @@ npx cap sync ios      # copies dist/ into ios/App/App/public + SPM sync
   impact and never calls `prepare()`. If ticks feel a few ms loose, the fix
   is a ~30-line local Swift plugin holding three pre-prepared
   UIImpactFeedbackGenerators — Apple's documented pattern.
-- **Game Center / StoreKit**: not wired. The maintained community Game Center
-  plugin only advertises Capacitor 3–5; plan a small custom GameKit plugin if
-  leaderboards make the 1.0.
+- **Game Center** (r36): wired as a ~60-line app-local plugin — the community
+  plugin only advertises Capacitor 3–5, so we own it. Design: NO in-app UI.
+  Auth happens quietly at boot (iOS may present its own sign-in sheet once),
+  score.js submits the best streak on its existing rate-limited persist
+  moments, and every failure is swallowed. ⚠ Submissions only land once the
+  leaderboard exists in App Store Connect: App → Services → Game Center →
+  add leaderboard, id `chordcut.best` (the constant in GameCenterPlugin.swift).
+  Until the app record + leaderboard exist, submits are silent no-ops.
+- **StoreKit**: not wired; nothing sold.

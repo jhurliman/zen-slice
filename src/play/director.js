@@ -528,7 +528,12 @@ export function createDirector({ seed = 20260806 } = {}) {
     // that turns the page.
     if (api.sliced >= L.need && levelT >= L.dur && api.level < LEVELS.length - 1) {
       api.level++; api.sliced = 0; levelT = 0;
-      ctx.bus.emit('level', { level: api.level, name: LEVELS[api.level].name });
+      // r36: `coda` rides the event so score.js can freeze the streak at the
+      // arrival without importing LEVELS — the endless level IS the flag.
+      ctx.bus.emit('level', {
+        level: api.level, name: LEVELS[api.level].name,
+        coda: !isFinite(LEVELS[api.level].dur),
+      });
     }
   };
 
@@ -537,7 +542,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   api.jumpLevel = (n) => {
     const l = Math.max(0, Math.min(LEVELS.length - 1, n | 0));
     api.level = l; api.sliced = 0; levelT = 0;
-    ctx.bus.emit('level', { level: l, name: LEVELS[l].name });
+    ctx.bus.emit('level', { level: l, name: LEVELS[l].name, coda: !isFinite(LEVELS[l].dur) });
   };
 
   api.reset = () => {

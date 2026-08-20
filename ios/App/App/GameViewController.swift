@@ -15,4 +15,9 @@ import Capacitor
 class GameViewController: CAPBridgeViewController {
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { .all }
     override var prefersStatusBarHidden: Bool { true }
+
+    // r36: app-local plugins register here — the Capacitor 8 subclassing hook.
+    override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(GameCenterPlugin())
+    }
 }

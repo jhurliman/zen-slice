@@ -137,10 +137,14 @@ export function createHud() {
         : e.size === 3 ? 'TRIAD'
           : e.size === 4 ? 'CHORD · 4'
             : `FLOURISH · ${e.size}`;
-      const l2 = `+${Math.max(1, Math.round(e.gain ?? e.size))}`;
+      // r36: in the coda the score is frozen and strokes award 0 — show the
+      // harmony's name alone rather than a fabricated +N (the penalty
+      // callout's "never fabricate" rule, applied to the other direction)
+      const g = Math.round(e.gain ?? e.size);
+      const l2 = g > 0 ? `+${g}` : '';
       el.innerHTML =
         `<span class="zs-c1" data-t="${l1}">${l1}</span>`
-        + `<span class="zs-c2" data-t="${l2}">${l2}</span>`;
+        + (l2 ? `<span class="zs-c2" data-t="${l2}">${l2}</span>` : '');
 
       // Position over the cut, then KEEP IT ON SCREEN — placeFloat carries the
       // measured-pixel clamp lessons (fit against the pop, reserve the travel).
@@ -274,6 +278,10 @@ export function createHud() {
         + `<button data-k="sound">sound ${p.sound !== false ? 'on' : 'off'}</button>`
         + `<button data-k="haptics">haptics ${p.haptics !== false ? 'on' : 'off'}</button>`
         + `<button data-k="again">begin again</button>`
+        // r36: the best streak, readable where the player already looks —
+        // a non-interactive line in the panel's own voice, no new screen.
+        // Refreshed at open (togglePanel), hidden entirely until a best exists.
+        + `<div class="zs-pbest" id="zs-pbest"></div>`
         + `</div>`;
       root.appendChild(settingsEl);
       gearEl = settingsEl.querySelector('#zs-gear');
@@ -351,6 +359,16 @@ export function createHud() {
     panelOpen = open;
     if (panelEl) panelEl.classList.toggle('open', open);
     if (gearEl && open) gearEl.classList.add('show');
+    // r36: refresh the best-streak line at open — score.js owns the live
+    // value (ctx.score), prefs are the fallback before init. Empty until a
+    // first best exists: "BEST 0" on a first launch is noise, not memory.
+    if (open && panelEl) {
+      const el = panelEl.querySelector('#zs-pbest');
+      if (el) {
+        const b = (ctx.score?.bestScore ?? loadPrefs().bestScore) | 0;
+        el.textContent = b > 0 ? `best ${b}` : '';
+      }
+    }
   }
 
   api.frame = (dt, alpha, c) => {
