@@ -281,12 +281,21 @@ export function createAudio() {
         const sub = semis[byPitch[byPitch.length - 1]] - 12;
         if (sub >= -25) playNote(sub, Math.min(1, first.v * boost) * 0.5, 0, t, 900, 0.45);
       }
-      // five and up earns the harp flourish
-      if (n >= 5) {
-        const gliss = harmony.glissNotes();
-        for (let k = 0; k < gliss.length; k++) {
-          playNote(gliss[k], 0.22, (k / gliss.length - 0.5) * 0.8,
-            t + 0.08 + order.length * STRUM + k * 0.045, 4200, 0.85);
+      // r26: FOUR and up earns the grand run — the player: a 4+ harmony "is
+      // quite rare… it should be rewarded with a more impactful musical
+      // event like a longer glissando slide". A real harp sweep now: every
+      // chord tone ascending across 2 octaves at CHORD (n=4), 3 at
+      // FLOURISH (5+), crescendo left-to-right across the stereo field,
+      // brightening as it climbs, the top note accented and ringing.
+      if (n >= 4) {
+        const run = harmony.runNotes(n >= 5 ? 3 : 2);
+        const t0 = t + 0.10 + order.length * STRUM;
+        const last = run.length - 1;
+        for (let k = 0; k < run.length; k++) {
+          const u = last > 0 ? k / last : 1;
+          const gv = (k === last ? 0.46 : 0.20 + 0.14 * u);
+          playNote(run[k], gv, (u - 0.5) * 0.9, t0 + k * 0.052,
+            3000 + 2600 * u, 0.8);
         }
       }
     }

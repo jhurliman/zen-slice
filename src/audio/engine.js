@@ -59,7 +59,15 @@ export function createEngine() {
     eng.comp = mk(actx.createDynamicsCompressor());
     eng.comp.threshold.value = -16; eng.comp.knee.value = 18;
     eng.comp.ratio.value = 3; eng.comp.attack.value = 0.004; eng.comp.release.value = 0.18;
-    eng.comp.connect(eng.master); eng.master.connect(actx.destination);
+    // r26, the one mastering insert: a 28 Hz rumble highpass between master
+    // and the hardware. Nothing musical lives below it (the drone's A1 bass
+    // is 55 Hz, the rock thump's tail ends at 45 Hz) but noise-derived
+    // buffers carry a little sub-30 energy, and on headphones that reads as
+    // pressure, not sound. Everything audible passes untouched.
+    eng.rumble = mk(actx.createBiquadFilter());
+    eng.rumble.type = 'highpass'; eng.rumble.frequency.value = 28; eng.rumble.Q.value = 0.5;
+    eng.comp.connect(eng.master); eng.master.connect(eng.rumble);
+    eng.rumble.connect(actx.destination);
 
     eng.dry = mk(actx.createGain()); eng.dry.gain.value = 1.0; eng.dry.connect(eng.comp);
     eng.reverbIn = mk(actx.createGain()); eng.reverbIn.gain.value = 1.0;

@@ -78,7 +78,16 @@ import { loadPrefs, savePref } from '../core/prefs.js';
 //     Those two disagree in sign, and the cut counts are not paired (the live
 //     population differs once the clock changes), so neither is evidence of
 //     anything. A real answer needs a human with a thumb, not this probe.
-const COMBO_WINDOW = 0.55;
+//
+// r26 — THE HUMAN WITH A THUMB ANSWERED. The player, after real sessions:
+// "It's quite difficult to keep a combo multiplier going given the slow
+// nature of fruits tossing up in the air… maybe we could make it like 15%
+// easier." 0.55 → 0.63 is exactly that 15%, and nothing else about the
+// chain changes. (A beat-synced window — one beat at the inferred tempo is
+// 0.67–1.0 s — was considered for the music tie-in and declined: it couples
+// scoring to audio state in the last polish stage, and the player is
+// explicitly risk-averse to structural changes now.)
+const COMBO_WINDOW = 0.63;
 
 export function createScore() {
   const api = { score: 0, combo: 0, best: 0, total: 0, level: 0, levelName: 'Still Water', bestScore: 0 };
@@ -94,8 +103,8 @@ export function createScore() {
   // it plays — DYAD/TRIAD/CHORD/FLOURISH. Grouped here by e.strokeId (stamped
   // at hit time in slicer.js); a group closes 150 ms after its last cut,
   // which covers r19-perf's one-cut-per-fixed-step drain.
-  // PHRASE is the 0.55 s cross-stroke chain below — the score multiplier,
-  // unchanged in every number — acknowledged with one whisper only when a
+  // PHRASE is the COMBO_WINDOW cross-stroke chain below — the score
+  // multiplier (window 0.63 s since r26, +15% by player request) — acknowledged with one whisper only when a
   // run of 6+ ends naturally (not on a rockhit: the stone owns that moment).
   let hStrokeId = -1, hSize = 0, hGain = 0, hAt = null, hCloseT = -1e9;
 

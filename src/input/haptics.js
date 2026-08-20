@@ -46,6 +46,7 @@ export function createHaptics() {
   let lastPulse = -1e9;
   let labelEl = null;
   let lastTrusted = -1e9;   // performance.now() ms of the last trusted user event
+  let clicks = 0;           // label.click()s actually issued — device-side truth
 
   // the same log velocity law audio.js uses, over the measured 5–170 range
   const vel = (speed) => Math.min(1, Math.max(0, Math.log(Math.max(1e-3, speed / 5)) / Math.log(34)));
@@ -99,7 +100,7 @@ export function createHaptics() {
   /** One system tick, iff the grant is open. Safe to call from timers. */
   function tapSwitch() {
     try {
-      if (labelEl && performance.now() - lastTrusted < GRANT_MS) labelEl.click();
+      if (labelEl && performance.now() - lastTrusted < GRANT_MS) { clicks++; labelEl.click(); }
     } catch (_) { /* degrade to silence, never retire the module */ }
   }
   /** `n` system ticks TAP_GAP_MS apart — now if the grant is open, else
@@ -182,6 +183,30 @@ export function createHaptics() {
     c.bus.on('level', () => pulse(18));
     c.bus.on('pref', (e) => { if (e.key === 'haptics') enabled = !!e.value; });
   };
+
+  /**
+   * Diagnostic surface (r26), shown on the ?debug strip. The one bit this
+   * exists to capture from the device: after a play session, is `clicks`
+   * rising? clicks > 0 with no buzz = the clicks are issued and WebKit is
+   * swallowing the haptic (this page context — e.g. a HOME-SCREEN standalone
+   * web app, where Safari-tab behaviors routinely degrade — blocks the
+   * technique; nothing left to fix from JS, the native wrapper's
+   * UIImpactFeedbackGenerator is the answer). clicks == 0 = the grant never
+   * opens here and the bug is ours. `standalone` reports the display mode.
+   */
+  api.state = () => ({
+    backend: api.backend,
+    enabled,
+    clicks,
+    pending: pendingTaps,
+    grantAgeMs: Math.round(performance.now() - lastTrusted),
+    standalone: (() => {
+      try {
+        return !!(navigator.standalone
+          || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+      } catch (_) { return false; }
+    })(),
+  });
 
   api.dispose = () => { try { labelEl?.parentNode?.remove(); } catch (_) { /* */ } };
 

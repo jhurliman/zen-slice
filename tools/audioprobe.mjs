@@ -111,6 +111,17 @@ ok(SWISH_FOR_LEVEL.length === N_LEVELS, `SWISH_FOR_LEVEL has ${SWISH_FOR_LEVEL.l
       }
       // the flourish/arp pool and pad voicing stay inside the kit's span
       for (const n of h.glissNotes()) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: gliss note ${n} out of range`);
+      // r26 grand run: in-chord, in-range, strictly ascending, both spans
+      for (const span of [2, 3]) {
+        const run = h.runNotes(span);
+        ok(run.length >= 5 && run.length <= 12, `L${level} ${chord.name}: runNotes(${span}) length ${run.length}`);
+        for (let i = 0; i < run.length; i++) {
+          const n = run[i];
+          ok(legal.has(((n % 12) + 12) % 12), `L${level} ${chord.name}: run note ${n} off-chord`);
+          ok(n >= -25 && n <= 31, `L${level} ${chord.name}: run note ${n} out of range`);
+          if (i > 0) ok(n > run[i - 1], `L${level} ${chord.name}: run not ascending at ${i} [${run}]`);
+        }
+      }
       for (const n of h.padNotes(5)) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: pad note ${n} out of range`);
       // every level-motif entry voices in-chord and in-range in this chord
       for (const m of MOTIFS[level]) {

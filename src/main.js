@@ -365,7 +365,7 @@ export async function boot(canvas) {
   // EVERY member below is part of the harness contract. Do not rename or drop
   // one without changing tools/shoot.mjs in the same commit.
   const ZS = {
-    ctx, stats, bus, director, score, audio,
+    ctx, stats, bus, director, score, audio, haptics,
     moduleErrors,
     // reported by the harness so a run can never silently be judging the wrong
     // backend (WebGL2 fallback frames are legitimate for critique, but we must

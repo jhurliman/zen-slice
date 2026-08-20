@@ -287,6 +287,11 @@ export function makeDrone(engine) {
 export function makePadBank(engine, max = 5) {
   const actx = engine.actx;
   const voices = [];
+  // r26 (the headphone pass): the pad bed used to sum dead-center mono, and
+  // on headphones a centered bed sits INSIDE the head while the piano moves
+  // around it. Static per-voice spread — mixing practice, not an effect: the
+  // lowest voice stays anchored center, uppers fan out progressively.
+  const PAD_PAN = [0, -0.18, 0.20, -0.38, 0.42];
   for (let i = 0; i < max; i++) {
     const o = actx.createOscillator();
     // r17: sine below, triangle only for the top sparkle voices, and detune
@@ -297,7 +302,9 @@ export function makePadBank(engine, max = 5) {
     const lfo = actx.createOscillator(); lfo.frequency.value = 0.05 + i * 0.021;
     const lfg = actx.createGain(); lfg.gain.value = 0.55 + i * 0.2;
     lfo.connect(lfg); lfg.connect(o.detune); lfo.start();
-    o.connect(g); g.connect(engine.padBus);
+    const pan = actx.createStereoPanner();
+    pan.pan.value = PAD_PAN[i % PAD_PAN.length];
+    o.connect(g); g.connect(pan); pan.connect(engine.padBus);
     o.start();
     voices.push({ o, g });
   }
