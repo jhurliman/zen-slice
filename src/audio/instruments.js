@@ -131,41 +131,36 @@ async function renderPianoNote(sr, f0, idx) {
 }
 
 /**
- * The cut sound, pre-rendered. r18 — the r17 swish still read as "a ruler
- * slapped against a trash can": too loud (×3.0 make-up gain), too much
- * low-mid body, and one per FRUIT so combos clattered. The redesign is a
- * texture, not a hit — something "sprinkled on top of the soundscape":
+ * The cut sound, pre-rendered. The swipe is AIR — a brush stroke on the
+ * canvas, never percussion. r23 rebuilt every recipe after the player named
+ * exactly what was wrong: the fast grain trains (30/70 Hz raised-cosine)
+ * read as "a closed hi-hat tick" and "a single shake of an aluminum pan" —
+ * i.e. drum machine, and the direction is "painting on the audio canvas,
+ * not triggering 808 sampler pads". So: no grain buzz anywhere. Four
+ * flavors of pure filtered air, distinguished by brightness, length, and —
+ * at most — a slow, shallow tremolo you feel as breathing, not rattling:
  *
- *  · four RECIPES, one flavor of air per part of the day, two variants each:
- *      breath  — slow dark exhale (dawn, and the Deep Calm coda)
- *      wind    — a soft passing gust (morning light, noon, golden hour)
- *      rain    — grain-modulated mist, a soft shaker of droplets (dew, rain)
- *      leaves  — tighter dry grains, high-passed (summer, dusk, night)
- *  · every recipe is quiet (peak amplitudes normalized to 1, played at a
- *    fraction of the old level), rises slowly (35–60 ms), and carries its
- *    high-pass character IN the buffer (first-difference for the grain
- *    recipes) so no low-mid "bin" energy exists to slap;
- *  · one swish per STROKE, ducked when stacked — that lives in audio.js and
- *    the engine.
+ *   breath — long dark exhale (dawn, and the Deep Calm coda)
+ *   air    — brighter, quicker passing air (first light, noon, golden hour)
+ *   mist   — soft air with a 7 Hz / 25% swell — dew shimmer, not droplets
+ *   dusk   — darker medium air with a barely-there 5 Hz breathe
  *
- * Synchronous JS math, 8 buffers × ~0.45 s ≈ 170k samples — trivial.
+ * L0 → L1 is deliberately the clearest step (dark/slow → bright/quick) so
+ * the player learns in the first minutes that the world's sound evolves.
+ * Every buffer is normalized; two variants per recipe; one swish per STROKE
+ * with stack ducking (audio.js / engine.js).
  */
-// r20: wind/breath decays lengthened — the player asked for more
-// sustain/release on the swipe sounds ("sprinkled on top", lingering).
-// r22: attacks shortened — the SNICK now owns the cut's first frame, and the
-// swish blooms right behind it as pure air; a 35-60 ms swish attack with no
-// transient in front of it was the perceived latency.
 const SWISH_RECIPES = {
-  breath: { attack: 0.045, decay: 0.42, dur: 0.75, k0: 0.10, k1: 0.04, grainHz: 0, hp: false },
-  wind: { attack: 0.028, decay: 0.30, dur: 0.58, k0: 0.22, k1: 0.07, grainHz: 0, hp: false },
-  rain: { attack: 0.030, decay: 0.26, dur: 0.50, k0: 0.26, k1: 0.10, grainHz: 30, hp: true },
-  leaves: { attack: 0.025, decay: 0.20, dur: 0.42, k0: 0.30, k1: 0.12, grainHz: 70, hp: true },
+  breath: { attack: 0.050, decay: 0.46, dur: 0.80, k0: 0.09, k1: 0.035, tremHz: 0, tremDepth: 0 },
+  air: { attack: 0.028, decay: 0.30, dur: 0.58, k0: 0.22, k1: 0.07, tremHz: 0, tremDepth: 0 },
+  mist: { attack: 0.035, decay: 0.30, dur: 0.58, k0: 0.15, k1: 0.06, tremHz: 7, tremDepth: 0.25 },
+  dusk: { attack: 0.040, decay: 0.36, dur: 0.66, k0: 0.12, k1: 0.045, tremHz: 5, tremDepth: 0.18 },
 };
 
 /** level index (the 10-level day arc) → swish recipe name */
 export const SWISH_FOR_LEVEL = [
-  'breath', 'wind', 'rain', 'rain', 'wind',
-  'leaves', 'wind', 'leaves', 'leaves', 'breath',
+  'breath', 'air', 'mist', 'mist', 'air',
+  'dusk', 'air', 'dusk', 'dusk', 'breath',
 ];
 
 export function makeSwishBank(actx) {
@@ -178,22 +173,21 @@ export function makeSwishBank(actx) {
       const len = (sr * r.dur) | 0;
       const buf = actx.createBuffer(1, len, sr);
       const d = buf.getChannelData(0);
-      let lp = 0, lp2 = 0, prev = 0;
-      const grainPhase = Math.random() * Math.PI * 2;
+      let lp = 0, lp2 = 0;
+      const tremPhase = Math.random() * Math.PI * 2;
       for (let i = 0; i < len; i++) {
         const t = i / sr;
         // brightness falls from open to closed across the sound
         const k = (r.k0 - (r.k0 - r.k1) * Math.min(1, t / (r.decay * 1.6 * seed))) / seed;
         lp += ((Math.random() * 2 - 1) - lp) * k;
         lp2 += (lp - lp2) * 0.5;
-        let s = lp2;
-        if (r.hp) { const hp = s - prev; prev = s; s = hp * 3.0; }   // in-buffer highpass
         let env = Math.min(1, t / (r.attack * seed)) * Math.exp(-t / (r.decay * seed));
-        if (r.grainHz) {
-          // raised-cosine grain train: the shaker/rain character
-          env *= 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(2 * Math.PI * r.grainHz * seed * t + grainPhase));
+        if (r.tremHz) {
+          // slow shallow swell — breathing, never a grain train (see header)
+          env *= (1 - r.tremDepth) + r.tremDepth
+            * (0.5 - 0.5 * Math.cos(2 * Math.PI * r.tremHz * seed * t + tremPhase));
         }
-        d[i] = s * env;
+        d[i] = lp2 * env;
       }
       // normalize so every recipe plays at a predictable level
       let peak = 1e-6;
@@ -204,40 +198,6 @@ export function makeSwishBank(actx) {
     });
   }
   return bank;
-}
-
-/**
- * The SNICK (r22, slice latency round two): the sound that owns the first
- * frame of a cut. The r20 "tick" was too quiet and too thin to register
- * (0.05-0.12 gain, first-difference wisp), so the ear locked onto the swish
- * — whose designed attack is 35-60 ms — and the player still heard latency.
- * This is a real transient: <2 ms attack, ~90 ms of mid-band body whose
- * center FALLS across its life (a blade entering flesh, not a click),
- * normalized and played per fruit at 2-3x the old tick's level, pitched
- * down slightly for heavy fruit via playbackRate.
- */
-export function makeSnickBuffer(actx) {
-  const sr = actx.sampleRate, dur = 0.09, len = (sr * dur) | 0;
-  const buf = actx.createBuffer(1, len, sr);
-  const d = buf.getChannelData(0);
-  let lp1 = 0, lp2 = 0;
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    const w = Math.random() * 2 - 1;
-    // band = difference of two one-poles; the faster pole's coefficient
-    // falls over the sound, dragging the band's center down ~3.5k → ~700 Hz
-    const kHi = 0.55 - 0.42 * Math.min(1, t / 0.06);
-    lp1 += (w - lp1) * kHi;
-    lp2 += (w - lp2) * 0.10;
-    const band = lp1 - lp2;
-    const env = Math.min(1, t / 0.0018) * Math.exp(-t / 0.026);
-    d[i] = band * env;
-  }
-  let peak = 1e-6;
-  for (let i = 0; i < len; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
-  const g = 1 / peak;
-  for (let i = 0; i < len; i++) d[i] *= g;
-  return buf;
 }
 
 /** The wet splat under a cut, pre-rendered once: sine drop 130→45 Hz.

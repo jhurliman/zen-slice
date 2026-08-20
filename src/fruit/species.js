@@ -2174,6 +2174,16 @@ function skinMaterial(sp, body, o = {}) {
   const A_TIP = fromKeyLit(0.1080, 0.0870, 0.0440);
   const A_WUD = fromKeyLit(0.0980, 0.0730, 0.0450);
   const A_WTIP = fromKeyLit(0.1520, 0.1240, 0.0830);
+  // r23, `o.leafFresh` (a compile-time material option, so the round-8 "no
+  // species test" rule is intact — every species still runs the same shader
+  // SHAPE, this one just binds different constants): a LIVING calyx. The
+  // shared law above dies leaves back from a brown root because a pineapple
+  // crown really is brown where it emerges — but a picked strawberry's calyx
+  // is fresh green from root to tip, and rendering it through the pineapple's
+  // ramp is most of why the player read the sepals as near-black slugs. The
+  // fresh path completes its green by y = 1.20 (vs 1.60) and lands on a
+  // brighter, more saturated foliage than plate-01's grey-green crown.
+  const A_FOLF = fromKeyLit(0.0560, 0.1240, 0.0510);
 
   m.colorNode = Fn(() => {
     const f = frame();
@@ -2184,10 +2194,13 @@ function skinMaterial(sp, body, o = {}) {
     // second argument drifts with height so one blade is not a constant stripe.
     // ringN is angle-periodic, so there is no seam at +-PI on the crown either.
     const vary = ringN(f.lon, 11.0, a.y.mul(2.2)).toVar();
-    const leafC = mix(A_ROOT, A_FOL, a.green)
-      .mul(vary.mul(0.26).add(1.0))
-      .add(A_TIP.sub(A_FOL).mul(ss(0.80, 1.00, a.bh).mul(ss(-0.15, 0.55, vary))))
-      .toVar();
+    const leafC = (o.leafFresh
+      // fresh: green from the root, no die-back straw at the tip
+      ? mix(A_ROOT, A_FOLF, ss(1.030, 1.200, a.y)).mul(vary.mul(0.20).add(1.0))
+      : mix(A_ROOT, A_FOL, a.green)
+        .mul(vary.mul(0.26).add(1.0))
+        .add(A_TIP.sub(A_FOL).mul(ss(0.80, 1.00, a.bh).mul(ss(-0.15, 0.55, vary))))
+    ).toVar();
     const woodC = mix(A_WUD, A_WTIP, a.sh.mul(a.sh))
       .mul(ringN(f.lon, 17.0, a.y.mul(9.0)).mul(0.22).add(1.0))
       .toVar();
@@ -3733,6 +3746,7 @@ def({
       relief: (f) => { const a = ach(f); return a.seed.mul(2.1).sub(a.dimple.mul(1.2)); },
     }, {
       bump: 0.0070,
+      leafFresh: true,   // a living calyx, green to the root — see skinMaterial
       mat: {
         roughness: 0.30, clearcoat: 0.70, clearcoatRoughness: 0.13, specularIntensity: 0.75,
       },
