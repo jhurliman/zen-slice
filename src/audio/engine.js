@@ -38,7 +38,10 @@ export function createEngine() {
 
   let pianoPool = [], shhkPool = [], thumpPool = [];
   let pianoCap = 16;
-  let wetBase = 0.35, wetScale = 1.0;
+  // r30: wetBase 0.35 → 0.4725 — the owner's device tuning (?tune space
+  // 1.35) baked in. Every baked value below keeps the tuner macro at 1 ==
+  // this new shipped baseline, so future tuning stays relative.
+  let wetBase = 0.4725, wetScale = 1.0;
   // r27 state: the space crossfade pair, the ?tune voicing, the lazy meter
   let convs = null, convGain = null, spaceActive = 0, spaceName = 'open';
   const irCache = {};
@@ -63,8 +66,9 @@ export function createEngine() {
 
     eng.master = mk(actx.createGain()); eng.master.gain.value = 0.0;
     eng.comp = mk(actx.createDynamicsCompressor());
-    eng.comp.threshold.value = -16; eng.comp.knee.value = 18;
-    eng.comp.ratio.value = 3; eng.comp.attack.value = 0.004; eng.comp.release.value = 0.18;
+    // r30 baked (?tune glue 1.2): threshold −16 → −17.6, ratio 3 → 3.3
+    eng.comp.threshold.value = -17.6; eng.comp.knee.value = 18;
+    eng.comp.ratio.value = 3.3; eng.comp.attack.value = 0.004; eng.comp.release.value = 0.18;
     // r27, the voicing shelves (the ?tune macros' tonal half). Both sit AFTER
     // master so they shape the whole mix, pads included; both are flat (0 dB)
     // in the shipped voicing, so the retail signal path is bit-transparent
@@ -110,7 +114,7 @@ export function createEngine() {
     // percussive material still compresses; the bed stays still.
     eng.padLp = mk(actx.createBiquadFilter());
     eng.padLp.type = 'lowpass'; eng.padLp.frequency.value = 2200; eng.padLp.Q.value = 0.4;
-    eng.padGain = mk(actx.createGain()); eng.padGain.gain.value = 1.0;
+    eng.padGain = mk(actx.createGain()); eng.padGain.gain.value = 1.15;   // r30 baked (?tune bed 1.15)
     // r27: the DUCK node — a separate stage so the breathing (duckBed) and
     // the ?tune bed macro (padGain) never fight over one AudioParam
     eng.padDuck = mk(actx.createGain()); eng.padDuck.gain.value = 1.0;
@@ -324,12 +328,12 @@ export function createEngine() {
     eng.warmth.gain.setTargetAtTime(voicing.warmth, t, 0.1);
     spaceScale = voicing.space;
     eng.wet.gain.setTargetAtTime(wetBase * wetScale * spaceScale, t, 0.1);
-    eng.padGain.gain.setTargetAtTime(voicing.bed, t, 0.1);
+    eng.padGain.gain.setTargetAtTime(1.15 * voicing.bed, t, 0.1);   // r30: 1 = baked bed
     noteScale = voicing.note;
     swishScale = voicing.swish;
-    // glue 0..2 → threshold −8..−24 dB, ratio 1.5..4.5 (1 = the shipped −16/3)
-    eng.comp.threshold.setTargetAtTime(-8 - 8 * voicing.glue, t, 0.1);
-    eng.comp.ratio.setTargetAtTime(1.5 + 1.5 * voicing.glue, t, 0.1);
+    // glue 1 = the r30 baked −17.6 dB / 3.3:1; span re-centered around it
+    eng.comp.threshold.setTargetAtTime(-9.6 - 8 * voicing.glue, t, 0.1);
+    eng.comp.ratio.setTargetAtTime(1.8 + 1.5 * voicing.glue, t, 0.1);
     eng.trim.gain.setTargetAtTime(voicing.master, t, 0.1);
   };
   eng.getVoicing = () => Object.assign({}, voicing);

@@ -197,7 +197,7 @@ export function createAudio() {
       const recipe = swishBank[SWISH_FOR_LEVEL[harmony.level()]] || swishBank.air;
       engine.playSwish(recipe[(Math.random() * recipe.length) | 0],
         0.92 + v * 0.22 + Math.random() * 0.08,
-        t, 0.12 + v * 0.10, 1100 + v * 2400, pan);
+        t, 0.09 + v * 0.075, 1100 + v * 2400, pan);   // r30 baked (?tune swish 0.75)
     }
     // r25: the mass thump is GONE from the slice. r23 already tamed it, and
     // the player still heard "some sort of muffled crunchy sound with a
@@ -349,6 +349,7 @@ export function createAudio() {
    */
   function onRockHit(e) {
     if (!engine.ready || !api.enabled) return;
+    conductor.onRockHit();   // r30: the arrangement dims — bloom is halved
     const t = engine.now();
     let n;
     try { n = harmony.noteFor('apple', 0); } catch (_) { n = 3; }
