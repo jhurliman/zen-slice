@@ -72,6 +72,11 @@ jobs:
           grep -q 'WebGPURenderer' dist/index.html \
             || { echo "::error::three's WebGPU build is not in the bundle"; exit 1; }
 
+      # The App Store listing requires a privacy policy URL; it lives at
+      # /privacy.html next to the game (App Store Connect points here).
+      - name: static pages
+        run: cp site/*.html dist/
+
       # Pages runs Jekyll unless told not to, and Jekyll drops files and
       # directories beginning with `_`. Nothing here starts with `_` today; this
       # is one byte of insurance against the day something does.
