@@ -27,13 +27,30 @@
 const FADE = 0.01; // voice-steal fade, seconds
 
 export function createEngine() {
+  // The whole engine surface is declared here, including members filled in
+  // later (the ensure() nodes, and every method below). JS tooling infers this
+  // object's type from the literal alone, so a member that first appears as
+  // `eng.foo = ...` reads as "may not exist on type" at every call site
+  // (ts 2568). Declaring it null costs nothing at runtime and keeps this
+  // literal an honest table of contents for the file.
   const eng = {
     ready: false,
     actx: null,
+    // master chain, built by ensure()
     dry: null, reverbIn: null, wet: null, master: null, comp: null,
-    padBus: null, padLp: null, padGain: null,
+    warmth: null, air: null, trim: null, rumble: null,
+    padBus: null, padLp: null, padGain: null, padDuck: null,
     noise: null,          // shared 1 s white-noise buffer (shhk, risers, hammer)
     nodesCreated: 0,      // steady-state pool-integrity counter for the harness
+    // lifecycle
+    now: null, ensure: null, resume: null, suspend: null, dispose: null,
+    cycle: null, kick: null,
+    // voices
+    playPiano: null, playThump: null, playSwish: null,
+    voiceDebug: null, voicesActive: null, setPianoCap: null,
+    // mix
+    setMaster: null, setWetScale: null, setSpace: null, space: null,
+    duckBed: null, setVoicing: null, getVoicing: null, meter: null,
   };
 
   let pianoPool = [], shhkPool = [], thumpPool = [];
@@ -53,7 +70,9 @@ export function createEngine() {
 
   eng.ensure = () => {
     if (eng.actx) return true;
-    const AC = window.AudioContext || window.webkitAudioContext;
+    // bracket access on the prefixed constructor: it is not in lib.dom, and
+    // dot access reads to JS tooling as a misspelling of AudioContext
+    const AC = window.AudioContext || window['webkitAudioContext'];
     if (!AC) return false;
     // r22: latencyHint 'interactive' is the default on paper, but say it out
     // loud — the slice sound's whole job is immediacy. Legacy webkit
