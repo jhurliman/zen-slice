@@ -34,9 +34,16 @@
  *    reverb-heavy. The player's own phrases become the loop material, and
  *    because the answer is quantized, it teaches the pulse without ever
  *    delaying the played note.
+ *
+ * ── TEXTURES ───────────────────────────────────────────────────────────────────
+ * Each level also owns a whisper-quiet ATMOSPHERE (instruments.TEXTURES —
+ * air / shimmer / diegetic grains). It crossfades when the palette LANDS in
+ * onBar, so the new air arrives out of the r27 hush with the tonic bloom;
+ * its presence rides bloom with a small always-on floor — the level keeps
+ * its identity even in idle, and grows the rest of the way with play.
  */
 
-import { makeDrone, makePadBank, playBloom } from './instruments.js';
+import { makeDrone, makePadBank, makeTexture, playBloom } from './instruments.js';
 
 const LOOKAHEAD = 0.12;   // seconds of actx time scheduled ahead
 export const PAD_COUNT = [2, 2, 3, 3, 3, 4, 4, 4, 5, 5];   // pad voices per level (r18: 10-level day arc)
@@ -117,7 +124,7 @@ export const BASSES = [
 const smooth01 = (x) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
 
 export function createConductor(engine, harmony) {
-  let drone = null, pad = null, playNote = null;
+  let drone = null, pad = null, texture = null, playNote = null;
   let started = false;
 
   let bpm = 66, bpmTarget = 66;
@@ -142,6 +149,10 @@ export function createConductor(engine, harmony) {
   // r28: stereo width follows bloom — idle sits narrow and intimate, full
   // arrangement opens to the authored fan (pad.setWidth + echo pan scale)
   let widthNow = -1;
+  // texture presence: floor + bloom growth (see TEX_FLOOR below); last value
+  // actually sent, so setPresence isn't spammed with sub-audible deltas
+  let texSent = -1;
+  const TEX_FLOOR = 0.3;
 
   // pending echoes, oldest-first; drained by frame() inside the look-ahead
   const echoQ = [];
@@ -161,6 +172,10 @@ export function createConductor(engine, harmony) {
       playNote = play;
       drone = makeDrone(engine);
       pad = makePadBank(engine, 5);
+      // texture recipe follows the PALETTE, not the level setting — at unlock
+      // a level may already be pending but its palette hasn't landed yet
+      texture = makeTexture(engine, harmony);
+      texture.setLevel(harmony.level(), 0.5);
       retarget(4.0);
       nextStep = engine.now() + 0.1;
       stepIdx = 0; barInChord = 0;
@@ -292,7 +307,8 @@ export function createConductor(engine, harmony) {
     reset() {
       harmony.reset();
       level = 0; heat = 0; bloom = 0; bpm = bpmTarget = 66;
-      gChain = 0; chainOn = false; widthNow = -1;
+      gChain = 0; chainOn = false; widthNow = -1; texSent = -1;
+      if (texture) texture.setLevel(0, 2);
       lastSliceT = -1e9;
       barInChord = 0; nudged = false;
       arrived = false; arrivalPending = false;
@@ -324,6 +340,14 @@ export function createConductor(engine, harmony) {
       // image physically expands because you are playing well
       const w = 0.35 + 0.65 * smooth01(bloom * 1.25);
       if (pad && Math.abs(w - widthNow) > 0.04) { pad.setWidth(w); widthNow = w; }
+      // texture presence — the air enters EARLIEST: a small floor keeps the
+      // level's identity audible even in idle, bloom opens it the rest of the
+      // way (fully grown by ~0.5, well before the sparkle's 0.7 gate)
+      if (texture) {
+        const tp = background ? TEX_FLOOR + (1 - TEX_FLOOR) * smooth01(bloom / 0.5) : 0;
+        if (Math.abs(tp - texSent) > 0.02) { texture.setPresence(tp); texSent = tp; }
+        if (background) texture.schedule(now, now + LOOKAHEAD);
+      }
       if (sinceSlice > 6) bpmTarget += (66 - bpmTarget) * Math.min(1, dt * 0.12);
       const slew = 2 * dt;
       bpm += Math.min(slew, Math.max(-slew, bpmTarget - bpm));
@@ -397,6 +421,9 @@ export function createConductor(engine, harmony) {
           playBloom(engine, harmony.noteFor('orange', 0), t);
           engine.duckBed(1.0, 0, 3.6);
         }
+        // the level's texture crossfades HERE, at the landing — the new air
+        // arrives out of the pre-landing hush together with the tonic bloom
+        if (texture) texture.setLevel(harmony.level(), 5);
       }
     }
   }
@@ -405,6 +432,7 @@ export function createConductor(engine, harmony) {
   function retarget(fade) {
     drone.setBass(harmony.noteFor('watermelon', 0));
     pad.setChord(harmony.padNotes(PAD_COUNT[level]), fade);
+    if (texture) texture.retune(fade);
     arpPool = harmony.glissNotes();
   }
 

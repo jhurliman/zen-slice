@@ -35,7 +35,7 @@ const ok = (cond, label) => { if (!cond) failures.push(label); return !!cond; };
 // ── PART 1: the harmonic field's laws, checked in pure node ─────────────────
 const { createHarmony } = await import(join(root, 'src/audio/harmony.js'));
 const { MOTIFS, BASSES, PAD_COUNT } = await import(join(root, 'src/audio/conductor.js'));
-const { SWISH_FOR_LEVEL } = await import(join(root, 'src/audio/instruments.js'));
+const { SWISH_FOR_LEVEL, TEXTURES } = await import(join(root, 'src/audio/instruments.js'));
 const { SPACE_FOR_LEVEL } = await import(join(root, 'src/audio/audio.js'));
 const SPECIES = ['watermelon', 'pineapple', 'orange', 'apple', 'kiwi', 'strawberry'];
 const E2 = -17;
@@ -45,6 +45,33 @@ ok(BASSES.length === N_LEVELS, `BASSES has ${BASSES.length} levels, expected ${N
 ok(PAD_COUNT.length === N_LEVELS, `PAD_COUNT has ${PAD_COUNT.length} levels, expected ${N_LEVELS}`);
 ok(SWISH_FOR_LEVEL.length === N_LEVELS, `SWISH_FOR_LEVEL has ${SWISH_FOR_LEVEL.length} levels, expected ${N_LEVELS}`);
 ok(SPACE_FOR_LEVEL.length === N_LEVELS, `SPACE_FOR_LEVEL has ${SPACE_FOR_LEVEL.length} levels, expected ${N_LEVELS}`);
+ok(TEXTURES.length === N_LEVELS, `TEXTURES has ${TEXTURES.length} levels, expected ${N_LEVELS}`);
+// the texture recipes' static laws (makeTexture assumes all of these)
+ok(TEXTURES[0] === null, 'L0 texture must be null — Still Water is silence');
+{
+  const GRAIN_KINDS = new Set(['dew', 'rain', 'ember', 'cricket']);
+  for (let l = 1; l < TEXTURES.length; l++) {
+    const t = TEXTURES[l];
+    if (!ok(!!t && !!t.air, `L${l} texture missing its air recipe`)) continue;
+    ok(t.air.f >= 60 && t.air.f <= 6000, `L${l} air f ${t.air.f} out of band`);
+    ok(t.air.q > 0, `L${l} air q ${t.air.q} not positive`);
+    ok(t.air.g > 0 && t.air.g <= 0.05, `L${l} air g ${t.air.g} outside the whisper range`);
+    // breathe depth < 1 and wander < f: the LFO sums must never swing the
+    // gain negative or the bandpass center through 0 Hz
+    ok(t.air.breathe >= 0 && t.air.breathe < 1, `L${l} air breathe ${t.air.breathe} would swing negative`);
+    ok(t.air.wander >= 0 && t.air.wander < t.air.f, `L${l} air wander ${t.air.wander} can cross 0 Hz`);
+    ok(t.air.trem > 0 && t.air.trem <= 8, `L${l} air trem ${t.air.trem} out of range`);
+    if (t.grains) {
+      ok(GRAIN_KINDS.has(t.grains.kind), `L${l} unknown grain kind ${t.grains.kind}`);
+      ok(t.grains.rate > 0 && t.grains.rate <= 6, `L${l} grain rate ${t.grains.rate} out of range`);
+      ok(t.grains.g > 0 && t.grains.g <= 0.12, `L${l} grain g ${t.grains.g} outside the whisper range`);
+    }
+    if (t.shimmer) {
+      ok(t.shimmer.g > 0 && t.shimmer.g <= 0.03, `L${l} shimmer g ${t.shimmer.g} outside the whisper range`);
+      ok(t.shimmer.det > 0 && t.shimmer.det <= 12, `L${l} shimmer det ${t.shimmer.det} cents out of range`);
+    }
+  }
+}
 {
   const h = createHarmony();
   let chordsChecked = 0;

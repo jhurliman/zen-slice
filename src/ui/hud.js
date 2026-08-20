@@ -17,6 +17,15 @@ import { loadPrefs, savePref } from '../core/prefs.js';
 const RISE_MAX = 58;      // px the callout travels upward over its life
 const POP_MAX = 1.20;     // peak overshoot of the punch-in
 
+// The debug strip is reachable two ways: ?debug (dev URLs) and a settings
+// toggle (pref 'debug') — hearing each level's music still needs the remote
+// ON DEVICE, where editing a URL is friction. build.mjs compiles
+// __ZS_DEBUG_UI__ to false for App Store builds (APPSTORE=1): the toggle
+// never renders and neither path can enable the strip there. The typeof
+// guard keeps unbundled imports (node tools) working, where the identifier
+// was never defined.
+const DEBUG_UI_ALLOWED = typeof __ZS_DEBUG_UI__ === 'undefined' || !!__ZS_DEBUG_UI__;
+
 export function createHud() {
   const api = {};
   let ctx, root, scoreEl, multEl, levelEl, comboLayer, hintEl, flagEl;
@@ -207,7 +216,8 @@ export function createHud() {
     try {
       const q = new URLSearchParams(location.search || '');
       captureMode = q.has('capture') && q.get('capture') !== '0';
-      debugOn = q.has('debug') && q.get('debug') !== '0';
+      debugOn = DEBUG_UI_ALLOWED
+        && ((q.has('debug') && q.get('debug') !== '0') || loadPrefs().debug === true);
       forceTitle = q.has('title');
     } catch (_) { /* */ }
     try { reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { /* */ }
@@ -277,6 +287,9 @@ export function createHud() {
         + `<div class="zs-panel" id="zs-panel">`
         + `<button data-k="sound">sound ${p.sound !== false ? 'on' : 'off'}</button>`
         + `<button data-k="haptics">haptics ${p.haptics !== false ? 'on' : 'off'}</button>`
+        // the debug toggle exists only in non-App-Store builds (see
+        // DEBUG_UI_ALLOWED above); note `=== true` — debug defaults OFF
+        + (DEBUG_UI_ALLOWED ? `<button data-k="debug">debug ${p.debug === true ? 'on' : 'off'}</button>` : '')
         + `<button data-k="again">begin again</button>`
         // r36: the best streak, readable where the player already looks —
         // a non-interactive line in the panel's own voice, no new screen.
@@ -308,6 +321,8 @@ export function createHud() {
         const now = !(loadPrefs()[k] !== false);   // flip
         savePref(k, now);
         b.textContent = `${k} ${now ? 'on' : 'off'}`;
+        // debug is the HUD's own pref: build or tear down the strip live
+        if (k === 'debug') { debugOn = now; setDebugStrip(now); }
         ctx.bus.emit('pref', { key: k, value: now });
       });
     }
@@ -330,9 +345,20 @@ export function createHud() {
     // level · chord · bpm · bloom (polled ~2 Hz from ZS.audio.state()) and
     // ◀ ▶ jump levels via director.jumpLevel — which emits the same 'level'
     // event a natural advance does, so palettes/motifs/spawn pools all follow.
-    // Diagnostic chrome, so it exists only behind the flag, like ?dropphys.
+    // Diagnostic chrome, so it exists only behind the flag (or, since the
+    // settings toggle, the 'debug' pref), like ?dropphys.
     // debugOn was parsed above alongside captureMode
-    if (debugOn) {
+    if (debugOn) setDebugStrip(true);
+
+    // first level name — deferred to title dismissal when the title is up
+    // (codex: the 700 ms timer used to fade "STILL WATER" through the veil)
+    setTimeout(() => { if (!titleEl) c.bus.emit('level', { level: 0, name: 'Still Water' }); }, 700);
+  };
+
+  /** Build or tear down the debug strip — shared by init (?debug / stored
+   *  pref) and the live settings toggle. */
+  function setDebugStrip(on) {
+    if (on && !debugEl) {
       debugEl = document.createElement('div');
       debugEl.className = 'zs-debug';
       debugEl.innerHTML = `<button id="zs-dbg-prev">◀</button>`
@@ -348,12 +374,12 @@ export function createHud() {
       const jump = (d) => { const dir = ctx.fruits; if (dir?.jumpLevel) dir.jumpLevel((dir.level | 0) + d); };
       debugEl.querySelector('#zs-dbg-prev').addEventListener('pointerdown', () => jump(-1));
       debugEl.querySelector('#zs-dbg-next').addEventListener('pointerdown', () => jump(1));
+      debugAcc = 1;   // populate the text on the next frame, not in 500 ms
+    } else if (!on && debugEl) {
+      debugEl.remove();
+      debugEl = null; debugTxt = null;
     }
-
-    // first level name — deferred to title dismissal when the title is up
-    // (codex: the 700 ms timer used to fade "STILL WATER" through the veil)
-    setTimeout(() => { if (!titleEl) c.bus.emit('level', { level: 0, name: 'Still Water' }); }, 700);
-  };
+  }
 
   function togglePanel(open) {
     panelOpen = open;

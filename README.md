@@ -113,7 +113,7 @@ audio-touching change ships.
 
 | URL flag | what it does |
 |---|---|
-| `?debug` | HUD strip: fps, tier, chord/bpm/bloom, latency, haptics state; level-jump remote |
+| `?debug` | HUD strip: fps, tier, chord/bpm/bloom, latency, haptics state; level-jump remote. Also toggleable on device from the settings panel (pref `debug`); `APPSTORE=1 node build.mjs` compiles both paths out for App Store builds |
 | `?tune` | the dev voicing panel — 8 audio macros, A/B, copy-JSON export |
 | `?capture=1` | forces WebGL2 + deterministic seams for the probe harness |
 | `?nosound` / `?nophys` | disable audio / physics |

@@ -62,6 +62,11 @@ const res = await build({
   // WebGPURenderer needs top-level `await` support in the toolchain; safari16 is
   // fine for the syntax we emit because boot() is a plain async function.
   target: ['safari16', 'chrome110'],
+  // Debug UI availability (hud.js): the ?debug strip and its settings toggle.
+  // App Store builds run `APPSTORE=1 node build.mjs`, which compiles the flag
+  // to false — the toggle never renders and the strip can never be enabled,
+  // so no debug chrome can ship to review.
+  define: { __ZS_DEBUG_UI__: process.env.APPSTORE === '1' ? 'false' : 'true' },
   minify: process.env.DEV !== '1',
   sourcemap: false,
   write: false,
