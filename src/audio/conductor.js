@@ -134,6 +134,14 @@ export function createConductor(engine, harmony) {
 
   // layer presences, derived from bloom each frame
   let gBass = 0, gMotif = 0, gEcho = 0;
+  // r28: the chain stem — audible while the phrase multiplier is alive
+  // (audio.js feeds setChain from ctx.score.combo). Fast attack, faster
+  // release: the shimmer must DIE the moment the chain breaks, that is the
+  // whole message.
+  let gChain = 0, chainOn = false;
+  // r28: stereo width follows bloom — idle sits narrow and intimate, full
+  // arrangement opens to the authored fan (pad.setWidth + echo pan scale)
+  let widthNow = -1;
 
   // pending echoes, oldest-first; drained by frame() inside the look-ahead
   const echoQ = [];
@@ -194,15 +202,50 @@ export function createConductor(engine, harmony) {
       // up an octave unless that leaves the kit's span — never Math.min a
       // pitch: clamping transposes to a different note, not a softer one
       const n = semis + 12 <= 31 ? semis + 12 : semis;
-      queueEcho(t, n, vel * 0.32 * gEcho, pan * 0.5, 3600, 0.85);
+      // r28: echo width rides bloom too — answers sit near center in the
+      // quiet and spread as the arrangement opens
+      const ew = 0.2 + 0.3 * Math.min(1, bloom * 1.25);
+      queueEcho(t, n, vel * 0.32 * gEcho, pan * ew, 3600, 0.85);
       if (gEcho > 0.7) {
-        queueEcho(t + 8 * stepDur, n, vel * 0.13 * gEcho, -pan * 0.5, 3000, 0.9);
+        queueEcho(t + 8 * stepDur, n, vel * 0.13 * gEcho, -pan * ew, 3000, 0.9);
       }
     },
 
     /** True while the soundscape is breathed down; audio.js blooms the slice
      *  that breaks a silence like this. */
     isIdle: () => engine.now() - lastSliceT > 10,
+
+    /**
+     * r28 (the Rez move): snap an engine-clock time onto the NEXT 16th of
+     * the scheduler's own grid — the same arithmetic the echo answer uses.
+     * The slice's pitched note quantizes through this; the swish stays at
+     * contact. Identity before start so nothing waits on a silent grid.
+     */
+    quantize(t) {
+      if (!started) return t;
+      const stepDur = 60 / bpm / 4;
+      return nextStep + Math.ceil((t - nextStep) / stepDur) * stepDur;
+    },
+
+    /**
+     * r28: seconds from `now` until the next AUDIBLE 8th boundary (even step
+     * index). `nextStep` is the SCHEDULING cursor — it runs up to LOOKAHEAD
+     * ahead of the audible clock — so this walks back from it to the first
+     * step time ≥ now, then forward one step if that lands on an off 8th.
+     * Published on ctx each frame for the director's beat-quantized toss.
+     */
+    timeToNext8(now) {
+      if (!started) return 0;
+      const stepDur = 60 / bpm / 4;
+      const m = Math.floor((nextStep - now) / stepDur);
+      let t8 = nextStep - m * stepDur;              // first step time ≥ now
+      const idx = stepIdx - m;                       // its step index (may be <0)
+      if (((idx % 2) + 2) % 2 === 1) t8 += stepDur;  // odd 16th → next 8th
+      return Math.max(0, t8 - now);
+    },
+
+    /** r28: the phrase chain's audible stem (see gChain above). */
+    setChain(on) { chainOn = !!on; },
 
     onComboPeak() { nudged = true; },
 
@@ -232,6 +275,7 @@ export function createConductor(engine, harmony) {
     reset() {
       harmony.reset();
       level = 0; heat = 0; bloom = 0; bpm = bpmTarget = 66;
+      gChain = 0; chainOn = false; widthNow = -1;
       lastSliceT = -1e9;
       barInChord = 0; nudged = false;
       arrived = false; arrivalPending = false;
@@ -254,6 +298,14 @@ export function createConductor(engine, harmony) {
       gBass = smooth01((bloom - 0.04) / 0.22);
       gMotif = smooth01((bloom - 0.22) / 0.34);
       gEcho = smooth01((bloom - 0.08) / 0.18);
+      // chain stem: ~0.25 s to bloom in, ~0.4 s to die with the chain
+      const gcT = chainOn ? 1 : 0;
+      gChain += (gcT - gChain) * Math.min(1, dt / (gcT > gChain ? 0.25 : 0.4));
+      // width follows bloom (r28): 0.35× the authored fan when the world is
+      // still, opening to 1× as the arrangement grows — on headphones the
+      // image physically expands because you are playing well
+      const w = 0.35 + 0.65 * smooth01(bloom * 1.25);
+      if (pad && Math.abs(w - widthNow) > 0.04) { pad.setWidth(w); widthNow = w; }
       if (sinceSlice > 6) bpmTarget += (66 - bpmTarget) * Math.min(1, dt * 0.12);
       const slew = 2 * dt;
       bpm += Math.min(slew, Math.max(-slew, bpmTarget - bpm));
@@ -360,6 +412,16 @@ export function createConductor(engine, harmony) {
         const n = arpPool[half + ((Math.random() * (arpPool.length - half)) | 0)];
         playNote(n, 0.09 + 0.05 * intensity, (Math.random() * 2 - 1) * 0.4, t, 3200, 0.8);
       }
+    }
+
+    // r28 THE CHAIN STEM — the multiplier, audible. While a phrase chain is
+    // alive a deterministic high shimmer pulses the off-8ths (steps 2, 6,
+    // 10, 14), alternating sides; it fades in over ~0.25 s and DIES within
+    // half a second of the chain breaking. Distinct from the random sparkle
+    // above by being regular: a pulse you can ride, not weather.
+    if (arps && gChain > 0.05 && step % 4 === 2) {
+      const n = arpPool[arpPool.length - 1 - ((step >> 2) & 1)];
+      playNote(n, 0.11 * gChain, ((step >> 2) & 1 ? 0.35 : -0.35), t, 4200, 0.85);
     }
   }
 

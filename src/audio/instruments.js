@@ -335,7 +335,7 @@ export function makePadBank(engine, max = 5) {
     pan.pan.value = PAD_PAN[i % PAD_PAN.length];
     o.connect(g); g.connect(pan); pan.connect(engine.padBus);
     o.start();
-    voices.push({ o, g });
+    voices.push({ o, g, pan, basePan: PAD_PAN[i % PAD_PAN.length] });
   }
   return {
     /** semis[] ascending; fade in seconds */
@@ -350,6 +350,12 @@ export function makePadBank(engine, max = 5) {
           v.g.gain.setTargetAtTime(0, t, fade * 0.6);
         }
       }
+    },
+    /** r28: width-as-bloom — scale every voice's authored pan by w (0..1);
+     *  the conductor drives this from bloom so the image opens with play. */
+    setWidth(w) {
+      const t = engine.now();
+      for (const v of voices) v.pan.pan.setTargetAtTime(v.basePan * w, t, 0.6);
     },
   };
 }
@@ -370,6 +376,33 @@ export function playPluck(engine, semis, vel, pan, when) {
     g.gain.exponentialRampToValueAtTime(0.0004, t + 1.5 - i * 0.35);
     o.connect(g); g.connect(p);
     o.start(t); o.stop(t + 1.6);
+  });
+}
+
+/**
+ * r28 THE APEX HUM — the fruit whispers the note it would sing. Every fruit
+ * already IS a chord role; this makes that legible before the swipe: a very
+ * quiet pitched swell (sine + a ghost of its octave), panned to where the
+ * fruit will hang, centered on its arc apex. Slicing "resolves" the hum into
+ * the piano note; rocks never hum (they are not notes — the silence is the
+ * tell). Mostly reverb, a little dry; raw nodes like the riser, no pool.
+ */
+export function playHum(engine, semis, when, dur, pan) {
+  const actx = engine.actx;
+  const t = Math.max(when, actx.currentTime);
+  const f = semisToFreq(semis);
+  const p = actx.createStereoPanner(); p.pan.value = pan;
+  const dry = actx.createGain(); dry.gain.value = 0.3;
+  p.connect(engine.reverbIn); p.connect(dry); dry.connect(engine.dry);
+  [[1, 0.034], [2, 0.011]].forEach(([h, a]) => {
+    const o = actx.createOscillator(); o.type = 'sine';
+    o.frequency.value = f * h;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(a, t + dur * 0.45);
+    g.gain.setTargetAtTime(0, t + dur * 0.55, dur * 0.2);
+    o.connect(g); g.connect(p);
+    o.start(t); o.stop(t + dur * 1.6);
   });
 }
 

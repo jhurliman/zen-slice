@@ -40,7 +40,7 @@ import { createHarmony } from './harmony.js';
 import { createConductor } from './conductor.js';
 import {
   renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank, SWISH_FOR_LEVEL,
-  playPluck, playRiser, playSigh, playBloom,
+  playPluck, playRiser, playSigh, playBloom, playHum,
 } from './instruments.js';
 
 const CHORD_GATHER = 0.08;  // s to gather a stroke's LATER cuts (first note is immediate)
@@ -65,7 +65,8 @@ export function createAudio() {
   let pianoKit = null, thumpBuf = null, swishBank = null;
   let pending = [];            // gathered notes of the current stroke
   let pendingAt = -1;          // engine time of the stroke's first cut
-  let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9;
+  let pendingQuant = -1;       // r28: the 16th-grid time the stroke's notes land on
+  let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9, lastHum = -1e9;
   let lastWatchdog = 0, swishCount = 0;
   // r21: the settings mute. Everything keeps RUNNING (engine, conductor,
   // scheduler) — mute is just the master fader at 0, so unmute is instant.
@@ -171,7 +172,7 @@ export function createAudio() {
       engine.setSpace(SPACE_FOR_LEVEL[Math.max(0, Math.min(SPACE_FOR_LEVEL.length - 1, e.level | 0))]);
     }));
     c.bus.on('reset', guard(() => {
-      pending.length = 0; pendingAt = -1;
+      pending.length = 0; pendingAt = -1; pendingQuant = -1;
       conductor.reset();
       engine.setSpace(SPACE_FOR_LEVEL[0], 3);
     }));
@@ -208,13 +209,14 @@ export function createAudio() {
 
     conductor.onSlice();
 
-    // ── the note — IMMEDIATE on the stroke's first cut (r23) ──
-    // "As soon as my blade comes into contact with fruit … in that first
-    // frame is when I want to hear the immediate feedback slice sound."
-    // The first note sounds AT CONTACT and its pitch is fixed; the gather
-    // window collects only the stroke's later cuts, voiced around it at
-    // flush. combo is already incremented (audio runs last), so combo-1 is
-    // this cut's climb up the chord.
+    // ── the note — QUANTIZED to the 16th grid (r28, the Rez move) ──
+    // r23 made the first note land at contact because nothing else did; now
+    // the SWISH owns contact (immediate, unpitched — Rez's own trick), so
+    // the pitch snaps to the scheduler's next 16th (≤ 250 ms at 60 bpm,
+    // usually far less) and every slice becomes a sequencer step. "The
+    // sequencing is so striking" — this is that. Pitch is still FIXED at
+    // contact (the chord could advance before the grid tick), and the voice
+    // is reserved now, so nothing can steal the moment.
     const combo = ctxRef.score?.combo ?? 1;
     const entry = {
       id: e.fruit.species.id, pitch: e.fruit.species.pitch,
@@ -226,7 +228,8 @@ export function createAudio() {
       pendingAt = t;
       try { entry.semis = harmony.noteFor(entry.id, entry.climb); }
       catch (err) { fail(err); entry.semis = harmony.fallbackPitch(entry.pitch, entry.combo); }
-      playNote(entry.semis, v, pan, t, brightOf(v), wetOf(entry.y));
+      pendingQuant = conductor.quantize(t);
+      playNote(entry.semis, v, pan, pendingQuant, brightOf(v), wetOf(entry.y));
     }
     pending.push(entry);
 
@@ -241,7 +244,9 @@ export function createAudio() {
    *  conductor's echo answer, the low reinforcement, the 5+ gliss. */
   function flush() {
     const n = pending.length;
-    const t = engine.now();
+    // r28: the whole gesture anchors on the first note's grid time — the
+    // strum rolls off the 16th the sequencer gave us, not off wall clock
+    const t = Math.max(engine.now(), pendingQuant);
     const first = pending[0];
 
     let semis;
@@ -314,7 +319,7 @@ export function createAudio() {
         }
       }
     }
-    pending.length = 0; pendingAt = -1;
+    pending.length = 0; pendingAt = -1; pendingQuant = -1;
   }
 
   const wetOf = (y) => 0.35 + Math.max(0, Math.min(1, (y + 4) / 8)) * 0.4;
@@ -354,8 +359,24 @@ export function createAudio() {
 
   function onSpawn(e) {
     if (!started || !api.enabled) return;
-    if (e.fruit.species.noCut) return;   // a riser promises reward; rocks aren't one
+    if (e.fruit.species.noCut) return;   // rocks are not notes: no riser, no hum — the SILENCE is the tell
     const t = engine.now();
+    // r28 THE APEX HUM: the fruit whispers the note it would sing, centered
+    // on its arc apex and panned to where it will hang — the player hears
+    // the canvas offering notes before the swipe, and slicing resolves the
+    // hum into the piano. Gated off in hot play (it is an invitation for
+    // quiet moments, clutter in a flurry) and rate-limited so bursts don't
+    // stack whispers.
+    if (conductor.intensity < 0.75 && t - lastHum > 0.6) {
+      lastHum = t;
+      try {
+        const apexDt = Math.min(2.2, Math.max(0.4, e.fruit.vel.y / 14));
+        const dur = 1.1;
+        const humPan = panOf(e.fruit.pos.x + e.fruit.vel.x * apexDt);
+        playHum(engine, harmony.noteFor(e.fruit.species.id, 0),
+          t + Math.max(0.05, apexDt - dur * 0.5), dur, humPan);
+      } catch (err) { fail(err); }
+    }
     if (conductor.intensity >= 0.5 || t - lastRiser < 1.2) return;
     lastRiser = t;
     playRiser(engine, e.fruit.vel.y / 14);   // apex = v_y / |GRAVITY|
@@ -385,8 +406,24 @@ export function createAudio() {
       conductor.frame(dt);
       // r27: publish the live beat for the beat-synced combo window —
       // score.js reads ctx.beatSec (and clamps); modules share via ctx.
-      if (ctxRef) ctxRef.beatSec = 60 / conductor.bpm;
-      if (pendingAt >= 0 && engine.now() - pendingAt >= CHORD_GATHER) flush();
+      if (ctxRef) {
+        ctxRef.beatSec = 60 / conductor.bpm;
+        // r28: seconds to the next audible 8th, for the director's
+        // beat-quantized toss (absent/0 = toss immediately)
+        ctxRef.toss8In = started ? conductor.timeToNext8(engine.now()) : 0;
+        // r28: the chain stem follows the live multiplier
+        conductor.setChain((ctxRef.score?.combo ?? 0) >= 2);
+      }
+      // r28: the gather now runs to just before the GRID TICK, not a fixed
+      // 80 ms — the chord commits right before it sounds. That is musically
+      // where the deadline belongs, and it buys a hitchy frame (or a slow
+      // device) more time to drain r19-perf's queued cuts into the group.
+      // CHORD_GATHER stays as the floor for when the tick is nearly on top
+      // of the contact. Bounded: a 16th is at most 0.25 s at 60 bpm.
+      if (pendingAt >= 0) {
+        const deadline = Math.max(pendingAt + CHORD_GATHER, pendingQuant - 0.03);
+        if (engine.now() >= deadline) flush();
+      }
     } catch (err) { fail(err); }
   };
 

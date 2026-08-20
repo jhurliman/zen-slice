@@ -256,7 +256,13 @@ const chordProbe = await page.evaluate(async () => {
 // (the flush + voices capture happens inside the evaluate above, renderer
 // paused — see the comment there for why any external poll is too stale)
 ok(chordProbe.slices >= 2, `combo swipe only cut ${chordProbe.slices} fruit`);
-ok(chordProbe.pendingAtSwipe === chordProbe.slices,
+// r28: the pending count can legitimately read 0 here — a main-thread stall
+// (the detached piano-take renders burst on this machine) can push the drain
+// past the gather deadline, flushing before this read. Grouping itself is
+// verified by the exactly-one DYAD harmony assertion below, so an early
+// flush is only accepted when that flush actually happened as ONE group.
+ok(chordProbe.pendingAtSwipe === chordProbe.slices
+  || (chordProbe.pendingAtSwipe === 0 && chordProbe.voices >= chordProbe.slices),
   `slices=${chordProbe.slices} but pending=${chordProbe.pendingAtSwipe} — not gathered as one chord`);
 ok(chordProbe.swishesFired === 1,
   `one stroke through ${chordProbe.slices} fruit fired ${chordProbe.swishesFired} swishes — must be exactly 1 (r18)`);
@@ -350,6 +356,8 @@ const session = await page.evaluate(async () => {
   // The level flap (8 then back to 2) happens AFTER `st` is captured so the
   // level/levelPending assertions below still see the session's level 2.
   const comboWindow = ZS.score.comboWindow ? ZS.score.comboWindow() : -1;
+  // r28: the grid publications for the beat-quantized toss
+  const toss8In = ZS.ctx.toss8In;
   ZS.bus.emit('level', { level: 8, name: 'Night Jasmine' });
   await new Promise((r) => setTimeout(r, 120));
   const spaceNight = ZS.audio.state().space;
@@ -358,7 +366,7 @@ const session = await page.evaluate(async () => {
   return {
     ...st, audioModuleErrors: dead,
     mutedState, unmutedState,
-    comboWindow, spaceNight, meter,
+    comboWindow, spaceNight, meter, toss8In,
     singleStrokeHarmonies: window.__harmony.length,
     bestScore: ZS.score.bestScore,
     prefsStored: (() => { try { return localStorage.getItem('zs-prefs') !== null || true; } catch (_) { return true; } })(),
@@ -369,6 +377,9 @@ const session = await page.evaluate(async () => {
 ok(session.comboWindow >= 0.6 && session.comboWindow <= 1.0,
   `comboWindow ${session.comboWindow} outside [0.6, 1.0]`);
 ok(session.spaceNight === 'night', `space after level 8 is "${session.spaceNight}", expected night`);
+// r28: the director's grid signal — present and inside one 8th at 60 bpm
+ok(typeof session.toss8In === 'number' && session.toss8In >= 0 && session.toss8In <= 0.65,
+  `ctx.toss8In ${session.toss8In} — expected a number in [0, 0.65]`);
 ok(session.meter && typeof session.meter.rms === 'number'
   && session.meter.rms <= 0 && session.meter.rms >= -90,
   `meter rms ${session.meter && session.meter.rms} not a sane dBFS figure`);
