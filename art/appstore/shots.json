@@ -1,6 +1,7 @@
 {
   "comment": "App Store screenshot manifest, in display order. Edit captions freely and re-run: node tools/appstore.mjs",
   "shots": [
+    { "file": "IMG_2860.PNG", "headline": "Put on headphones", "sub": "this game is an instrument" },
     { "file": "IMG_2842.PNG", "headline": "The cut is the note", "sub": "every swipe plays the chord" },
     { "file": "IMG_2843.PNG", "headline": "Slice through the chord", "sub": "dyads and triads score bigger" },
     { "file": "IMG_2852.PNG", "headline": "Find your tempo", "sub": "the beat is inferred from your slicing" },
