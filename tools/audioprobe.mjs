@@ -206,6 +206,11 @@ const chordProbe = await page.evaluate(async () => {
   // chord gather)
   ZS.step(1 / 120, 6, false);
   const atSwipe = ZS.audio.state();
+  // r25: the live multiplier chip — a 2-fruit stroke makes combo 2 (×1.5),
+  // and hud.frame (driven by the steps above) must have lit it by now
+  const multEl = document.getElementById('zs-mult');
+  const multOn = !!multEl && multEl.classList.contains('on');
+  const multText = multEl ? multEl.textContent : null;
   off();
 
   // Observe the flush from IN HERE, with the renderer still paused. Measured:
@@ -229,6 +234,7 @@ const chordProbe = await page.evaluate(async () => {
     pendingAtSwipe: atSwipe.pending,
     swishesFired: atSwipe.swishes - swishesBefore,
     voicesAtContact: atSwipe.voicesActive,
+    multOn, multText,
     pendingAfter: flushed ? 0 : ZS.audio.state().pending,
     voices: flushVoices,
     chord: ZS.audio.state().chord,
@@ -241,6 +247,9 @@ ok(chordProbe.pendingAtSwipe === chordProbe.slices,
   `slices=${chordProbe.slices} but pending=${chordProbe.pendingAtSwipe} — not gathered as one chord`);
 ok(chordProbe.swishesFired === 1,
   `one stroke through ${chordProbe.slices} fruit fired ${chordProbe.swishesFired} swishes — must be exactly 1 (r18)`);
+// r25: the multiplier chip must be lit at ×1.5 while the 2-cut chain is alive
+ok(chordProbe.multOn === true && chordProbe.multText === '×1.5',
+  `multiplier chip after a 2-fruit stroke: on=${chordProbe.multOn} text="${chordProbe.multText}", expected ×1.5 lit`);
 // r23: the first note sounds AT CONTACT — before the gather flushes, with
 // pending still open, at least one voice must already be live
 ok(chordProbe.voicesAtContact >= 1,

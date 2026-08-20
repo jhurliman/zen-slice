@@ -37,26 +37,29 @@ import { createPhysics } from './physics.js';
  */
 /**
  * `rock` (r20) is the per-spawn chance that a toss is a river stone instead
- * of a fruit — the hazard: slicing one thuds, sounds a dissonant cluster,
- * costs points, and breaks the combo. Zero through First Light (dawn stays
- * pure and the guard below never draws rng when it is zero, so levels 0–1's
- * frozen probe baselines stay byte-identical); a slow introduction at
- * Morning Dew, ramping through the night. ⚠ For levels with rock > 0 every
- * spawn draws one extra rng, so later-level probe baselines shift —
- * re-baselining those is expected, not a regression.
+ * of a fruit — the hazard: slicing one plays the wrong-key piano flam,
+ * costs points, and breaks the phrase chain. r25 pacing, from the player:
+ * rocks are "the only element that adds real gameplay and our pacing is
+ * quite slow so we need to get the gameplay aspect going quicker" — they
+ * now start at First Light (one level earlier), at roughly DOUBLE the old
+ * early-game rates, ramping to a hard cap of 0.18 by night. Only Still
+ * Water stays pure (the guard below never draws rng when rock is zero, so
+ * level 0's frozen probe baselines stay byte-identical). ⚠ For levels with
+ * rock > 0 every spawn draws one extra rng, so those levels' probe
+ * baselines shift — re-baselining is expected, not a regression.
  */
 export const LEVELS = [
   { name: 'Still Water', pool: ['orange', 'apple'], every: [1.9, 2.6], burst: 1, need: 12, dur: 90, rock: 0 },
-  { name: 'First Light', pool: ['orange', 'apple', 'kiwi'], every: [1.7, 2.3], burst: 1, need: 20, dur: 120, rock: 0 },
-  { name: 'Morning Dew', pool: ['apple', 'kiwi', 'strawberry'], every: [1.5, 2.1], burst: 1, need: 30, dur: 150, rock: 0.035 },
-  { name: 'Orchard Rain', pool: ['orange', 'apple', 'kiwi', 'strawberry'], every: [1.3, 1.9], burst: 2, need: 40, dur: 180, rock: 0.05 },
-  { name: 'Noon Bloom', pool: ['watermelon', 'orange', 'apple', 'strawberry'], every: [1.2, 1.8], burst: 2, need: 45, dur: 180, rock: 0.06 },
-  { name: 'Summer Weight', pool: ['watermelon', 'pineapple', 'orange', 'kiwi'], every: [1.2, 1.7], burst: 2, need: 50, dur: 210, rock: 0.08 },
-  { name: 'Golden Hour', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [1.0, 1.6], burst: 2, need: 50, dur: 210, rock: 0.09 },
-  { name: 'Dusk Ember', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [1.0, 1.5], burst: 2, need: 55, dur: 240, rock: 0.11 },
-  { name: 'Night Jasmine', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.9, 1.4], burst: 3, need: 55, dur: 240, rock: 0.13 },
+  { name: 'First Light', pool: ['orange', 'apple', 'kiwi'], every: [1.7, 2.3], burst: 1, need: 20, dur: 120, rock: 0.04 },
+  { name: 'Morning Dew', pool: ['apple', 'kiwi', 'strawberry'], every: [1.5, 2.1], burst: 1, need: 30, dur: 150, rock: 0.07 },
+  { name: 'Orchard Rain', pool: ['orange', 'apple', 'kiwi', 'strawberry'], every: [1.3, 1.9], burst: 2, need: 40, dur: 180, rock: 0.10 },
+  { name: 'Noon Bloom', pool: ['watermelon', 'orange', 'apple', 'strawberry'], every: [1.2, 1.8], burst: 2, need: 45, dur: 180, rock: 0.12 },
+  { name: 'Summer Weight', pool: ['watermelon', 'pineapple', 'orange', 'kiwi'], every: [1.2, 1.7], burst: 2, need: 50, dur: 210, rock: 0.14 },
+  { name: 'Golden Hour', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [1.0, 1.6], burst: 2, need: 50, dur: 210, rock: 0.15 },
+  { name: 'Dusk Ember', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [1.0, 1.5], burst: 2, need: 55, dur: 240, rock: 0.16 },
+  { name: 'Night Jasmine', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.9, 1.4], burst: 3, need: 55, dur: 240, rock: 0.18 },
   // the endless coda — the journey arrives here and stays
-  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.35], burst: 3, need: Infinity, dur: Infinity, rock: 0.12 },
+  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.35], burst: 3, need: Infinity, dur: Infinity, rock: 0.18 },
 ];
 
 export function createDirector({ seed = 20260806 } = {}) {

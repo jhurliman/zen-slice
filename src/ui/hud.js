@@ -19,7 +19,7 @@ const POP_MAX = 1.20;     // peak overshoot of the punch-in
 
 export function createHud() {
   const api = {};
-  let ctx, root, scoreEl, levelEl, comboLayer, hintEl, flagEl;
+  let ctx, root, scoreEl, multEl, levelEl, comboLayer, hintEl, flagEl;
   let debugOn = false, debugEl = null, debugTxt = null, debugAcc = 0;
   let shownScore = 0;
   const floats = [];
@@ -80,13 +80,14 @@ export function createHud() {
     root = document.createElement('div');
     root.className = 'zs-hud';
     root.innerHTML = `
-      <div class="zs-score"><span id="zs-num">0</span></div>
+      <div class="zs-score"><span id="zs-num">0</span><span class="zs-mult" id="zs-mult"></span></div>
       <div class="zs-level" id="zs-level"></div>
       <div class="zs-combos" id="zs-combos"></div>
       <div class="zs-hint" id="zs-hint">swipe to slice</div>
       <div class="zs-flag" id="zs-flag"></div>`;
     document.body.appendChild(root);
     scoreEl = root.querySelector('#zs-num');
+    multEl = root.querySelector('#zs-mult');
     levelEl = root.querySelector('#zs-level');
     comboLayer = root.querySelector('#zs-combos');
     hintEl = root.querySelector('#zs-hint');
@@ -332,6 +333,23 @@ export function createHud() {
     const s = c.score?.score ?? 0;
     shownScore += (s - shownScore) * Math.min(1, dt * 9);
     scoreEl.textContent = Math.round(shownScore);
+    // r25: the LIVE MULTIPLIER, next to the score. The phrase chain has been
+    // driving mult silently since r22 and the player judged that too subtle
+    // ("show your current multiplier next to your score at top when you have
+    // one active"). Read straight off the score module each frame — combo is
+    // zeroed there when the window expires, so this fades the moment the
+    // chain dies. Text is left in place while fading so it never blanks
+    // mid-transition.
+    if (multEl) {
+      const combo = c.score?.combo ?? 0;
+      const on = combo >= 2;
+      if (on) {
+        const mult = 1 + (combo - 1) * 0.5;
+        const txt = `×${mult % 1 ? mult.toFixed(1) : mult}`;
+        if (multEl.textContent !== txt) multEl.textContent = txt;
+      }
+      if (on !== multEl.classList.contains('on')) multEl.classList.toggle('on', on);
+    }
     // r21: the settings glyph earns its existence by absence — visible only
     // after the fingertip has been still for IDLE_SHOW_S
     if (gearEl) {

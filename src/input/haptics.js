@@ -11,13 +11,15 @@
  *    and the latest iOS stopped honoring that; the working form — the
  *    technique behind ios-vibrator-pro-max (MIT, Sam Denty,
  *    https://github.com/samdenty/ios-vibrator-pro-max) — is:
- *      1. wrap the switch in a hidden <label> and hide the INPUT with
- *         display:none — then call `label.click()`, never input.click();
- *      2. the click only ticks inside a ~850 ms GRANT opened by any trusted
- *         user event, so we track the last trusted interaction ourselves
- *         (pointer/touch/key, move events included — a drag keeps the grant
- *         alive, which is exactly what slicing needs);
- *      3. patterns = repeated label.click() ~26 ms apart, each re-checked
+ *      1. wrap the switch in an UNSTYLED empty <label> (an empty label
+ *         renders nothing — never hide the label itself with opacity /
+ *         pointer-events / offscreen positioning, WebKit then skips the
+ *         haptic) and hide only the INPUT with display:none — then call
+ *         `label.click()`, never input.click();
+ *      2. the click only ticks inside a ~850 ms GRANT opened by a trusted
+ *         COMPLETED interaction — click / touchend / keyup / keypress, the
+ *         reference's exact set — tracked here the same way;
+ *      3. patterns = repeated label.click() ~27 ms apart, each re-checked
  *         against the grant (a timer tick outside the grant is a no-op, not
  *         an error).
  *    Still unofficial and version-fragile: every call is try/caught so a
@@ -56,15 +58,24 @@ export function createHaptics() {
       const i = document.createElement('input');
       i.type = 'checkbox';
       if ('switch' in i) {
+        // r25 — MIRROR ios-vibrator-pro-max EXACTLY, because "almost" did not
+        // tick (the player: "haptics are not working"). Its hidden trigger is
+        // an UNSTYLED empty <label> wrapping a display:none input, sitting in
+        // a bare container div in the normal flow: zero visual footprint
+        // because an empty label renders nothing. The r24 version hid the
+        // label itself (opacity:0, pointer-events:none, offscreen) and any of
+        // those can make WebKit treat the control as non-interactive and skip
+        // the system haptic. No styling on the label, ever.
         i.setAttribute('switch', '');
-        i.style.display = 'none';   // the input must be display:none; the LABEL takes the click
-        i.setAttribute('aria-hidden', 'true');
+        i.setAttribute('style', 'display: none !important');
         i.tabIndex = -1;
         const l = document.createElement('label');
-        l.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-99px;top:-99px;';
-        l.setAttribute('aria-hidden', 'true');
+        l.tabIndex = -1;
         l.appendChild(i);
-        document.body.appendChild(l);
+        const holder = document.createElement('div');
+        holder.setAttribute('aria-hidden', 'true');
+        holder.appendChild(l);
+        document.body.appendChild(holder);
         labelEl = l;
         return 'switch';
       }
@@ -72,11 +83,37 @@ export function createHaptics() {
     return 'none';
   }
 
+  // ── the deferred tick (codex r25, P1) ──────────────────────────────────────
+  // A slice lands MID-stroke, before the stroke's own touchend — so when
+  // strokes are further apart than the 850 ms grant (the whole early game:
+  // fruit every 1.7-2.6 s), the grant is always stale at slice time and a
+  // grant-gated click would never fire. The fix keeps the reference's
+  // known-working activation set: a tick requested outside the grant is
+  // QUEUED, and the very next completed interaction — normally this stroke's
+  // own touchend, ~100-250 ms after the cut — flushes it SYNCHRONOUSLY from
+  // inside its handler, which is by definition inside a fresh grant. Rapid
+  // consecutive strokes still tick at the instant of the cut.
+  let pendingTaps = 0, pendingAt = -1e9;
+  const PENDING_TTL = 2000;   // ms — a tick nobody collected goes stale
+
   /** One system tick, iff the grant is open. Safe to call from timers. */
   function tapSwitch() {
     try {
       if (labelEl && performance.now() - lastTrusted < GRANT_MS) labelEl.click();
     } catch (_) { /* degrade to silence, never retire the module */ }
+  }
+  /** `n` system ticks TAP_GAP_MS apart — now if the grant is open, else
+   *  queued for the next completed interaction. */
+  function requestTaps(n) {
+    if (performance.now() - lastTrusted < GRANT_MS) {
+      tapSwitch();
+      for (let k = 1; k < n; k++) setTimeout(tapSwitch, k * TAP_GAP_MS);
+    } else {
+      // coalesce, never accumulate: a queue that machine-guns at finger-lift
+      // would feel like a malfunction, not feedback
+      pendingTaps = Math.max(pendingTaps, Math.min(2, n));
+      pendingAt = performance.now();
+    }
   }
 
   /** One pulse. ms drives duration on the vibrate backend; on iOS, longer
@@ -89,8 +126,7 @@ export function createHaptics() {
     lastPulse = now;
     try {
       if (api.backend === 'vibrate') { navigator.vibrate(ms); return; }
-      tapSwitch();
-      if (ms >= 30) setTimeout(tapSwitch, TAP_GAP_MS);
+      requestTaps(ms >= 30 ? 2 : 1);
     } catch (_) { /* */ }
   }
   function pattern(arr) {
@@ -101,14 +137,8 @@ export function createHaptics() {
     lastPulse = now;
     try {
       if (api.backend === 'vibrate') { navigator.vibrate(arr); return; }
-      // no true patterns on iOS: render [on, off, on, …] as one tick at each
-      // ON boundary — every delayed tick re-checks the grant inside tapSwitch
-      tapSwitch();
-      let at = 0;
-      for (let i = 0; i + 1 < arr.length; i += 2) {
-        at += arr[i] + arr[i + 1];
-        setTimeout(tapSwitch, Math.max(TAP_GAP_MS, at));
-      }
+      // no true patterns on iOS: one tick per ON segment
+      requestTaps(Math.max(1, Math.ceil(arr.length / 2)));
     } catch (_) { /* */ }
   }
 
@@ -118,11 +148,29 @@ export function createHaptics() {
     if (api.backend === 'none') return;   // inert — listeners would be dead weight
 
     if (api.backend === 'switch') {
-      // the grant tracker: ANY trusted interaction opens/refreshes the
-      // ~850 ms window in which label.click() ticks. Move events included —
-      // a slice lands mid-drag, often >850 ms after the pointerdown.
-      const touch = (e) => { if (e.isTrusted !== false) lastTrusted = performance.now(); };
-      ['pointerdown', 'pointermove', 'pointerup', 'touchstart', 'touchmove', 'touchend', 'keydown']
+      // the grant tracker — ios-vibrator-pro-max's EXACT event set: click,
+      // touchend, keyup, keypress. These are completed-interaction events;
+      // r24 listened to pointerdown/move too and assumed they renewed the
+      // OS-side window, but the reference implementation deliberately does
+      // not, and it is the one known to work. Ticks requested between grants
+      // are queued (see requestTaps) and collected HERE: the handler runs
+      // inside the completed interaction itself, so its click is always
+      // honored. Events from our own label/input are skipped (ivpm does the
+      // same) so a click echo can never look like a fresh grant.
+      const touch = (e) => {
+        if (!e.isTrusted) return;
+        if (labelEl && (e.target === labelEl || e.target === labelEl.firstChild)) return;
+        lastTrusted = performance.now();
+        if (pendingTaps > 0) {
+          const n = performance.now() - pendingAt < PENDING_TTL ? pendingTaps : 0;
+          pendingTaps = 0;
+          if (n > 0) {
+            tapSwitch();
+            for (let k = 1; k < n; k++) setTimeout(tapSwitch, k * TAP_GAP_MS);
+          }
+        }
+      };
+      ['click', 'touchend', 'keyup', 'keypress']
         .forEach((ev) => window.addEventListener(ev, touch, { passive: true, capture: true }));
     }
 
@@ -135,7 +183,7 @@ export function createHaptics() {
     c.bus.on('pref', (e) => { if (e.key === 'haptics') enabled = !!e.value; });
   };
 
-  api.dispose = () => { try { labelEl?.remove(); } catch (_) { /* */ } };
+  api.dispose = () => { try { labelEl?.parentNode?.remove(); } catch (_) { /* */ } };
 
   return api;
 }

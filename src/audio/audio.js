@@ -8,9 +8,9 @@
  *
  * ── The architecture in one paragraph ───────────────────────────────────────
  * The cut IS the note (r23): the first fruit of a stroke plays its piano
- * note at the instant of contact — zero hold — with a breath of air (the
- * swish) and a soft wet weight under it. The player is painting on the
- * audio canvas, not triggering pads. Cohesion comes from harmony, not
+ * note at the instant of contact — zero hold — with only a breath of air
+ * (the swish) beside it; r25 removed the last slice percussion (the mass
+ * thump). The player is painting on the audio canvas, not triggering pads. Cohesion comes from harmony, not
  * quantization — every pitched voice draws from the shared harmonic field,
  * so the player can never play a wrong note. Background layers (pad, bass
  * pulse, arp sparkle) ARE grid-quantized, but the grid's tempo is inferred
@@ -170,10 +170,9 @@ export function createAudio() {
     const t = engine.now();
     const v = vel(e.stroke.speed);
     const pan = panOf(e.fruit.pos.x);
-    const mass = e.fruit.species.mass;
     const wasIdle = conductor.isIdle();
 
-    // ── immediate: the cut and the weight ──
+    // ── immediate: the air of the cut ──
     // The swish is per STROKE, not per fruit (r18): pending.length === 1
     // below means this is the stroke's first cut, and a hard 120 ms floor
     // stops even separate rapid strokes from clattering. The recipe follows
@@ -187,11 +186,13 @@ export function createAudio() {
         0.92 + v * 0.22 + Math.random() * 0.08,
         t, 0.12 + v * 0.10, 1100 + v * 2400, pan);
     }
-    // the wet weight under the cut — felt more than heard. r23 tamed it hard:
-    // at 0.10 × mass·0.5 the player heard "a big bongo or kick underneath"
-    // late-level cuts. The piano's own hammer transient is the hit now.
-    engine.playThump(thumpBuf, Math.min(2.2, Math.max(0.8, 0.8 + 0.5 / mass)),
-      t, 0.06 * Math.min(1.0, mass * 0.4));
+    // r25: the mass thump is GONE from the slice. r23 already tamed it, and
+    // the player still heard "some sort of muffled crunchy sound with a
+    // delay" — that was this: a pitched-up sine drop (up to 2.2× rate on
+    // small fruit) whose low tail blooms tens of ms after the piano's onset,
+    // reading as a delayed muffled knock on a phone speaker. A slice is now
+    // exactly two sounds — air and the note. The thump buffer survives only
+    // as the rock's knuckle of contact (onRockHit).
 
     conductor.onSlice();
 
