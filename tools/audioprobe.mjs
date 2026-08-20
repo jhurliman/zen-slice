@@ -36,6 +36,7 @@ const ok = (cond, label) => { if (!cond) failures.push(label); return !!cond; };
 const { createHarmony } = await import(join(root, 'src/audio/harmony.js'));
 const { MOTIFS, BASSES, PAD_COUNT } = await import(join(root, 'src/audio/conductor.js'));
 const { SWISH_FOR_LEVEL } = await import(join(root, 'src/audio/instruments.js'));
+const { SPACE_FOR_LEVEL } = await import(join(root, 'src/audio/audio.js'));
 const SPECIES = ['watermelon', 'pineapple', 'orange', 'apple', 'kiwi', 'strawberry'];
 const E2 = -17;
 const N_LEVELS = 10;   // the r18 day arc — director.LEVELS is index-matched
@@ -43,6 +44,7 @@ ok(MOTIFS.length === N_LEVELS, `MOTIFS has ${MOTIFS.length} levels, expected ${N
 ok(BASSES.length === N_LEVELS, `BASSES has ${BASSES.length} levels, expected ${N_LEVELS}`);
 ok(PAD_COUNT.length === N_LEVELS, `PAD_COUNT has ${PAD_COUNT.length} levels, expected ${N_LEVELS}`);
 ok(SWISH_FOR_LEVEL.length === N_LEVELS, `SWISH_FOR_LEVEL has ${SWISH_FOR_LEVEL.length} levels, expected ${N_LEVELS}`);
+ok(SPACE_FOR_LEVEL.length === N_LEVELS, `SPACE_FOR_LEVEL has ${SPACE_FOR_LEVEL.length} levels, expected ${N_LEVELS}`);
 {
   const h = createHarmony();
   let chordsChecked = 0;
@@ -344,14 +346,32 @@ const session = await page.evaluate(async () => {
   const unmutedState = ZS.audio.state().muted;
   const st = ZS.audio.state();
   const dead = ZS.moduleErrors.filter((m) => m.module === 'audio' || m.module === 'haptics');
+  // r27: the beat-synced combo window, the day-arc space switch, the meter.
+  // The level flap (8 then back to 2) happens AFTER `st` is captured so the
+  // level/levelPending assertions below still see the session's level 2.
+  const comboWindow = ZS.score.comboWindow ? ZS.score.comboWindow() : -1;
+  ZS.bus.emit('level', { level: 8, name: 'Night Jasmine' });
+  await new Promise((r) => setTimeout(r, 120));
+  const spaceNight = ZS.audio.state().space;
+  ZS.bus.emit('level', { level: 2, name: 'Morning Dew' });
+  const meter = ZS.audio.meter ? ZS.audio.meter() : null;
   return {
     ...st, audioModuleErrors: dead,
     mutedState, unmutedState,
+    comboWindow, spaceNight, meter,
     singleStrokeHarmonies: window.__harmony.length,
     bestScore: ZS.score.bestScore,
     prefsStored: (() => { try { return localStorage.getItem('zs-prefs') !== null || true; } catch (_) { return true; } })(),
   };
 });
+// r27 assertions: window is one clamped beat; the room follows the day; the
+// meter reports sane dBFS figures off the live analyser
+ok(session.comboWindow >= 0.6 && session.comboWindow <= 1.0,
+  `comboWindow ${session.comboWindow} outside [0.6, 1.0]`);
+ok(session.spaceNight === 'night', `space after level 8 is "${session.spaceNight}", expected night`);
+ok(session.meter && typeof session.meter.rms === 'number'
+  && session.meter.rms <= 0 && session.meter.rms >= -90,
+  `meter rms ${session.meter && session.meter.rms} not a sane dBFS figure`);
 ok(session.mutedState === true && session.unmutedState === false,
   `mute pref did not track: muted=${session.mutedState} unmuted=${session.unmutedState}`);
 ok(session.bestScore > 0, `bestScore never rose (${session.bestScore})`);

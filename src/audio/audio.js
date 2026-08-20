@@ -47,6 +47,14 @@ const CHORD_GATHER = 0.08;  // s to gather a stroke's LATER cuts (first note is 
 const STRUM = 0.028;        // s between rolled chord notes
 const MAX_ERRORS = 20;
 
+// r27: the room follows the day (engine.SPACES — dawn close, noon open,
+// night vast). Index-matched to director.js LEVELS like every per-level
+// array; the probe asserts the length.
+export const SPACE_FOR_LEVEL = [
+  'dawn', 'dawn', 'dawn', 'open', 'open',
+  'open', 'open', 'night', 'night', 'night',
+];
+
 export function createAudio() {
   const api = { enabled: true, errors: [] };
   const engine = createEngine();
@@ -158,10 +166,14 @@ export function createAudio() {
     c.bus.on('combo', guard(onCombo));
     c.bus.on('spawn', guard(onSpawn));
     c.bus.on('expire', guard(onExpire));
-    c.bus.on('level', guard((e) => conductor.setLevel(e.level)));
+    c.bus.on('level', guard((e) => {
+      conductor.setLevel(e.level);
+      engine.setSpace(SPACE_FOR_LEVEL[Math.max(0, Math.min(SPACE_FOR_LEVEL.length - 1, e.level | 0))]);
+    }));
     c.bus.on('reset', guard(() => {
       pending.length = 0; pendingAt = -1;
       conductor.reset();
+      engine.setSpace(SPACE_FOR_LEVEL[0], 3);
     }));
   };
 
@@ -288,6 +300,9 @@ export function createAudio() {
       // FLOURISH (5+), crescendo left-to-right across the stereo field,
       // brightening as it climbs, the top note accented and ringing.
       if (n >= 4) {
+        // r27 sidechain breathing: the bed makes room for the reward moment,
+        // then swells back while the run rings — authored, not pumping
+        engine.duckBed(0.6, 0.5, 2.4);
         const run = harmony.runNotes(n >= 5 ? 3 : 2);
         const t0 = t + 0.10 + order.length * STRUM;
         const last = run.length - 1;
@@ -368,9 +383,17 @@ export function createAudio() {
         if (!document.hidden && engine.actx && engine.actx.state !== 'running') engine.resume();
       }
       conductor.frame(dt);
+      // r27: publish the live beat for the beat-synced combo window —
+      // score.js reads ctx.beatSec (and clamps); modules share via ctx.
+      if (ctxRef) ctxRef.beatSec = 60 / conductor.bpm;
       if (pendingAt >= 0 && engine.now() - pendingAt >= CHORD_GATHER) flush();
     } catch (err) { fail(err); }
   };
+
+  /** ?tune / ?debug surfaces: the engine's voicing macros and the mix meter. */
+  api.getVoicing = () => engine.getVoicing();
+  api.setVoicing = (v) => { try { engine.setVoicing(v); } catch (err) { fail(err); } };
+  api.meter = () => { try { return engine.ready ? engine.meter() : null; } catch (_) { return null; } };
 
   api.quality = (q) => {
     caps = q.tier <= 0
@@ -394,6 +417,7 @@ export function createAudio() {
     baseLatency: engine.actx?.baseLatency ?? null,
     outputLatency: engine.actx?.outputLatency ?? null,
     bpm: Math.round(conductor.bpm * 10) / 10,
+    space: engine.ready ? engine.space() : 'none',
     chord: harmony.chordName(),
     level: harmony.level(),
     levelPending: harmony.levelPending(),

@@ -55,6 +55,7 @@ import { createHud } from './ui/hud.js';
 import { createHaptics } from './input/haptics.js';
 import { createAudio } from './audio/audio.js';
 import { initNative } from './core/native.js';
+import { initTuner } from './ui/tuner.js';
 
 const PROFILES = {
   // fruitSegments is PolyhedronGeometry `detail`: triangles = 20*(detail+1)^2
@@ -83,7 +84,7 @@ function readFlags() {
   const capture = on('capture');
   const gl = on('gl');
   const gpu = on('gpu');
-  return { capture, forceWebGL: gl || (capture && !gpu), explicitGL: gl, explicitGPU: gpu };
+  return { capture, forceWebGL: gl || (capture && !gpu), explicitGL: gl, explicitGPU: gpu, tune: on('tune') };
 }
 
 /**
@@ -149,6 +150,13 @@ export async function boot(canvas) {
   for (let i = 0; i < modules.length; i++) modules[i].__zsName = names[i];
   // Capacitor shell bootstrap (r26): no-op outside the native app
   ctx.native = initNative();
+  // ?tune (r27): the dev-only voicing panel — constructed ONLY behind the
+  // flag, and a failure here must never take the game down (it is a tuning
+  // tool, not a module). Statically imported: a dynamic import() would ask
+  // the single-file esbuild bundle to split.
+  if (flags.tune) {
+    try { initTuner(audio); } catch (_) { /* tuning tool only */ }
+  }
   ctx.stage = stage;
   ctx.score = score;
 

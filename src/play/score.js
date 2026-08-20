@@ -82,12 +82,19 @@ import { loadPrefs, savePref } from '../core/prefs.js';
 // r26 — THE HUMAN WITH A THUMB ANSWERED. The player, after real sessions:
 // "It's quite difficult to keep a combo multiplier going given the slow
 // nature of fruits tossing up in the air… maybe we could make it like 15%
-// easier." 0.55 → 0.63 is exactly that 15%, and nothing else about the
-// chain changes. (A beat-synced window — one beat at the inferred tempo is
-// 0.67–1.0 s — was considered for the music tie-in and declined: it couples
-// scoring to audio state in the last polish stage, and the player is
-// explicitly risk-averse to structural changes now.)
-const COMBO_WINDOW = 0.63;
+// easier." 0.55 → 0.63 was exactly that 15%.
+//
+// r27 — BEAT-SYNCED, at the player's explicit request ("make the combo
+// window beat synced, that makes a lot more sense"). The window is now ONE
+// BEAT at the conductor's inferred tempo: audio.js publishes ctx.beatSec
+// each frame (60/bpm over the 60–90 bpm range → 1.00–0.67 s), clamped to
+// [0.60, 1.00] here so a missing/retired audio module, ?nosound, or any
+// out-of-range publish degrades to r26's feel, never to nonsense. The
+// elegance is that tempo FOLLOWS the player's slicing cadence, so a calm
+// player gets a roomy 1 s window and a fast player a tight one — the chain
+// self-balances, and keeping the phrase alive means literally staying on
+// the music's beat.
+const COMBO_WINDOW_FALLBACK = 0.63;
 
 export function createScore() {
   const api = { score: 0, combo: 0, best: 0, total: 0, level: 0, levelName: 'Still Water', bestScore: 0 };
@@ -103,17 +110,23 @@ export function createScore() {
   // it plays — DYAD/TRIAD/CHORD/FLOURISH. Grouped here by e.strokeId (stamped
   // at hit time in slicer.js); a group closes 150 ms after its last cut,
   // which covers r19-perf's one-cut-per-fixed-step drain.
-  // PHRASE is the COMBO_WINDOW cross-stroke chain below — the score
-  // multiplier (window 0.63 s since r26, +15% by player request) — acknowledged with one whisper only when a
-  // run of 6+ ends naturally (not on a rockhit: the stone owns that moment).
+  // PHRASE is the beat-synced cross-stroke chain below — the score
+  // multiplier (window = one beat since r27) — acknowledged with one whisper
+  // only when a run of 6+ ends naturally (not on a rockhit: the stone owns
+  // that moment).
   let hStrokeId = -1, hSize = 0, hGain = 0, hAt = null, hCloseT = -1e9;
+
+  // the live window: one beat at the inferred tempo, clamped (see the
+  // COMBO_WINDOW_FALLBACK note above). Exposed on the api for the probe.
+  api.comboWindow = () =>
+    Math.max(0.60, Math.min(1.00, (ctx && ctx.beatSec) || COMBO_WINDOW_FALLBACK));
 
   api.init = (c) => {
     ctx = c;
     api.bestScore = Math.max(0, loadPrefs().bestScore | 0);
     c.bus.on('slice', (e) => {
       const now = e.stroke.t;
-      if (now - lastSliceT < COMBO_WINDOW) api.combo++; else api.combo = 1;
+      if (now - lastSliceT < api.comboWindow()) api.combo++; else api.combo = 1;
       lastSliceT = now;
       const peak = api.combo > api.best;
       api.best = Math.max(api.best, api.combo);
@@ -214,7 +227,7 @@ export function createScore() {
 
   api.frame = () => {
     const now = nowSec();
-    if (api.combo && now - lastSliceT > COMBO_WINDOW) {
+    if (api.combo && now - lastSliceT > api.comboWindow()) {
       // a sustained run ending on its own terms earns the phrase whisper —
       // a chain broken by a rock does not (see the rockhit handler)
       if (api.combo >= 6) ctx.bus.emit('phrase', { length: api.combo });

@@ -39,6 +39,12 @@ export function createEngine() {
   let pianoPool = [], shhkPool = [], thumpPool = [];
   let pianoCap = 16;
   let wetBase = 0.35, wetScale = 1.0;
+  // r27 state: the space crossfade pair, the ?tune voicing, the lazy meter
+  let convs = null, convGain = null, spaceActive = 0, spaceName = 'open';
+  const irCache = {};
+  let noteScale = 1.0, swishScale = 1.0, spaceScale = 1.0;
+  let voicing = { air: 0, warmth: 0, space: 1, bed: 1, note: 1, swish: 1, glue: 1, master: 1 };
+  let analyser = null, meterTime = null, meterFreq = null;
 
   eng.now = () => (eng.actx ? eng.actx.currentTime : 0);
 
@@ -59,22 +65,43 @@ export function createEngine() {
     eng.comp = mk(actx.createDynamicsCompressor());
     eng.comp.threshold.value = -16; eng.comp.knee.value = 18;
     eng.comp.ratio.value = 3; eng.comp.attack.value = 0.004; eng.comp.release.value = 0.18;
-    // r26, the one mastering insert: a 28 Hz rumble highpass between master
-    // and the hardware. Nothing musical lives below it (the drone's A1 bass
-    // is 55 Hz, the rock thump's tail ends at 45 Hz) but noise-derived
+    // r27, the voicing shelves (the ?tune macros' tonal half). Both sit AFTER
+    // master so they shape the whole mix, pads included; both are flat (0 dB)
+    // in the shipped voicing, so the retail signal path is bit-transparent
+    // until a tuning session moves them.
+    eng.warmth = mk(actx.createBiquadFilter());
+    eng.warmth.type = 'lowshelf'; eng.warmth.frequency.value = 240; eng.warmth.gain.value = 0;
+    eng.air = mk(actx.createBiquadFilter());
+    eng.air.type = 'highshelf'; eng.air.frequency.value = 7500; eng.air.gain.value = 0;
+    // trim: the ?tune master macro — separate from eng.master, which the mute
+    // fader and visibilitychange own
+    eng.trim = mk(actx.createGain()); eng.trim.gain.value = 1.0;
+    // r26, the one always-on mastering insert: a 28 Hz rumble highpass between
+    // master and the hardware. Nothing musical lives below it (the drone's A1
+    // bass is 55 Hz, the rock thump's tail ends at 45 Hz) but noise-derived
     // buffers carry a little sub-30 energy, and on headphones that reads as
     // pressure, not sound. Everything audible passes untouched.
     eng.rumble = mk(actx.createBiquadFilter());
     eng.rumble.type = 'highpass'; eng.rumble.frequency.value = 28; eng.rumble.Q.value = 0.5;
-    eng.comp.connect(eng.master); eng.master.connect(eng.rumble);
+    eng.comp.connect(eng.master);
+    eng.master.connect(eng.warmth); eng.warmth.connect(eng.air);
+    eng.air.connect(eng.trim); eng.trim.connect(eng.rumble);
     eng.rumble.connect(actx.destination);
 
     eng.dry = mk(actx.createGain()); eng.dry.gain.value = 1.0; eng.dry.connect(eng.comp);
     eng.reverbIn = mk(actx.createGain()); eng.reverbIn.gain.value = 1.0;
     eng.wet = mk(actx.createGain()); eng.wet.gain.value = wetBase * wetScale;
-    const conv = mk(actx.createConvolver());
-    conv.buffer = makeIR(actx, 2.4);
-    eng.reverbIn.connect(conv); conv.connect(eng.wet); eng.wet.connect(eng.comp);
+    // r27: TWO convolvers, crossfaded — the room changes with the day (see
+    // SPACES and setSpace below). A ConvolverNode's buffer cannot be swapped
+    // audibly mid-tail, so space changes fade between a live pair instead.
+    convGain = [mk(actx.createGain()), mk(actx.createGain())];
+    convGain[0].gain.value = 1; convGain[1].gain.value = 0;
+    convs = [mk(actx.createConvolver()), mk(actx.createConvolver())];
+    convs[0].buffer = spaceIR(actx, 'open');
+    for (let i = 0; i < 2; i++) {
+      eng.reverbIn.connect(convs[i]); convs[i].connect(convGain[i]); convGain[i].connect(eng.wet);
+    }
+    eng.wet.connect(eng.comp);
 
     // pad bus: its lowpass is the "breathing" filter the conductor drives.
     // r17: the pad/drone route AROUND the compressor, straight into master —
@@ -84,11 +111,14 @@ export function createEngine() {
     eng.padLp = mk(actx.createBiquadFilter());
     eng.padLp.type = 'lowpass'; eng.padLp.frequency.value = 2200; eng.padLp.Q.value = 0.4;
     eng.padGain = mk(actx.createGain()); eng.padGain.gain.value = 1.0;
+    // r27: the DUCK node — a separate stage so the breathing (duckBed) and
+    // the ?tune bed macro (padGain) never fight over one AudioParam
+    eng.padDuck = mk(actx.createGain()); eng.padDuck.gain.value = 1.0;
     eng.padBus = mk(actx.createGain()); eng.padBus.gain.value = 1.0;
     eng.padBus.connect(eng.padLp); eng.padLp.connect(eng.padGain);
-    eng.padGain.connect(eng.master);
+    eng.padGain.connect(eng.padDuck); eng.padDuck.connect(eng.master);
     const padSend = mk(actx.createGain()); padSend.gain.value = 0.8;
-    eng.padGain.connect(padSend); padSend.connect(eng.reverbIn);
+    eng.padDuck.connect(padSend); padSend.connect(eng.reverbIn);
 
     // shared noise buffer (same trick as the old audio.js, kept)
     const len = (actx.sampleRate * 1.0) | 0;
@@ -169,7 +199,7 @@ export function createEngine() {
     v.send.gain.setValueAtTime(wet, t);
     v.gain.gain.cancelScheduledValues(t);
     v.gain.gain.setValueAtTime(0, t);
-    v.gain.gain.linearRampToValueAtTime(gain, t + 0.004);
+    v.gain.gain.linearRampToValueAtTime(gain * noteScale, t + 0.004);
     v.pan.pan.setValueAtTime(pan, t);
     src.start(t);
     const dur = buffer.duration / rate;
@@ -213,7 +243,7 @@ export function createEngine() {
     v.lp.frequency.exponentialRampToValueAtTime(Math.max(400, cutoffHz * 0.35), t + 0.2);
     v.gain.gain.cancelScheduledValues(t);
     v.gain.gain.setValueAtTime(0, t);
-    v.gain.gain.linearRampToValueAtTime(loud / (1 + 0.7 * active), t + 0.008);
+    v.gain.gain.linearRampToValueAtTime((loud * swishScale) / (1 + 0.7 * active), t + 0.008);
     v.pan.pan.setValueAtTime(pan, t);
     src.start(t);
     const dur = buffer.duration / rate;
@@ -239,11 +269,117 @@ export function createEngine() {
   eng.setPianoCap = (n) => { pianoCap = Math.max(2, Math.min(pianoPool.length, n)); };
   eng.setWetScale = (s) => {
     wetScale = s;
-    if (eng.wet) eng.wet.gain.setTargetAtTime(wetBase * wetScale, eng.now(), 0.25);
+    if (eng.wet) eng.wet.gain.setTargetAtTime(wetBase * wetScale * spaceScale, eng.now(), 0.25);
   };
   eng.setMaster = (v, tau = 0.8) => {
     if (eng.master) eng.master.gain.setTargetAtTime(v, eng.now(), tau);
   };
+
+  /**
+   * r27: the day changes the room. Crossfade the convolver pair to the named
+   * space over `fade` seconds — dawn is close and intimate, noon open, night
+   * vast and dark. IRs are generated once, lazily, and cached (a few ms of
+   * synchronous math each). A no-op when the space is already current.
+   */
+  eng.setSpace = (name, fade = 6) => {
+    if (!eng.ready || !SPACES[name] || name === spaceName) return;
+    spaceName = name;
+    const t = eng.now();
+    const next = 1 - spaceActive;
+    convs[next].buffer = spaceIR(eng.actx, name);
+    convGain[next].gain.cancelScheduledValues(t);
+    convGain[spaceActive].gain.cancelScheduledValues(t);
+    convGain[next].gain.setTargetAtTime(1, t, fade * 0.33);
+    convGain[spaceActive].gain.setTargetAtTime(0, t, fade * 0.33);
+    spaceActive = next;
+  };
+  eng.space = () => spaceName;
+
+  /**
+   * r27: the mix BREATHES — duck the pad/drone bed and bloom it back. Used
+   * for the sidechain moment after a big harmony (the world making room for
+   * the player's chord, then swelling back) and for the hush before a level
+   * lands. Depth is linear gain (0.6 = about −4.4 dB), release is a time
+   * constant so the bloom-back is long and soft.
+   */
+  eng.duckBed = (depth = 0.6, hold = 0.4, release = 2.2) => {
+    if (!eng.ready) return;
+    const t = eng.now();
+    const g = eng.padDuck.gain;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(depth, t, 0.08);
+    g.setTargetAtTime(1.0, t + hold, release / 3);
+  };
+
+  /**
+   * r27: the ?tune voicing — eight macro parameters over curated bundles.
+   * All identity at ship values; every setter is smoothed so live tuning
+   * never clicks. `air`/`warmth` in dB (±), the rest linear scales.
+   */
+  eng.setVoicing = (v) => {
+    voicing = Object.assign({}, voicing, v);
+    if (!eng.ready) return;
+    const t = eng.now();
+    eng.air.gain.setTargetAtTime(voicing.air, t, 0.1);
+    eng.warmth.gain.setTargetAtTime(voicing.warmth, t, 0.1);
+    spaceScale = voicing.space;
+    eng.wet.gain.setTargetAtTime(wetBase * wetScale * spaceScale, t, 0.1);
+    eng.padGain.gain.setTargetAtTime(voicing.bed, t, 0.1);
+    noteScale = voicing.note;
+    swishScale = voicing.swish;
+    // glue 0..2 → threshold −8..−24 dB, ratio 1.5..4.5 (1 = the shipped −16/3)
+    eng.comp.threshold.setTargetAtTime(-8 - 8 * voicing.glue, t, 0.1);
+    eng.comp.ratio.setTargetAtTime(1.5 + 1.5 * voicing.glue, t, 0.1);
+    eng.trim.gain.setTargetAtTime(voicing.master, t, 0.1);
+  };
+  eng.getVoicing = () => Object.assign({}, voicing);
+
+  /**
+   * r27: the mix meter (?debug). Lazy AnalyserNode tapped after the whole
+   * voicing chain, so the numbers describe what the hardware receives.
+   * Returns dBFS-ish figures: RMS and peak from the time domain, and three
+   * band levels (lo <250 Hz, mid 250–2k, hi >2k) from the magnitude bins.
+   */
+  eng.meter = () => {
+    if (!eng.ready) return null;
+    if (!analyser) {
+      analyser = eng.actx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.5;
+      eng.rumble.connect(analyser);
+      meterTime = new Float32Array(analyser.fftSize);
+      meterFreq = new Float32Array(analyser.frequencyBinCount);
+    }
+    analyser.getFloatTimeDomainData(meterTime);
+    let sum = 0, peak = 0;
+    for (let i = 0; i < meterTime.length; i++) {
+      const a = meterTime[i];
+      sum += a * a;
+      const ab = Math.abs(a);
+      if (ab > peak) peak = ab;
+    }
+    const dB = (x) => (x > 1e-7 ? Math.max(-90, 20 * Math.log10(x)) : -90);
+    analyser.getFloatFrequencyData(meterFreq);
+    const sr = eng.actx.sampleRate, binHz = sr / analyser.fftSize;
+    const band = (lo, hi) => {
+      let acc = 0, n = 0;
+      for (let i = Math.max(1, (lo / binHz) | 0); i < Math.min(meterFreq.length, (hi / binHz) | 0); i++) {
+        acc += meterFreq[i]; n++;
+      }
+      return n ? Math.round(acc / n) : -90;
+    };
+    return {
+      rms: Math.round(dB(Math.sqrt(sum / meterTime.length))),
+      peak: Math.round(dB(peak)),
+      lo: band(30, 250), mid: band(250, 2000), hi: band(2000, 12000),
+    };
+  };
+
+  /** Lazy, cached IR lookup for the space pair (a few ms of math, once). */
+  function spaceIR(actx, name) {
+    if (!irCache[name]) irCache[name] = makeIR(actx, SPACES[name]);
+    return irCache[name];
+  }
 
   /** Safe to call any time, from any path — resume() rejections are expected
    *  on iOS outside a gesture and simply mean "try again from the next tap". */
@@ -255,13 +391,27 @@ export function createEngine() {
 }
 
 /**
+ * r27: the three rooms of the day. `seconds` is tail length, k0→k1 the
+ * darkening one-pole coefficients (higher = darker), `pre` the fade-in that
+ * stands in for predelay — longer predelay reads as a bigger room.
+ *   dawn  — short, close, slightly veiled: the world at arm's length
+ *   open  — the shipped r16 room: mid-size, balanced (noon)
+ *   night — long, dark, far away: the vast end of the arc
+ */
+const SPACES = {
+  dawn: { seconds: 1.7, k0: 0.30, k1: 0.85, pre: 0.008 },
+  open: { seconds: 2.4, k0: 0.22, k1: 0.77, pre: 0.012 },
+  night: { seconds: 3.8, k0: 0.30, k1: 0.92, pre: 0.026 },
+};
+
+/**
  * Procedural reverb impulse: exponentially decaying noise, one independent
  * channel per side (the decorrelation IS the stereo width), with the high end
  * dying faster than the low end via a cheap one-pole that closes over time —
  * the difference between "noise tail" and "room".
  */
-function makeIR(actx, seconds) {
-  const sr = actx.sampleRate, len = (sr * seconds) | 0;
+function makeIR(actx, spec) {
+  const sr = actx.sampleRate, len = (sr * spec.seconds) | 0;
   const buf = actx.createBuffer(2, len, sr);
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
@@ -270,12 +420,12 @@ function makeIR(actx, seconds) {
       const t = i / len;
       const env = Math.pow(1 - t, 2.1) * Math.exp(-3.1 * t);
       // one-pole lowpass whose coefficient tightens as the tail decays
-      const k = 0.22 + 0.55 * t;
+      const k = spec.k0 + (spec.k1 - spec.k0) * t;
       lp += ((Math.random() * 2 - 1) - lp) * (1 - k);
       d[i] = lp * env;
     }
-    // 12 ms fade-in so the early reflections don't read as a slapback click
-    const fadeIn = Math.min(len, (sr * 0.012) | 0);
+    // fade-in: early-reflection softness AND the predelay stand-in
+    const fadeIn = Math.min(len, (sr * spec.pre) | 0);
     for (let i = 0; i < fadeIn; i++) d[i] *= i / fadeIn;
   }
   return buf;

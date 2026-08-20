@@ -208,7 +208,19 @@ export function createConductor(engine, harmony) {
 
     setLevel(l) {
       const next = Math.max(0, Math.min(PAD_COUNT.length - 1, l | 0));
-      if (next !== level) nudged = true;   // r20: a level change lands its palette at the NEXT BAR
+      if (next !== level) {
+        nudged = true;   // r20: a level change lands its palette at the NEXT BAR
+        // r27 ENGINEERED SILENCE: the world takes a breath as the day
+        // changes. The bed ducks NOW and holds down until the palette lands
+        // at the next bar (estimated off the scheduler's own grid — a few
+        // hundred ms of error is inaudible at these time constants), so the
+        // landing's bloom arrives out of a hush instead of over a full bed.
+        if (started) {
+          const stepDur = 60 / bpm / 4;
+          const toBar = Math.max(0.4, (nextStep - engine.now()) + ((16 - stepIdx) & 15) * stepDur);
+          engine.duckBed(0.22, Math.min(4.5, toBar), 2.6);
+        }
+      }
       level = next;
       harmony.setLevel(level);
       // the end of the 30-minute journey earns an arrival, once per session
@@ -297,8 +309,11 @@ export function createConductor(engine, harmony) {
           engine.padLp.frequency.setTargetAtTime(5200, t, 0.8);
           padLpNow = 5200;
         } else {
-          // an ordinary level palette landing gets its single tonic bloom
+          // an ordinary level palette landing gets its single tonic bloom —
+          // and (r27) releases the pre-landing hush immediately: depth 1
+          // cancels any scheduled duck and blooms the bed back over ~1.2 s
           playBloom(engine, harmony.noteFor('orange', 0), t);
+          engine.duckBed(1.0, 0, 3.6);
         }
       }
     }

@@ -375,8 +375,13 @@ export function createHud() {
           const hap = hp
             ? ` · hap ${hp.backend}${hp.enabled ? '' : '(off)'}·${hp.clicks}c${hp.standalone ? '·SA' : ''}`
             : '';
+          // r27 mix meter: rms/peak dBFS + lo/mid/hi band magnitudes, straight
+          // off the engine's post-voicing analyser — the numbers under a
+          // device tuning session. Space names the current reverb room.
+          const mt = window.ZS?.audio?.meter?.();
+          const mix = mt ? ` · mix ${mt.rms}/${mt.peak} [${mt.lo} ${mt.mid} ${mt.hi}]` : '';
           const txt = st
-            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · bloom ${st.bloom}${lat}${hap}`
+            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${hap}${mix}`
             : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}${hap}`;
           if (debugTxt.textContent !== txt) debugTxt.textContent = txt;
         } catch (_) { /* diagnostic only */ }
