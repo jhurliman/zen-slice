@@ -66,6 +66,11 @@ export function createAudio() {
   let pending = [];            // gathered notes of the current stroke
   let pendingAt = -1;          // engine time of the stroke's first cut
   let pendingQuant = -1;       // r28: the 16th-grid time the stroke's notes land on
+  // r31: hums are QUEUED and pitched at drain (≤150 ms before onset) — a
+  // spawn-time pitch could be 2 s stale by the apex, sustaining an
+  // old-chord tone across a chord change for a full second
+  const humQ = [];             // { at, id, pan }
+  const HUM_Q_MAX = 8;
   let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9, lastHum = -1e9;
   let lastWatchdog = 0, swishCount = 0;
   // r21: the settings mute. Everything keeps RUNNING (engine, conductor,
@@ -173,6 +178,7 @@ export function createAudio() {
     }));
     c.bus.on('reset', guard(() => {
       pending.length = 0; pendingAt = -1; pendingQuant = -1;
+      humQ.length = 0;
       conductor.reset();
       engine.setSpace(SPACE_FOR_LEVEL[0], 3);
     }));
@@ -210,26 +216,26 @@ export function createAudio() {
     conductor.onSlice();
 
     // ── the note — QUANTIZED to the 16th grid (r28, the Rez move) ──
-    // r23 made the first note land at contact because nothing else did; now
-    // the SWISH owns contact (immediate, unpitched — Rez's own trick), so
-    // the pitch snaps to the scheduler's next 16th (≤ 250 ms at 60 bpm,
-    // usually far less) and every slice becomes a sequencer step. "The
-    // sequencing is so striking" — this is that. Pitch is still FIXED at
-    // contact (the chord could advance before the grid tick), and the voice
-    // is reserved now, so nothing can steal the moment.
+    // The SWISH owns contact (immediate, unpitched — Rez's own trick); the
+    // pitch snaps to the scheduler's next 16th (≤ 250 ms at 60 bpm, usually
+    // far less) and every slice becomes a sequencer step. r31: NO pitch is
+    // decided here anymore — r28 fixed the first note's pitch at contact,
+    // and when the chord advanced inside the contact→tick window the stroke
+    // came out bichordal (old-chord first note, new-chord rest). The player
+    // heard exactly that: "it doesn't always seem like the notes flow well
+    // into the track". Every pitch is now derived in flush(), which the
+    // frame deadline runs ≤30 ms before the tick — the field AT SOUND TIME
+    // decides the notes. climb is recorded now (combo is already
+    // incremented; combo-1 is this cut's walk up the chord).
     const combo = ctxRef.score?.combo ?? 1;
     const entry = {
       id: e.fruit.species.id, pitch: e.fruit.species.pitch,
       x: e.fruit.pos.x, y: e.fruit.pos.y,
       v, dirY: e.stroke.dir.y, climb: Math.max(0, combo - 1), combo,
-      semis: 0,
     };
     if (pending.length === 0) {
       pendingAt = t;
-      try { entry.semis = harmony.noteFor(entry.id, entry.climb); }
-      catch (err) { fail(err); entry.semis = harmony.fallbackPitch(entry.pitch, entry.combo); }
       pendingQuant = conductor.quantize(t);
-      playNote(entry.semis, v, pan, pendingQuant, brightOf(v), wetOf(entry.y));
     }
     pending.push(entry);
 
@@ -237,29 +243,25 @@ export function createAudio() {
     if (wasIdle) playBloom(engine, harmony.noteFor('orange', 0), t);
   }
 
-  /** Voice and play what the stroke gathered AFTER its first note. r23: the
-   *  first cut already sounded at contact and its pitch is history — flush
-   *  owes only the REST of the chord, voiced around that pitch
-   *  (harmony.voiceAround never moves it), plus the shared dressing: the
-   *  conductor's echo answer, the low reinforcement, the 5+ gliss. */
+  /** Voice and play the WHOLE stroke. r31: every pitch is derived HERE, and
+   *  flush runs ≤30 ms before the grid tick (see the frame deadline), so
+   *  the harmonic field at sound time decides the notes — a chord advance
+   *  can never split a stroke across two chords again. */
   function flush() {
     const n = pending.length;
-    // r28: the whole gesture anchors on the first note's grid time — the
+    // r28: the whole gesture anchors on the stroke's grid time — the
     // strum rolls off the 16th the sequencer gave us, not off wall clock
     const t = Math.max(engine.now(), pendingQuant);
     const first = pending[0];
 
     let semis;
-    if (n === 1) {
-      semis = [first.semis];
-    } else {
-      try {
-        semis = [first.semis].concat(harmony.voiceAround(first.semis, pending.slice(1)));
-      } catch (err) {
-        fail(err);
-        semis = pending.map((p, i) =>
-          (i === 0 ? first.semis : harmony.fallbackPitch(p.pitch, p.combo)));
-      }
+    try {
+      semis = n === 1
+        ? [harmony.noteFor(first.id, first.climb)]
+        : harmony.voiceChord(pending);
+    } catch (err) {
+      fail(err);
+      semis = pending.map((p) => harmony.fallbackPitch(p.pitch, p.combo));
     }
 
     // the top three voices (by PITCH, not strum position — a descending
@@ -268,11 +270,13 @@ export function createAudio() {
     // for its echo slot like any other voice.
     const byPitch = pending.map((_, i) => i).sort((a, b) => semis[b] - semis[a]);
     const echoes = new Set(byPitch.slice(0, 3));
+    // the stroke's first cut leads the roll, ON the tick
+    playNote(semis[0], first.v, panOf(first.x), t, brightOf(first.v), wetOf(first.y));
     if (echoes.has(0)) conductor.echo(semis[0], first.v, panOf(first.x));
 
     if (n > 1) {
       // strum the LATER cuts in fruit x-order (an up-swipe rolls ascending,
-      // down descending); the already-played first note anchors the roll
+      // down descending); the first note anchors the roll at position 0
       const order = [];
       for (let i = 1; i < n; i++) order.push(i);
       const dir = first.dirY;
@@ -284,9 +288,9 @@ export function createAudio() {
       for (let k = 0; k < order.length; k++) {
         const i = order[k];
         const p = pending[i];
-        const taper = 1 - (k + 1) * 0.04;   // the first note was roll position 0
+        const taper = 1 - (k + 1) * 0.04;   // the first note holds roll position 0
         const bv = Math.min(1, p.v * boost) * taper;
-        playNote(semis[i], bv, panOf(p.x), t + k * STRUM, brightOf(bv), wetOf(p.y));
+        playNote(semis[i], bv, panOf(p.x), t + (k + 1) * STRUM, brightOf(bv), wetOf(p.y));
         if (echoes.has(i)) conductor.echo(semis[i], p.v * taper, panOf(p.x));
       }
       // 3+ fruit: reinforce the chord's foundation an octave under its lowest
@@ -309,7 +313,7 @@ export function createAudio() {
         // then swells back while the run rings — authored, not pumping
         engine.duckBed(0.6, 0.5, 2.4);
         const run = harmony.runNotes(n >= 5 ? 3 : 2);
-        const t0 = t + 0.10 + order.length * STRUM;
+        const t0 = t + 0.10 + (order.length + 1) * STRUM;
         const last = run.length - 1;
         for (let k = 0; k < run.length; k++) {
           const u = last > 0 ? k / last : 1;
@@ -368,15 +372,14 @@ export function createAudio() {
     // hum into the piano. Gated off in hot play (it is an invitation for
     // quiet moments, clutter in a flurry) and rate-limited so bursts don't
     // stack whispers.
-    if (conductor.intensity < 0.75 && t - lastHum > 0.6) {
+    if (conductor.intensity < 0.75 && t - lastHum > 0.6 && humQ.length < HUM_Q_MAX) {
       lastHum = t;
-      try {
-        const apexDt = Math.min(2.2, Math.max(0.4, e.fruit.vel.y / 14));
-        const dur = 1.1;
-        const humPan = panOf(e.fruit.pos.x + e.fruit.vel.x * apexDt);
-        playHum(engine, harmony.noteFor(e.fruit.species.id, 0),
-          t + Math.max(0.05, apexDt - dur * 0.5), dur, humPan);
-      } catch (err) { fail(err); }
+      const apexDt = Math.min(2.2, Math.max(0.4, e.fruit.vel.y / 14));
+      humQ.push({
+        at: t + Math.max(0.05, apexDt - 0.55),
+        id: e.fruit.species.id,
+        pan: panOf(e.fruit.pos.x + e.fruit.vel.x * apexDt),
+      });
     }
     if (conductor.intensity >= 0.5 || t - lastRiser < 1.2) return;
     lastRiser = t;
@@ -424,6 +427,20 @@ export function createAudio() {
       if (pendingAt >= 0) {
         const deadline = Math.max(pendingAt + CHORD_GATHER, pendingQuant - 0.03);
         if (engine.now() >= deadline) flush();
+      }
+      // r31: drain hums as they near onset, pitching them from the chord of
+      // NOW (drop any the drain missed by more than a beat — a hum that
+      // starts late has lost its fruit)
+      for (let i = 0; i < humQ.length;) {
+        const h = humQ[i];
+        const now = engine.now();
+        if (h.at < now + 0.15) {
+          humQ[i] = humQ[humQ.length - 1]; humQ.pop();
+          if (h.at > now - 0.1) {
+            try { playHum(engine, harmony.noteFor(h.id, 0), h.at, 1.1, h.pan); }
+            catch (err) { fail(err); }
+          }
+        } else i++;
       }
     } catch (err) { fail(err); }
   };

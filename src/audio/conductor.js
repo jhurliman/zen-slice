@@ -339,12 +339,24 @@ export function createConductor(engine, harmony) {
       // pooled voices are only held for the ~120 ms they actually need. Full
       // scan, not head-only: a second tap queues with a LATER time than
       // echoes recorded after it, so the queue is not time-sorted.
-      for (let i = 0; i < echoQ.length;) {
-        if (echoQ[i].t < now + LOOKAHEAD) {
-          const e = echoQ[i];
-          echoQ[i] = echoQ[echoQ.length - 1]; echoQ.pop();
-          if (e.t > now - 0.05 && playNote) playNote(e.semis, e.vel, e.pan, e.t, e.bright, e.wet);
-        } else i++;
+      // r31: an echo is an answer recorded up to TWO SECONDS ago, and the
+      // chord can advance in between — replaying the old pitch over the new
+      // chord was audible ("the notes don't always flow well into the
+      // track"; the sharpest case: E7sus4(9)'s D echoed over Amaj9, a minor
+      // 9th against C#). Each echo's pitch class is re-checked against the
+      // chord AT DRAIN TIME; an answer that no longer fits stays silent —
+      // dropping a quiet echo is invisible, a clash is not.
+      if (echoQ.length) {
+        const ch = harmony.chord();
+        for (let i = 0; i < echoQ.length;) {
+          if (echoQ[i].t < now + LOOKAHEAD) {
+            const e = echoQ[i];
+            echoQ[i] = echoQ[echoQ.length - 1]; echoQ.pop();
+            const pc = ((e.semis % 12) + 12) % 12;
+            const fits = ch.bass === pc || ch.color === pc || ch.tones.indexOf(pc) >= 0;
+            if (fits && e.t > now - 0.05 && playNote) playNote(e.semis, e.vel, e.pan, e.t, e.bright, e.wet);
+          } else i++;
+        }
       }
 
       // a long suspend leaves the cursor in the past; jump, don't catch up
