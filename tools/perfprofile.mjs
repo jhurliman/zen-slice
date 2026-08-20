@@ -16,14 +16,16 @@
  */
 import { chromium } from 'playwright';
 import http from 'http';
-import { readFileSync, readdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync } from 'fs';
+import { resolveChrome } from './chromepath.mjs';
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i < 0 ? d : process.argv[i + 1]; };
 const TIER = Number(arg('tier', 2));
 const FRAMES = Number(arg('frames', 900));
-const root = join(process.env.HOME, '.cache/ms-playwright');
-const EXE = readdirSync(root).filter((d) => /^chromium-\d+$/.test(d))
-  .map((d) => join(root, d, 'chrome-linux64/chrome')).find(existsSync);
+const EXE = resolveChrome();
+if (!EXE) {
+  console.error('perfprofile.mjs: no full Chromium found. Run: npx playwright install chromium');
+  process.exit(1);
+}
 const buf = readFileSync('dist/index.html');
 const server = http.createServer((q, r) => { r.writeHead(200, { 'content-type': 'text/html' }); r.end(buf); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));

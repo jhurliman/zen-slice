@@ -16,7 +16,8 @@
  *   node tools/drawprobe.mjs [--tier 3]
  */
 import { chromium } from 'playwright';
-import { existsSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
+import { resolveChrome } from './chromepath.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import http from 'http';
@@ -33,12 +34,13 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const PORT = server.address().port;
 
-const CHROMES = [
-  '/opt/pw-browsers/chromium-1234/chrome-linux64/chrome',
-  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-];
+const exe = resolveChrome();
+if (!exe) {
+  console.error('drawprobe.mjs: no full Chromium found. Run: npx playwright install chromium');
+  process.exit(1);
+}
 const browser = await chromium.launch({
-  executablePath: CHROMES.find((p) => existsSync(p)),
+  executablePath: exe,
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
     '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader', '--enable-features=Vulkan',
     '--ignore-gpu-blocklist', '--no-sandbox', '--disable-dev-shm-usage'],

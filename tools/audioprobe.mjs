@@ -21,6 +21,7 @@
  */
 import { chromium } from 'playwright';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
+import { resolveChrome } from './chromepath.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import http from 'http';
@@ -152,13 +153,13 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const PORT = server.address().port;
 
-const CHROMES = [
-  '/opt/pw-browsers/chromium-1234/chrome-linux64/chrome',
-  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  '/opt/pw-browsers/chromium',
-];
+const exe = resolveChrome();
+if (!exe) {
+  console.error('audioprobe.mjs: no full Chromium found. Run: npx playwright install chromium');
+  process.exit(1);
+}
 const browser = await chromium.launch({
-  executablePath: CHROMES.find((p) => existsSync(p)),
+  executablePath: exe,
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
     '--autoplay-policy=no-user-gesture-required',
     '--no-sandbox', '--disable-dev-shm-usage'],
@@ -341,6 +342,21 @@ const session = await page.evaluate(async () => {
     ZS.swipe(-0.8, 0.05, 0.8, 0.05, 12, 6.0);
     await new Promise((r) => setTimeout(r, 700)); // ~86 BPM cadence
   }
+  // r37b made bestScore EARNED (the 1000-point floor), which the cleared
+  // single strokes above can never reach — the old `bestScore > 0` assertion
+  // became a coin flip on incidental scoring. Test the floor deliberately
+  // instead: (a) sub-floor play must NOT have recorded a best; (b) prime the
+  // streak just under the floor and let ONE real slice carry it across — the
+  // genuine score-accumulation path, deterministic.
+  const bestBeforeFloor = ZS.score.bestScore;
+  ZS.clear();
+  ZS.score.score = 996;
+  const fb = ZS.spawn('watermelon');
+  fb.pos.set(0, 0.2, 0); fb.vel.set(0, 0.5, 0);
+  await new Promise((r) => setTimeout(r, 40));
+  ZS.newStroke();
+  ZS.swipe(-0.8, 0.05, 0.8, 0.05, 12, 6.0);
+  await new Promise((r) => setTimeout(r, 400));
   ZS.bus.emit('level', { level: 2, name: 'Orchard Rain' });
   await new Promise((r) => setTimeout(r, 300));
   // r21: the settings mute — master to 0 via the pref event, engine stays up
@@ -350,6 +366,9 @@ const session = await page.evaluate(async () => {
   const unmutedState = ZS.audio.state().muted;
   const st = ZS.audio.state();
   const dead = ZS.moduleErrors.filter((m) => m.module === 'audio' || m.module === 'haptics');
+  // r38f: the WHOLE fault ledger, not just audio's rows — a dead blade/hud/
+  // slicer module used to sail through this probe green (it did, twice)
+  const allDead = ZS.moduleErrors.map((m) => `${m.module}.${m.phase}: ${String(m.error).slice(0, 100)}`);
   // r27: the beat-synced combo window, the day-arc space switch, the meter.
   // The level flap (8 then back to 2) happens AFTER `st` is captured so the
   // level/levelPending assertions below still see the session's level 2.
@@ -366,6 +385,8 @@ const session = await page.evaluate(async () => {
     mutedState, unmutedState,
     comboWindow, spaceNight, meter, toss8In,
     singleStrokeHarmonies: window.__harmony.length,
+    bestBeforeFloor,
+    allDead,
     bestScore: ZS.score.bestScore,
     prefsStored: (() => { try { return localStorage.getItem('zs-prefs') !== null || true; } catch (_) { return true; } })(),
   };
@@ -383,12 +404,16 @@ ok(session.meter && typeof session.meter.rms === 'number'
   `meter rms ${session.meter && session.meter.rms} not a sane dBFS figure`);
 ok(session.mutedState === true && session.unmutedState === false,
   `mute pref did not track: muted=${session.mutedState} unmuted=${session.unmutedState}`);
-ok(session.bestScore > 0, `bestScore never rose (${session.bestScore})`);
+ok(session.bestBeforeFloor === 0,
+  `sub-floor play recorded a best (${session.bestBeforeFloor}) — the 1000-point floor must hold`);
+ok(session.bestScore >= 1000,
+  `bestScore never crossed the floor (${session.bestScore}) — a primed 996 + one slice must record`);
 ok(session.singleStrokeHarmonies === 0,
   `${session.singleStrokeHarmonies} harmony events from single-fruit strokes — harmony must be per-stroke, never per-chain`);
 ok(session.bpm >= 60 && session.bpm <= 90, `bpm ${session.bpm} out of 60–90`);
 ok(session.errors.length === 0, `audio errors: ${JSON.stringify(session.errors)}`);
 ok(session.audioModuleErrors.length === 0, `audio module retired: ${JSON.stringify(session.audioModuleErrors)}`);
+ok(session.allDead.length === 0, `modules retired during the session: ${session.allDead.join(' | ')}`);
 // palettes land at chord boundaries, so shortly after the event the switch
 // is either pending or already made
 ok(session.level === 2 || session.levelPending === 2,

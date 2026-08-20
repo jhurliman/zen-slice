@@ -41,6 +41,7 @@
  */
 import { chromium } from 'playwright';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
+import { resolveChrome } from './chromepath.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import http from 'http';
@@ -60,13 +61,13 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const PORT = server.address().port;
 
-const CHROMES = [
-  '/opt/pw-browsers/chromium-1234/chrome-linux64/chrome',
-  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  '/opt/pw-browsers/chromium',
-];
+const exe = resolveChrome();
+if (!exe) {
+  console.error('soak.mjs: no full Chromium found. Run: npx playwright install chromium');
+  process.exit(1);
+}
 const browser = await chromium.launch({
-  executablePath: CHROMES.find((p) => existsSync(p)),
+  executablePath: exe,
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
     '--autoplay-policy=no-user-gesture-required',
     '--enable-precise-memory-info',
