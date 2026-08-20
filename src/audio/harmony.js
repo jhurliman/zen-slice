@@ -289,6 +289,32 @@ export function createHarmony() {
       return notes.slice(0, 5 + (notes.length > 7 ? 2 : 0));
     },
 
+    /**
+     * The GRAND RUN (r26) — the reward for a 4+ harmony, which the player
+     * called "quite rare and not really even possible until later levels…
+     * it should be rewarded with a more impactful musical event like a
+     * longer glissando". Every chord tone realized ascending across
+     * `spanOct` octaves from just below middle register, crowned by the
+     * color tone an octave above the top — a real harp sweep, longer and
+     * wider than glissNotes (which stays as the arp pool). Deduped and
+     * sorted; every note in-chord and inside the kit's span by place().
+     */
+    runNotes(spanOct = 3) {
+      const chord = palette[idx];
+      const seen = new Set();
+      const notes = [];
+      for (let oct = 0; oct < spanOct; oct++) {
+        for (const pc of chord.tones) {
+          const n = place(pc, -2 + oct * 12);
+          if (!seen.has(n)) { seen.add(n); notes.push(n); }
+        }
+      }
+      const crown = place(chord.color, -2 + spanOct * 12);
+      if (!seen.has(crown)) notes.push(crown);
+      notes.sort((a, b) => a - b);
+      return notes.slice(0, 12);
+    },
+
     /** Pad voicing: `count` voices, root+fifth low then upper tones/color,
      *  register widening with level. Returns semitones from A3, ascending. */
     padNotes(count) {

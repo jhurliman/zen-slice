@@ -1,4 +1,4 @@
-# Zen Slice
+# Chord Cut
 
 ### ▶ [Play it](https://jhurliman.github.io/zen-slice/) · [round-by-round progress](https://jhurliman.github.io/zen-slice/progress.html)
 

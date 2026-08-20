@@ -367,9 +367,22 @@ export function createHud() {
           const st = window.ZS?.audio?.state?.();
           const dir = c.fruits;
           const lat = st && st.outputLatency != null ? ` · lat ${(st.outputLatency * 1000) | 0}ms` : '';
+          // r26 haptics triage: `hap switch·12c` = backend + label.clicks
+          // issued. Clicks rising but no buzz = WebKit swallows it in this
+          // context (·SA marks a home-screen standalone app, the suspect);
+          // clicks stuck at 0 = the grant never opens, the bug is ours.
+          const hp = window.ZS?.haptics?.state?.();
+          const hap = hp
+            ? ` · hap ${hp.backend}${hp.enabled ? '' : '(off)'}·${hp.clicks}c${hp.standalone ? '·SA' : ''}`
+            : '';
+          // r27 mix meter: rms/peak dBFS + lo/mid/hi band magnitudes, straight
+          // off the engine's post-voicing analyser — the numbers under a
+          // device tuning session. Space names the current reverb room.
+          const mt = window.ZS?.audio?.meter?.();
+          const mix = mt ? ` · mix ${mt.rms}/${mt.peak} [${mt.lo} ${mt.mid} ${mt.hi}]` : '';
           const txt = st
-            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · bloom ${st.bloom}${lat}`
-            : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}`;
+            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${hap}${mix}`
+            : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}${hap}`;
           if (debugTxt.textContent !== txt) debugTxt.textContent = txt;
         } catch (_) { /* diagnostic only */ }
       }

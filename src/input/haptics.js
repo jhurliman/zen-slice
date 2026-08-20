@@ -27,11 +27,12 @@
  *    safe() would otherwise bench us for the session).
  *  · neither → the module is inert.
  *
- * When the game wraps in Capacitor, only the backend swaps (for
- * UIImpactFeedbackGenerator impacts); the mapping below already encodes what
- * each moment should feel like: slices are light ticks scaled by blade
- * speed, a big harmony is a double tap, a rock is a dull heavy knock, a
- * level is a soft arrival.
+ * r26: the Capacitor shell landed, and inside it the backend is 'native' —
+ * real UIImpactFeedbackGenerator through the injected `window.Capacitor`
+ * bridge (no import, so the web/PWA bundle is untouched). The mapping below
+ * encodes what each moment should feel like on every backend: slices are
+ * light ticks scaled by blade speed, a big harmony is a double tap, a rock
+ * is a dull heavy knock, a level is a soft arrival.
  */
 
 import { loadPrefs } from '../core/prefs.js';
@@ -46,11 +47,23 @@ export function createHaptics() {
   let lastPulse = -1e9;
   let labelEl = null;
   let lastTrusted = -1e9;   // performance.now() ms of the last trusted user event
+  let clicks = 0;           // label.click()s actually issued — device-side truth
 
   // the same log velocity law audio.js uses, over the measured 5–170 range
   const vel = (speed) => Math.min(1, Math.max(0, Math.log(Math.max(1e-3, speed / 5)) / Math.log(34)));
 
   function detectBackend() {
+    // r26: the NATIVE backend — inside the Capacitor shell the bridge injects
+    // `window.Capacitor` and registers the Haptics plugin natively, so no
+    // import touches the web bundle (the PWA stays dependency-free). This is
+    // real UIImpactFeedbackGenerator: the thing the whole switch-hack saga
+    // was approximating.
+    try {
+      const C = window.Capacitor;
+      if (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.Haptics) {
+        return 'native';
+      }
+    } catch (_) { /* */ }
     try {
       if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') return 'vibrate';
     } catch (_) { /* */ }
@@ -99,7 +112,7 @@ export function createHaptics() {
   /** One system tick, iff the grant is open. Safe to call from timers. */
   function tapSwitch() {
     try {
-      if (labelEl && performance.now() - lastTrusted < GRANT_MS) labelEl.click();
+      if (labelEl && performance.now() - lastTrusted < GRANT_MS) { clicks++; labelEl.click(); }
     } catch (_) { /* degrade to silence, never retire the module */ }
   }
   /** `n` system ticks TAP_GAP_MS apart — now if the grant is open, else
@@ -125,6 +138,7 @@ export function createHaptics() {
     if (now - lastPulse < MIN_GAP) return;
     lastPulse = now;
     try {
+      if (api.backend === 'native') { nativeImpact(ms); return; }
       if (api.backend === 'vibrate') { navigator.vibrate(ms); return; }
       requestTaps(ms >= 30 ? 2 : 1);
     } catch (_) { /* */ }
@@ -136,9 +150,26 @@ export function createHaptics() {
     if (now - lastPulse < MIN_GAP) return;
     lastPulse = now;
     try {
+      if (api.backend === 'native') {
+        nativeImpact(25);
+        setTimeout(() => nativeImpact(8), 60);
+        return;
+      }
       if (api.backend === 'vibrate') { navigator.vibrate(arr); return; }
-      // no true patterns on iOS: one tick per ON segment
+      // no true patterns on iOS web: one tick per ON segment
       requestTaps(Math.max(1, Math.ceil(arr.length / 2)));
+    } catch (_) { /* */ }
+  }
+
+  /** Fire-and-forget UIImpactFeedbackGenerator via the Capacitor bridge —
+   *  never awaited (the ~1-2 ms bridge post is the whole latency). The ms
+   *  intensity the mapping already speaks maps onto impact styles. */
+  function nativeImpact(ms) {
+    try {
+      const style = ms < 10 ? 'LIGHT' : ms < 25 ? 'MEDIUM' : 'HEAVY';
+      const p = window.Capacitor.Plugins.Haptics.impact({ style });
+      if (p && p.catch) p.catch(() => {});
+      clicks++;   // same diagnostic counter as the web backend
     } catch (_) { /* */ }
   }
 
@@ -182,6 +213,30 @@ export function createHaptics() {
     c.bus.on('level', () => pulse(18));
     c.bus.on('pref', (e) => { if (e.key === 'haptics') enabled = !!e.value; });
   };
+
+  /**
+   * Diagnostic surface (r26), shown on the ?debug strip. The one bit this
+   * exists to capture from the device: after a play session, is `clicks`
+   * rising? clicks > 0 with no buzz = the clicks are issued and WebKit is
+   * swallowing the haptic (this page context — e.g. a HOME-SCREEN standalone
+   * web app, where Safari-tab behaviors routinely degrade — blocks the
+   * technique; nothing left to fix from JS, the native wrapper's
+   * UIImpactFeedbackGenerator is the answer). clicks == 0 = the grant never
+   * opens here and the bug is ours. `standalone` reports the display mode.
+   */
+  api.state = () => ({
+    backend: api.backend,
+    enabled,
+    clicks,
+    pending: pendingTaps,
+    grantAgeMs: Math.round(performance.now() - lastTrusted),
+    standalone: (() => {
+      try {
+        return !!(navigator.standalone
+          || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+      } catch (_) { return false; }
+    })(),
+  });
 
   api.dispose = () => { try { labelEl?.parentNode?.remove(); } catch (_) { /* */ } };
 

@@ -1,0 +1,10 @@
+{
+  "appId": "org.jhurliman.chordcut",
+  "appName": "Chord Cut",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "backgroundColor": "#000000"
+  }
+}

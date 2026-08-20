@@ -310,17 +310,34 @@ export function createDirector({ seed = 20260806 } = {}) {
     // against R4's "zero steady-state allocation in the hot loop".
     nextSpawn -= sdt;
     if (nextSpawn <= 0) {
-      let whole = 0;
-      for (let i = 0; i < api.live.length; i++) if (api.live[i].generation === 0) whole++;
-      if (whole < ctx.quality.maxFruit) {
-        const n = 1 + Math.floor(rng() * L.burst);
-        for (let i = 0; i < n; i++) {
-          // the L.rock > 0 guard keeps levels with no rocks from drawing rng,
-          // so their spawn streams (and frozen probe baselines) are untouched
-          if (L.rock > 0 && rng() < L.rock) spawn('rock');
-          else spawn(L.pool[Math.floor(rng() * L.pool.length)]);
+      // ══ r28 THE BEAT-QUANTIZED TOSS (the Lumines/Rez move) ══════════════
+      // When the timer expires, the toss HOLDS until the conductor's next
+      // audible 8th (audio.js publishes ctx.toss8In each render frame; the
+      // whole burst launches together — one musical moment). Fruit then
+      // ARRIVE on the music, the player naturally slices on the music, and
+      // the tempo inference locks the loop. Rails: no publisher (audio off,
+      // ?nosound, harness) → toss immediately; a hold is never allowed past
+      // 0.75 s beyond expiry, so a stalled publisher cannot starve the game.
+      // rng-stream note: the hold delays draws in TIME but never reorders
+      // or adds them — frozen rng streams are byte-identical, only frame
+      // TIMING baselines shift (expected, as with every pacing change).
+      const hold = ctx.toss8In;
+      if (hold != null && hold > 0.02 && hold < 0.6 && nextSpawn > -0.75) {
+        // not on the grid yet — nextSpawn keeps counting down past 0 and we
+        // re-check next step; the -0.75 rail above guarantees the toss
+      } else {
+        let whole = 0;
+        for (let i = 0; i < api.live.length; i++) if (api.live[i].generation === 0) whole++;
+        if (whole < ctx.quality.maxFruit) {
+          const n = 1 + Math.floor(rng() * L.burst);
+          for (let i = 0; i < n; i++) {
+            // the L.rock > 0 guard keeps levels with no rocks from drawing rng,
+            // so their spawn streams (and frozen probe baselines) are untouched
+            if (L.rock > 0 && rng() < L.rock) spawn('rock');
+            else spawn(L.pool[Math.floor(rng() * L.pool.length)]);
+          }
+          nextSpawn = rr(rng, L.every[0], L.every[1]) + (n - 1) * 0.25;
         }
-        nextSpawn = rr(rng, L.every[0], L.every[1]) + (n - 1) * 0.25;
       }
     }
 

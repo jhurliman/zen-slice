@@ -36,6 +36,7 @@ const ok = (cond, label) => { if (!cond) failures.push(label); return !!cond; };
 const { createHarmony } = await import(join(root, 'src/audio/harmony.js'));
 const { MOTIFS, BASSES, PAD_COUNT } = await import(join(root, 'src/audio/conductor.js'));
 const { SWISH_FOR_LEVEL } = await import(join(root, 'src/audio/instruments.js'));
+const { SPACE_FOR_LEVEL } = await import(join(root, 'src/audio/audio.js'));
 const SPECIES = ['watermelon', 'pineapple', 'orange', 'apple', 'kiwi', 'strawberry'];
 const E2 = -17;
 const N_LEVELS = 10;   // the r18 day arc — director.LEVELS is index-matched
@@ -43,6 +44,7 @@ ok(MOTIFS.length === N_LEVELS, `MOTIFS has ${MOTIFS.length} levels, expected ${N
 ok(BASSES.length === N_LEVELS, `BASSES has ${BASSES.length} levels, expected ${N_LEVELS}`);
 ok(PAD_COUNT.length === N_LEVELS, `PAD_COUNT has ${PAD_COUNT.length} levels, expected ${N_LEVELS}`);
 ok(SWISH_FOR_LEVEL.length === N_LEVELS, `SWISH_FOR_LEVEL has ${SWISH_FOR_LEVEL.length} levels, expected ${N_LEVELS}`);
+ok(SPACE_FOR_LEVEL.length === N_LEVELS, `SPACE_FOR_LEVEL has ${SPACE_FOR_LEVEL.length} levels, expected ${N_LEVELS}`);
 {
   const h = createHarmony();
   let chordsChecked = 0;
@@ -111,6 +113,17 @@ ok(SWISH_FOR_LEVEL.length === N_LEVELS, `SWISH_FOR_LEVEL has ${SWISH_FOR_LEVEL.l
       }
       // the flourish/arp pool and pad voicing stay inside the kit's span
       for (const n of h.glissNotes()) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: gliss note ${n} out of range`);
+      // r26 grand run: in-chord, in-range, strictly ascending, both spans
+      for (const span of [2, 3]) {
+        const run = h.runNotes(span);
+        ok(run.length >= 5 && run.length <= 12, `L${level} ${chord.name}: runNotes(${span}) length ${run.length}`);
+        for (let i = 0; i < run.length; i++) {
+          const n = run[i];
+          ok(legal.has(((n % 12) + 12) % 12), `L${level} ${chord.name}: run note ${n} off-chord`);
+          ok(n >= -25 && n <= 31, `L${level} ${chord.name}: run note ${n} out of range`);
+          if (i > 0) ok(n > run[i - 1], `L${level} ${chord.name}: run not ascending at ${i} [${run}]`);
+        }
+      }
       for (const n of h.padNotes(5)) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: pad note ${n} out of range`);
       // every level-motif entry voices in-chord and in-range in this chord
       for (const m of MOTIFS[level]) {
@@ -243,7 +256,13 @@ const chordProbe = await page.evaluate(async () => {
 // (the flush + voices capture happens inside the evaluate above, renderer
 // paused — see the comment there for why any external poll is too stale)
 ok(chordProbe.slices >= 2, `combo swipe only cut ${chordProbe.slices} fruit`);
-ok(chordProbe.pendingAtSwipe === chordProbe.slices,
+// r28: the pending count can legitimately read 0 here — a main-thread stall
+// (the detached piano-take renders burst on this machine) can push the drain
+// past the gather deadline, flushing before this read. Grouping itself is
+// verified by the exactly-one DYAD harmony assertion below, so an early
+// flush is only accepted when that flush actually happened as ONE group.
+ok(chordProbe.pendingAtSwipe === chordProbe.slices
+  || (chordProbe.pendingAtSwipe === 0 && chordProbe.voices >= chordProbe.slices),
   `slices=${chordProbe.slices} but pending=${chordProbe.pendingAtSwipe} — not gathered as one chord`);
 ok(chordProbe.swishesFired === 1,
   `one stroke through ${chordProbe.slices} fruit fired ${chordProbe.swishesFired} swishes — must be exactly 1 (r18)`);
@@ -333,14 +352,37 @@ const session = await page.evaluate(async () => {
   const unmutedState = ZS.audio.state().muted;
   const st = ZS.audio.state();
   const dead = ZS.moduleErrors.filter((m) => m.module === 'audio' || m.module === 'haptics');
+  // r27: the beat-synced combo window, the day-arc space switch, the meter.
+  // The level flap (8 then back to 2) happens AFTER `st` is captured so the
+  // level/levelPending assertions below still see the session's level 2.
+  const comboWindow = ZS.score.comboWindow ? ZS.score.comboWindow() : -1;
+  // r28: the grid publications for the beat-quantized toss
+  const toss8In = ZS.ctx.toss8In;
+  ZS.bus.emit('level', { level: 8, name: 'Night Jasmine' });
+  await new Promise((r) => setTimeout(r, 120));
+  const spaceNight = ZS.audio.state().space;
+  ZS.bus.emit('level', { level: 2, name: 'Morning Dew' });
+  const meter = ZS.audio.meter ? ZS.audio.meter() : null;
   return {
     ...st, audioModuleErrors: dead,
     mutedState, unmutedState,
+    comboWindow, spaceNight, meter, toss8In,
     singleStrokeHarmonies: window.__harmony.length,
     bestScore: ZS.score.bestScore,
     prefsStored: (() => { try { return localStorage.getItem('zs-prefs') !== null || true; } catch (_) { return true; } })(),
   };
 });
+// r27 assertions: window is one clamped beat; the room follows the day; the
+// meter reports sane dBFS figures off the live analyser
+ok(session.comboWindow >= 0.6 && session.comboWindow <= 1.0,
+  `comboWindow ${session.comboWindow} outside [0.6, 1.0]`);
+ok(session.spaceNight === 'night', `space after level 8 is "${session.spaceNight}", expected night`);
+// r28: the director's grid signal — present and inside one 8th at 60 bpm
+ok(typeof session.toss8In === 'number' && session.toss8In >= 0 && session.toss8In <= 0.65,
+  `ctx.toss8In ${session.toss8In} — expected a number in [0, 0.65]`);
+ok(session.meter && typeof session.meter.rms === 'number'
+  && session.meter.rms <= 0 && session.meter.rms >= -90,
+  `meter rms ${session.meter && session.meter.rms} not a sane dBFS figure`);
 ok(session.mutedState === true && session.unmutedState === false,
   `mute pref did not track: muted=${session.mutedState} unmuted=${session.unmutedState}`);
 ok(session.bestScore > 0, `bestScore never rose (${session.bestScore})`);

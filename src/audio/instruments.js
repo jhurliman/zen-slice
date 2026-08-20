@@ -43,39 +43,68 @@ export async function renderPianoKit() {
   const sampleRate = 24000;
   const kit = [];
   for (let i = 0; i < PIANO_CENTERS.length; i++) {
-    kit.push(await renderPianoNote(sampleRate, semisToFreq(PIANO_CENTERS[i]), i));
+    kit.push([await renderPianoNote(sampleRate, semisToFreq(PIANO_CENTERS[i]), i, 0)]);
     await new Promise((r) => setTimeout(r, 60));
   }
+  // r27 ROUND-ROBIN: two more takes per center, rendered DETACHED after the
+  // kit resolves so first-note readiness is unchanged — the per-center
+  // arrays grow in place and pianoSample starts drawing on them as they
+  // land. Each take moves the strike point, string detune, inharmonicity
+  // and hammer brightness a few percent: repetition is the tell of
+  // procedural audio, and no real piano plays the same note twice.
+  // A failed background render degrades to fewer takes, never to a throw.
+  (async () => {
+    for (let vnt = 1; vnt < 3; vnt++) {
+      for (let i = 0; i < PIANO_CENTERS.length; i++) {
+        try {
+          kit[i].push(await renderPianoNote(sampleRate, semisToFreq(PIANO_CENTERS[i]), i, vnt));
+        } catch (_) { return; }
+        await new Promise((r) => setTimeout(r, 80));
+      }
+    }
+  })();
   return kit;
 }
 
-/** Nearest sample + playbackRate for a note (semitones from A3). */
+/** Nearest center + playbackRate for a note (semitones from A3); the take is
+ *  round-robined at random among however many have rendered. */
 export function pianoSample(kit, semis) {
   let best = 0, bd = 1e9;
   for (let i = 0; i < PIANO_CENTERS.length; i++) {
     const d = Math.abs(semis - PIANO_CENTERS[i]);
     if (d < bd) { bd = d; best = i; }
   }
-  return { buffer: kit[best], rate: Math.pow(2, (semis - PIANO_CENTERS[best]) / 12) };
+  const takes = kit[best];
+  return {
+    buffer: takes[(Math.random() * takes.length) | 0],
+    rate: Math.pow(2, (semis - PIANO_CENTERS[best]) / 12),
+  };
 }
 
-async function renderPianoNote(sr, f0, idx) {
+async function renderPianoNote(sr, f0, idx, vnt = 0) {
   const dur = Math.min(4.2, Math.max(1.6, 4.2 * Math.pow(220 / f0, 0.3)));
   const off = new OfflineAudioContext(1, Math.ceil(dur * sr), sr);
-  const B = 0.0002 + (idx / (PIANO_CENTERS.length - 1)) * 0.0006;
+  // r27 per-take variation (vnt 0 = the shipped r16 note, bit-identical):
+  // strike point wanders 1/8 → 1/7.2 or 1/8.9, string detune breathes ±12%,
+  // inharmonicity ±5%, hammer brightness ±6% — a different touch per take.
+  const strike = vnt === 0 ? 8 : vnt === 1 ? 7.2 : 8.9;
+  const detK = 1 + 0.12 * (vnt === 1 ? 1 : vnt === 2 ? -1 : 0);
+  const bK = 1 + 0.05 * (vnt === 1 ? 1 : vnt === 2 ? -1 : 0);
+  const hamK = 1 + 0.06 * (vnt === 1 ? -1 : vnt === 2 ? 1 : 0);
+  const B = (0.0002 + (idx / (PIANO_CENTERS.length - 1)) * 0.0006) * bK;
   const strings = f0 < 500 ? 2 : 1;
   const out = off.createGain(); out.gain.value = 1; out.connect(off.destination);
 
   for (let p = 1; p <= 14; p++) {
     const fp = p * f0 * Math.sqrt(1 + B * p * p);
     if (fp > sr * 0.45) break;
-    // strike-point comb (~1/8 along the string) + spectral rolloff
-    const amp = Math.pow(p, -1.05) * (0.25 + Math.abs(Math.sin(Math.PI * p / 8)) * 0.75);
+    // strike-point comb + spectral rolloff
+    const amp = Math.pow(p, -1.05) * (0.25 + Math.abs(Math.sin(Math.PI * p / strike)) * 0.75);
     // prompt decay fast and register-dependent, then a quiet long tail
     const tauP = Math.min(3.0, Math.max(0.08, 3.0 * Math.pow(220 / fp, 0.85)));
     const tSwitch = tauP * 1.2;
     for (let s = 0; s < strings; s++) {
-      const det = strings === 1 ? 0 : (s === 0 ? -0.65 : 0.65);
+      const det = strings === 1 ? 0 : (s === 0 ? -0.65 : 0.65) * detK;
       const o = off.createOscillator();
       o.frequency.value = fp * Math.pow(2, det / 1200);
       const g = off.createGain();
@@ -110,7 +139,7 @@ async function renderPianoNote(sr, f0, idx) {
     const src = off.createBufferSource(); src.buffer = nb;
     const bp = off.createBiquadFilter();
     bp.type = 'bandpass';
-    bp.frequency.value = Math.min(6000, Math.max(800, f0 * 6));
+    bp.frequency.value = Math.min(6000, Math.max(800, f0 * 6 * hamK));
     bp.Q.value = 0.8;
     const g = off.createGain();
     g.gain.setValueAtTime(0, 0);
@@ -287,6 +316,11 @@ export function makeDrone(engine) {
 export function makePadBank(engine, max = 5) {
   const actx = engine.actx;
   const voices = [];
+  // r26 (the headphone pass): the pad bed used to sum dead-center mono, and
+  // on headphones a centered bed sits INSIDE the head while the piano moves
+  // around it. Static per-voice spread — mixing practice, not an effect: the
+  // lowest voice stays anchored center, uppers fan out progressively.
+  const PAD_PAN = [0, -0.18, 0.20, -0.38, 0.42];
   for (let i = 0; i < max; i++) {
     const o = actx.createOscillator();
     // r17: sine below, triangle only for the top sparkle voices, and detune
@@ -297,9 +331,11 @@ export function makePadBank(engine, max = 5) {
     const lfo = actx.createOscillator(); lfo.frequency.value = 0.05 + i * 0.021;
     const lfg = actx.createGain(); lfg.gain.value = 0.55 + i * 0.2;
     lfo.connect(lfg); lfg.connect(o.detune); lfo.start();
-    o.connect(g); g.connect(engine.padBus);
+    const pan = actx.createStereoPanner();
+    pan.pan.value = PAD_PAN[i % PAD_PAN.length];
+    o.connect(g); g.connect(pan); pan.connect(engine.padBus);
     o.start();
-    voices.push({ o, g });
+    voices.push({ o, g, pan, basePan: PAD_PAN[i % PAD_PAN.length] });
   }
   return {
     /** semis[] ascending; fade in seconds */
@@ -314,6 +350,12 @@ export function makePadBank(engine, max = 5) {
           v.g.gain.setTargetAtTime(0, t, fade * 0.6);
         }
       }
+    },
+    /** r28: width-as-bloom — scale every voice's authored pan by w (0..1);
+     *  the conductor drives this from bloom so the image opens with play. */
+    setWidth(w) {
+      const t = engine.now();
+      for (const v of voices) v.pan.pan.setTargetAtTime(v.basePan * w, t, 0.6);
     },
   };
 }
@@ -334,6 +376,33 @@ export function playPluck(engine, semis, vel, pan, when) {
     g.gain.exponentialRampToValueAtTime(0.0004, t + 1.5 - i * 0.35);
     o.connect(g); g.connect(p);
     o.start(t); o.stop(t + 1.6);
+  });
+}
+
+/**
+ * r28 THE APEX HUM — the fruit whispers the note it would sing. Every fruit
+ * already IS a chord role; this makes that legible before the swipe: a very
+ * quiet pitched swell (sine + a ghost of its octave), panned to where the
+ * fruit will hang, centered on its arc apex. Slicing "resolves" the hum into
+ * the piano note; rocks never hum (they are not notes — the silence is the
+ * tell). Mostly reverb, a little dry; raw nodes like the riser, no pool.
+ */
+export function playHum(engine, semis, when, dur, pan) {
+  const actx = engine.actx;
+  const t = Math.max(when, actx.currentTime);
+  const f = semisToFreq(semis);
+  const p = actx.createStereoPanner(); p.pan.value = pan;
+  const dry = actx.createGain(); dry.gain.value = 0.3;
+  p.connect(engine.reverbIn); p.connect(dry); dry.connect(engine.dry);
+  [[1, 0.034], [2, 0.011]].forEach(([h, a]) => {
+    const o = actx.createOscillator(); o.type = 'sine';
+    o.frequency.value = f * h;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(a, t + dur * 0.45);
+    g.gain.setTargetAtTime(0, t + dur * 0.55, dur * 0.2);
+    o.connect(g); g.connect(p);
+    o.start(t); o.stop(t + dur * 1.6);
   });
 }
 
