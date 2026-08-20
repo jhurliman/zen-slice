@@ -1,4 +1,4 @@
-# Zen Slice — native iOS wrapper (Capacitor 8)
+# Chord Cut — native iOS wrapper (Capacitor 8)
 
 Scaffolded r26, researched against 2026 practice. The web game is untouched:
 the shell loads the same single self-contained `dist/index.html` from the app
@@ -57,7 +57,7 @@ npx cap sync ios      # copies dist/ into ios/App/App/public + SPM sync
 
 1. Xcode 26+. `npx cap open ios`.
 2. Signing: enroll in the Apple Developer Program ($99/yr), select your team,
-   leave "Automatically manage signing" on. Bundle id `org.jhurliman.zenslice`.
+   leave "Automatically manage signing" on. Bundle id `org.jhurliman.chordcut`.
 3. Run on a physical iPhone on iOS 26.x. Verify in order:
    - `navigator.gpu` exists and the game renders (WebGPU in the WKWebView);
    - haptics tick on slice (`?debug` strip shows `hap native·Nc`);

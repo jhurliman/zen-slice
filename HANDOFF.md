@@ -1,4 +1,6 @@
-# Zen Slice — handoff
+# Chord Cut — handoff
+
+*(Product renamed from Zen Slice, r26. The repo, code identifiers — `ZenSlice.boot`, `zs-` prefixes, `window.ZS` — and harness names deliberately keep the old name: the rename is docs and user-facing surfaces only.)*
 
 You are taking over a project mid-flight. Read this file completely before you touch anything.
 It is written to save you from repeating nine rounds of expensive mistakes, most of which were

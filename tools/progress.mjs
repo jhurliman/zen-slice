@@ -96,7 +96,7 @@ const spark = pieceOrder.map(({ key, name }) => {
 }).join('');
 
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<title>Zen Slice — build progress</title>
+<title>Chord Cut — build progress</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{--bg:#07080c;--panel:#0e1017;--line:#1c2030;--ink:#e8ecf4;--dim:#7f8aa3;--good:#4ade80;--mid:#fbbf24;--low:#f87171;--accent:#8ab4ff}
@@ -139,7 +139,7 @@ td{padding:8px;border-bottom:1px solid #14171f;vertical-align:top}
 .gap{color:#cdd6e6}.fix{color:var(--dim)}
 footer{color:var(--dim);font-size:12px;margin-top:30px}
 </style></head><body><div class="wrap">
-<h1>Zen Slice — build progress</h1>
+<h1>Chord Cut — build progress</h1>
 <p class="sub">Builder → harsh-critic loop. ${rounds.length} round${rounds.length === 1 ? '' : 's'} so far${latest ? ` · latest ${esc(latest.at)}` : ''}.</p>
 <div class="bar">
   <div class="card"><h3>The bar (user reference plate)</h3>${refThumb ? `<img src="${refThumb}" alt="reference">` : ''}</div>
