@@ -357,15 +357,40 @@ export function createDirector({ seed = 20260806 } = {}) {
         // levels ≥ 2 (same documented trade as L.rock; L0-L1 streams and
         // their frozen baselines are untouched).
         if (api.level >= 2 && whole === 0 && t - lastFan > 22 && rng() < 0.16) {
-          const n = Math.min(ctx.quality.maxFruit, api.level >= 5 ? 5 : 4);
-          const gap = rr(rng, 0.78, 0.95);
+          // codex r32: the fan must be born COLLISION-FREE, or physics'
+          // separateAtSpawn() shoves the overlapping bodies apart while
+          // their velocities still aim from the authored spots — the
+          // formation dies before it is visible. So: species are chosen
+          // FIRST (small fruit only, radius ≤ 1.0 — a melon fan would not
+          // fit one stroke anyway), every gap is computed from its actual
+          // neighbours' radii, and an alternating depth stagger (±DZ) buys
+          // clearance without adding width. Same-z second neighbours sit
+          // two gaps apart, which always clears too. If five will not fit
+          // inside one stroke's reach, four fly instead.
+          const fanPool = [];
+          for (const id of L.pool) if (SPECIES[id].radius <= 1.0) fanPool.push(id);
+          const DZ = 0.6;
+          let n = Math.min(ctx.quality.maxFruit, api.level >= 5 ? 5 : 4);
+          let ids, xs, span;
+          for (;;) {
+            ids = []; xs = [0];
+            for (let i = 0; i < n; i++) ids.push(fanPool[Math.floor(rng() * fanPool.length)]);
+            for (let i = 1; i < n; i++) {
+              const need = (SPECIES[ids[i - 1]].radius + SPECIES[ids[i]].radius) * 1.06 * 0.98;
+              const gap = Math.max(0.8, Math.sqrt(Math.max(0.2, need * need - 4 * DZ * DZ)) * 1.08);
+              xs.push(xs[i - 1] + gap);
+            }
+            span = xs[n - 1];
+            if (span <= 5.2 || n <= 4) break;
+            n--;
+          }
           const apexY = rr(rng, 5.0, 6.1);
-          const z = rr(rng, STAGE.nearZ * 0.4, STAGE.farZ * 0.4);
+          const zBase = rr(rng, STAGE.nearZ * 0.4, STAGE.farZ * 0.4);
           for (let i = 0; i < n; i++) {
-            spawn(L.pool[Math.floor(rng() * L.pool.length)], {
-              x: (i - (n - 1) / 2) * gap,
+            spawn(ids[i], {
+              x: xs[i] - span / 2,
               apexY: apexY + rr(rng, -0.12, 0.12),
-              z,
+              z: zBase + (i & 1 ? DZ : -DZ),
             });
           }
           lastFan = t;

@@ -19,8 +19,13 @@
  * Renderer paused (SwiftShader renders at ~1 s/frame and would drown the JS
  * numbers); a frame is rendered once per minute to keep the render path
  * honest. Physics ON (no ?nophys) — Rapier is a prime leak suspect class.
+ * Tier 2 and 60 Hz steps: the first draft ran ULTRA at 120 Hz in one giant
+ * evaluate per minute and was SwiftShader-throttled into hours; the leak
+ * signal does not need the top tier, it needs many minutes of churn. Work
+ * is chunked per sim-second so the protocol stays responsive, and a wall
+ * watchdog aborts with a partial report rather than ever hanging silently.
  *
- * Usage: node tools/soak.mjs [--minutes 12] [--json out.json]
+ * Usage: node tools/soak.mjs [--minutes 10] [--json out.json]
  * Exit 0 unless a leak gate trips: stepMs slope, geometry growth, or
  * unbounded live/DOM counts.
  */
@@ -33,7 +38,8 @@ import http from 'http';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const argv = process.argv.slice(2);
 const arg = (k, d) => { const i = argv.indexOf('--' + k); return i < 0 ? d : argv[i + 1]; };
-const MINUTES = Number(arg('minutes', 12));
+const MINUTES = Number(arg('minutes', 10));
+const SEC_WALL_CAP_MS = 60000;   // watchdog: one sim-second may never take a minute
 
 const indexPath = join(root, 'dist/index.html');
 if (!existsSync(indexPath)) { console.error('dist/index.html missing — run `node build.mjs`'); process.exit(1); }
@@ -74,33 +80,44 @@ await page.waitForFunction(() => window.ZS.audio.state().actxState === 'running'
 await page.waitForFunction(() => window.ZS.audio.state().pianoReady, null, { timeout: 25000 }).catch(() => {});
 
 const samples = [];
+await page.evaluate(() => { window.ZS.setTier?.(2); });
+let aborted = null;
+outer:
 for (let minute = 0; minute < MINUTES; minute++) {
-  const s = await page.evaluate(async (minute) => {
+  await page.evaluate((minute) => {
     const ZS = window.ZS;
     // walk the arc: one level per ~90 sim-seconds, capped at Deep Calm
     const lvl = Math.min(9, Math.floor((minute * 60) / 90));
     if (ZS.ctx.fruits.level !== lvl && ZS.ctx.fruits.jumpLevel) ZS.ctx.fruits.jumpLevel(lvl);
-    const t0 = performance.now();
-    let steps = 0;
-    for (let sec = 0; sec < 60; sec++) {
-      // one stroke per sim-second, sweeping different heights
-      ZS.newStroke();
-      const y = [-0.1, 0.05, 0.2, -0.05][sec & 3];
-      ZS.swipe(-0.9, y, 0.9, y, 14, 6.0);
-      ZS.step(1 / 120, 120, false);
-      steps += 120;
-      // yield so audio callbacks/GC can run — a solid block starves them
-      if ((sec & 7) === 7) await new Promise((r) => setTimeout(r, 0));
-    }
-    const wall = performance.now() - t0;
-    // one real render per minute keeps the render path exercised
-    ZS.step(1 / 120, 1, true);
-    const info = ZS.ctx.stage?.renderer?.info;
+    window.__soakWall = 0;
+  }, minute);
+  for (let sec = 0; sec < 60; sec++) {
+    const r = await Promise.race([
+      page.evaluate((sec) => {
+        const ZS = window.ZS;
+        const t0 = performance.now();
+        if ((sec & 1) === 0) {
+          ZS.newStroke();
+          const y = [-0.1, 0.05, 0.2, -0.05][(sec >> 1) & 3];
+          ZS.swipe(-0.9, y, 0.9, y, 14, 6.0);
+        }
+        ZS.step(1 / 60, 60, false);
+        window.__soakWall += performance.now() - t0;
+        return true;
+      }, sec),
+      new Promise((r) => setTimeout(() => r('timeout'), SEC_WALL_CAP_MS)),
+    ]);
+    if (r === 'timeout') { aborted = `watchdog: sim-second took >${SEC_WALL_CAP_MS}ms at minute ${minute}`; break outer; }
+  }
+  const s = await page.evaluate((minute) => {
+    const ZS = window.ZS;
+    ZS.step(1 / 60, 1, true);   // one real render per minute keeps that path honest
+    const info = ZS.ctx.renderer?.info;
     const st = ZS.audio.state();
     return {
       minute,
       level: ZS.ctx.fruits.level,
-      stepMs: +(wall / steps).toFixed(3),
+      stepMs: +(window.__soakWall / 3600).toFixed(3),
       heapMB: performance.memory ? +(performance.memory.usedJSHeapSize / 1048576).toFixed(1) : -1,
       geo: info?.memory?.geometries ?? -1,
       tex: info?.memory?.textures ?? -1,
@@ -134,7 +151,8 @@ if (samples.some((s) => s.audioErrs > 0)) failures.push('audio errors during soa
 const heapGrowth = q(late, (s) => s.heapMB) - q(early, (s) => s.heapMB);
 if (heapGrowth > 60) failures.push(`heap grew ${heapGrowth.toFixed(0)}MB late vs early`);
 
-const out = { pass: failures.length === 0, failures, stepGrowth: +stepGrowth.toFixed(3), heapGrowth: +heapGrowth.toFixed(1), geoGrowth: +geoGrowth.toFixed(1), samples, pageErrors: errs.slice(0, 6) };
+if (aborted) failures.push(aborted);
+const out = { pass: failures.length === 0, failures, aborted, stepGrowth: +stepGrowth.toFixed(3), heapGrowth: +heapGrowth.toFixed(1), geoGrowth: +geoGrowth.toFixed(1), samples, pageErrors: errs.slice(0, 6) };
 console.log(JSON.stringify(out, null, 2));
 const jf = arg('json', null);
 if (jf) writeFileSync(join(root, jf), JSON.stringify(out, null, 2));
