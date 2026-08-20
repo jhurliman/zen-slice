@@ -83,11 +83,37 @@ export function createHaptics() {
     return 'none';
   }
 
+  // ── the deferred tick (codex r25, P1) ──────────────────────────────────────
+  // A slice lands MID-stroke, before the stroke's own touchend — so when
+  // strokes are further apart than the 850 ms grant (the whole early game:
+  // fruit every 1.7-2.6 s), the grant is always stale at slice time and a
+  // grant-gated click would never fire. The fix keeps the reference's
+  // known-working activation set: a tick requested outside the grant is
+  // QUEUED, and the very next completed interaction — normally this stroke's
+  // own touchend, ~100-250 ms after the cut — flushes it SYNCHRONOUSLY from
+  // inside its handler, which is by definition inside a fresh grant. Rapid
+  // consecutive strokes still tick at the instant of the cut.
+  let pendingTaps = 0, pendingAt = -1e9;
+  const PENDING_TTL = 2000;   // ms — a tick nobody collected goes stale
+
   /** One system tick, iff the grant is open. Safe to call from timers. */
   function tapSwitch() {
     try {
       if (labelEl && performance.now() - lastTrusted < GRANT_MS) labelEl.click();
     } catch (_) { /* degrade to silence, never retire the module */ }
+  }
+  /** `n` system ticks TAP_GAP_MS apart — now if the grant is open, else
+   *  queued for the next completed interaction. */
+  function requestTaps(n) {
+    if (performance.now() - lastTrusted < GRANT_MS) {
+      tapSwitch();
+      for (let k = 1; k < n; k++) setTimeout(tapSwitch, k * TAP_GAP_MS);
+    } else {
+      // coalesce, never accumulate: a queue that machine-guns at finger-lift
+      // would feel like a malfunction, not feedback
+      pendingTaps = Math.max(pendingTaps, Math.min(2, n));
+      pendingAt = performance.now();
+    }
   }
 
   /** One pulse. ms drives duration on the vibrate backend; on iOS, longer
@@ -100,8 +126,7 @@ export function createHaptics() {
     lastPulse = now;
     try {
       if (api.backend === 'vibrate') { navigator.vibrate(ms); return; }
-      tapSwitch();
-      if (ms >= 30) setTimeout(tapSwitch, TAP_GAP_MS);
+      requestTaps(ms >= 30 ? 2 : 1);
     } catch (_) { /* */ }
   }
   function pattern(arr) {
@@ -112,14 +137,8 @@ export function createHaptics() {
     lastPulse = now;
     try {
       if (api.backend === 'vibrate') { navigator.vibrate(arr); return; }
-      // no true patterns on iOS: render [on, off, on, …] as one tick at each
-      // ON boundary — every delayed tick re-checks the grant inside tapSwitch
-      tapSwitch();
-      let at = 0;
-      for (let i = 0; i + 1 < arr.length; i += 2) {
-        at += arr[i] + arr[i + 1];
-        setTimeout(tapSwitch, Math.max(TAP_GAP_MS, at));
-      }
+      // no true patterns on iOS: one tick per ON segment
+      requestTaps(Math.max(1, Math.ceil(arr.length / 2)));
     } catch (_) { /* */ }
   }
 
@@ -133,16 +152,23 @@ export function createHaptics() {
       // touchend, keyup, keypress. These are completed-interaction events;
       // r24 listened to pointerdown/move too and assumed they renewed the
       // OS-side window, but the reference implementation deliberately does
-      // not, and it is the one known to work. Practical consequence for a
-      // slicing game: the grant that covers a stroke's slices is the one
-      // opened by the PREVIOUS touch's end (or the unlock tap) — strokes are
-      // short and frequent, so in play the window is nearly always open.
-      // Events from our own label/input are skipped (ivpm does the same) so
-      // a click echo can never look like a fresh grant.
+      // not, and it is the one known to work. Ticks requested between grants
+      // are queued (see requestTaps) and collected HERE: the handler runs
+      // inside the completed interaction itself, so its click is always
+      // honored. Events from our own label/input are skipped (ivpm does the
+      // same) so a click echo can never look like a fresh grant.
       const touch = (e) => {
         if (!e.isTrusted) return;
         if (labelEl && (e.target === labelEl || e.target === labelEl.firstChild)) return;
         lastTrusted = performance.now();
+        if (pendingTaps > 0) {
+          const n = performance.now() - pendingAt < PENDING_TTL ? pendingTaps : 0;
+          pendingTaps = 0;
+          if (n > 0) {
+            tapSwitch();
+            for (let k = 1; k < n; k++) setTimeout(tapSwitch, k * TAP_GAP_MS);
+          }
+        }
       };
       ['click', 'touchend', 'keyup', 'keypress']
         .forEach((ev) => window.addEventListener(ev, touch, { passive: true, capture: true }));
