@@ -286,8 +286,12 @@ export function createDirector({ seed = 20260806 } = {}) {
       let worst = -1, worstKeep = 1e9, worstAge = -1;
       for (let i = 0; i < api.live.length; i++) {
         const f = api.live[i];
-        const keep = (onScreen(f) ? 4 : 0)
-          + (f.generation === 0 ? 2 : f.generation === 1 ? 1 : 0);
+        // r29 (codex): every generation gets its own rank — gen 2 and 3 used
+        // to tie at 0 and the age tiebreak then retired OLDER (larger)
+        // quarters before fresh eighths. The on-screen weight (4) still
+        // dominates the whole generation span (max 3), so "off-screen first"
+        // is preserved exactly.
+        const keep = (onScreen(f) ? 4 : 0) + Math.max(0, 3 - f.generation);
         const age = t - f._addedAt;
         if (keep < worstKeep || (keep === worstKeep && age > worstAge)) {
           worst = i; worstKeep = keep; worstAge = age;
