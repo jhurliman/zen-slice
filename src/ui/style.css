@@ -21,7 +21,10 @@ html, body {
   color: rgba(255,255,255,0.90);
   text-shadow: 0 0 26px rgba(140,190,255,0.35), 0 2px 12px rgba(0,0,0,0.8);
   font-variant-numeric: tabular-nums;
+  transition: opacity 1.8s ease;   /* the coda fade — slow, like the light */
 }
+/* Deep Calm retires the score (hud.js toggles this on the coda's 'level') */
+.zs-score.coda { opacity: 0; pointer-events: none; }
 /* r25: the live phrase multiplier, riding beside the score. Gold like the
    best-score whisper, sized against the score's own em so it scales with it;
    hidden the instant the chain dies (hud.js toggles .on each frame). */
@@ -206,6 +209,8 @@ html, body {
   font: inherit; padding: 4px 12px;
   touch-action: manipulation;
 }
+/* r38g: the combo triggers — tighter, the strip has to fit a phone width */
+.zs-debug .zs-dbg-combo { padding: 4px 8px; }
 
 .zs-hint {
   position: absolute; bottom: max(30px, env(safe-area-inset-bottom)); left: 50%;
@@ -407,3 +412,6 @@ html, body {
   pointer-events: none;
 }
 .zs-flag.on { opacity: 1; }
+/* r38f: a dead module commandeers the flag badge (dev builds only — see
+   hud.js). Red, no uppercase mangling of the error text. */
+.zs-flag.fault { color: rgba(255, 110, 100, 0.95); text-transform: none; letter-spacing: 0.04em; }

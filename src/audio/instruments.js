@@ -481,10 +481,11 @@ export function playSigh(engine, semis) {
  *               independent slow swells and a whisper of detune drift,
  *               re-pitched via retune() on every chord change. Heat-haze.
  *   · grains  — sparse Poisson-timed DIEGETIC events: dewdrops (sine pings
- *               on the chord's color tone), rain ticks, ember crackle,
- *               crickets. Weather, never rhythm — the random-on-the-grid
- *               slot already belongs to the sparkle arps, so grains are
- *               deliberately NOT grid-locked.
+ *               on the chord's color tone), rain drips (pitch-rising bloops
+ *               with distance-as-depth), ember crackle, crickets. Weather,
+ *               never rhythm — the random-on-the-grid slot already belongs
+ *               to the sparkle arps, so grains are deliberately NOT
+ *               grid-locked.
  *
  * Routing: air + shimmer feed padBus, so the idle breathing filter closes
  * over them and the level-change duck hushes them for free. Grains enter at
@@ -506,15 +507,27 @@ export const TEXTURES = [
     air: { f: 430, q: 1.2, g: 0.016, breathe: 0.45, trem: 0.06, wander: 80 },
     grains: { kind: 'dew', rate: 0.25, g: 0.045 },
   },
-  /* 3 Orchard Rain — noise droplets, the densest weather of the day */
+  /* 3 Orchard Rain — the GRAINS carry this level; the air is just damp
+   * stillness under them. First-ear pass: breathe 0.4 read as ocean SWELLS
+   * ("waves crashing on the beach") and drowned the rain — depth 0.2 is
+   * humidity, not surf, and the bed drops ~5 dB out of the drops' way.
+   * Second ear pass: 5/s ticks read as "finger taps" — rate 1.1 makes each
+   * drop an EVENT (the drop itself is rebuilt as a bloop, see spawnGrain). */
   {
-    air: { f: 520, q: 0.9, g: 0.016, breathe: 0.4, trem: 0.05, wander: 90 },
-    grains: { kind: 'rain', rate: 2.4, g: 0.05 },
+    air: { f: 480, q: 0.9, g: 0.009, breathe: 0.2, trem: 0.05, wander: 70 },
+    grains: { kind: 'rain', rate: 1.1, g: 0.12 },
   },
-  /* 4 Noon Bloom — bright open air, full sun, no weather */
-  { air: { f: 950, q: 0.8, g: 0.017, breathe: 0.35, trem: 0.04, wander: 160 } },
-  /* 5 Summer Weight — cicada haze: a high narrow band throbbing at ~5 Hz */
-  { air: { f: 2200, q: 2.5, g: 0.012, breathe: 0.75, trem: 5.2, wander: 120 } },
+  /* 4 Noon Bloom — bright open air, full sun, no weather (first-ear pass:
+   * "a touch loud, could sit deeper in the mix" — 0.017 → 0.011) */
+  { air: { f: 950, q: 0.8, g: 0.011, breathe: 0.35, trem: 0.04, wander: 160 } },
+  /* 5 Summer Weight — heat HAZE: warm still air + detuned shimmer. The
+   * first-ear version was a 5.2 Hz tremolo on a high band — "some wild
+   * shaker! way too much" — exactly the r23 grain-train lesson relearned on
+   * a new layer. Heavy summer heat doesn't pulse; it shimmers. */
+  {
+    air: { f: 900, q: 0.8, g: 0.01, breathe: 0.3, trem: 0.05, wander: 110 },
+    shimmer: { g: 0.007, det: 6 },
+  },
   /* 6 Golden Hour — warm low-mid air + the beating shimmer partials */
   {
     air: { f: 640, q: 0.9, g: 0.018, breathe: 0.4, trem: 0.05, wander: 90 },
@@ -550,6 +563,10 @@ export function makeTexture(engine, harmony) {
   // grains bypass padLp (see header): into padDuck, so duck + room still apply
   const grainOut = actx.createGain(); grainOut.gain.value = 0;
   grainOut.connect(engine.padDuck);
+  // r38b: a presence-scaled DIRECT room trunk for grains that want more
+  // reverb than padSend's fixed 0.8 — distance-as-depth for the rain drips
+  const grainWet = actx.createGain(); grainWet.gain.value = 0;
+  grainWet.connect(engine.reverbIn);
 
   // ── air: looping noise → wandering bandpass → breathing gain ──────────────
   const airSrc = actx.createBufferSource(); airSrc.buffer = engine.noise; airSrc.loop = true;
@@ -609,17 +626,47 @@ export function makeTexture(engine, harmony) {
       o.connect(g); g.connect(pan); pan.connect(grainOut);
       o.start(when); o.stop(when + 0.9);
     } else if (r.kind === 'rain') {
-      // one raindrop: a bright 50 ms noise tick
-      const src = actx.createBufferSource(); src.buffer = engine.noise;
-      const bp = actx.createBiquadFilter(); bp.type = 'bandpass';
-      bp.frequency.value = 1600 + Math.random() * 2200; bp.Q.value = 5;
+      // r38b: a DRIP, not a finger tap. The resonant-tick version was pure
+      // transient and the player heard percussion ("finger taps"). A water
+      // drop's identity is the BLOOP — classic drop synthesis: a small sine
+      // whose pitch RISES as the cavity closes — landed on a chord tone so
+      // the orchard drips in key. And DEPTH: each drop falls at a random
+      // distance — far ones quieter, duller, panned wider and mostly room
+      // (the grainWet trunk); near ones bright and dry, with a whisper of
+      // splash noise. Rain becomes a place, not a pattern.
+      const dist = Math.random();                    // 0 near … 1 far
+      const amp = r.g * vel * (1 - 0.72 * dist);
+      const chord = harmony.chord();
+      const pc = chord.tones[(Math.random() * chord.tones.length) | 0];
+      const f = semisToFreq(placeNear(pc, 12 + ((Math.random() * 8) | 0)));
+      const pan = actx.createStereoPanner();
+      pan.pan.value = (Math.random() * 2 - 1) * (0.3 + 0.5 * dist);
+      const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
+      lp.frequency.value = 4600 - 3200 * dist;       // far = duller
+      lp.connect(pan); pan.connect(grainOut);
+      const wetG = actx.createGain(); wetG.gain.value = 0.3 + 1.1 * dist;
+      pan.connect(wetG); wetG.connect(grainWet);
+      const o = actx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(f * 0.8, when);
+      o.frequency.exponentialRampToValueAtTime(f, when + 0.035 + 0.05 * Math.random());
       const g = actx.createGain();
       g.gain.setValueAtTime(0, when);
-      g.gain.linearRampToValueAtTime(r.g * vel, when + 0.002);
-      g.gain.exponentialRampToValueAtTime(0.0001, when + 0.05);
-      const pan = actx.createStereoPanner(); pan.pan.value = (Math.random() * 2 - 1) * 0.7;
-      src.connect(bp); bp.connect(g); g.connect(pan); pan.connect(grainOut);
-      src.start(when, Math.random() * 0.9, 0.06);
+      g.gain.linearRampToValueAtTime(amp, when + 0.007);
+      g.gain.setTargetAtTime(0, when + 0.015, 0.055 + 0.05 * (1 - dist));
+      o.connect(g); g.connect(lp);
+      o.start(when); o.stop(when + 0.6);
+      if (dist < 0.4) {
+        // the splash whisper, near drops only: 20 ms of high air beside the bloop
+        const src = actx.createBufferSource(); src.buffer = engine.noise;
+        const bp = actx.createBiquadFilter(); bp.type = 'bandpass';
+        bp.frequency.value = 3200 + Math.random() * 1500; bp.Q.value = 2.5;
+        const ng = actx.createGain();
+        ng.gain.setValueAtTime(0, when);
+        ng.gain.linearRampToValueAtTime(amp * 0.25, when + 0.003);
+        ng.gain.exponentialRampToValueAtTime(0.0001, when + 0.02);
+        src.connect(bp); bp.connect(ng); ng.connect(lp);
+        src.start(when, Math.random() * 0.9, 0.03);
+      }
     } else if (r.kind === 'ember') {
       // an ember pop: short low-mid crackle, sometimes a settling second
       const src = actx.createBufferSource(); src.buffer = engine.noise;
@@ -710,6 +757,7 @@ export function makeTexture(engine, harmony) {
       const t = engine.now();
       out.gain.setTargetAtTime(p, t, 0.6);
       grainOut.gain.setTargetAtTime(p, t, 0.6);
+      grainWet.gain.setTargetAtTime(p, t, 0.6);
     },
 
     /** Emit Poisson-timed grains inside [now, until) — called every frame

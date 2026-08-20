@@ -28,7 +28,7 @@ const DEBUG_UI_ALLOWED = typeof __ZS_DEBUG_UI__ === 'undefined' || !!__ZS_DEBUG_
 
 export function createHud() {
   const api = {};
-  let ctx, root, scoreEl, multEl, levelEl, comboLayer, hintEl, flagEl;
+  let ctx, root, scoreEl, multEl, levelEl, comboLayer, hintEl, flagEl, scoreWrap;
   let debugOn = false, debugEl = null, debugTxt = null, debugAcc = 0;
   let shownScore = 0;
   const floats = [];
@@ -96,6 +96,7 @@ export function createHud() {
       <div class="zs-flag" id="zs-flag"></div>`;
     document.body.appendChild(root);
     scoreEl = root.querySelector('#zs-num');
+    scoreWrap = root.querySelector('.zs-score');
     multEl = root.querySelector('#zs-mult');
     levelEl = root.querySelector('#zs-level');
     comboLayer = root.querySelector('#zs-combos');
@@ -106,7 +107,16 @@ export function createHud() {
       levelEl.textContent = e.name;
       levelEl.classList.remove('show'); void levelEl.offsetWidth;
       levelEl.classList.add('show');
+      // the coda retires the score readout: Deep Calm is endless and
+      // rock-free, the number is frozen (r36) — a dead readout is chrome,
+      // not information. The 'level' event already carries `coda` for
+      // exactly this kind of consumer; any non-coda level (begin again's
+      // level-0 re-announce, the ?debug remote) brings it back.
+      scoreWrap.classList.toggle('coda', !!e.coda);
     });
+    // a bus-level reset (harness ZS.clear, director.reset) restores the
+    // readout even when no 'level' event follows
+    c.bus.on('reset', () => scoreWrap.classList.remove('coda'));
     // ══ THE COMBO CALLOUT ════════════════════════════════════════════════
     // The player asked for this: "when you get a combo text should appear over
     // your slice. This makes the game feel more exciting."
@@ -363,7 +373,15 @@ export function createHud() {
       debugEl.className = 'zs-debug';
       debugEl.innerHTML = `<button id="zs-dbg-prev">◀</button>`
         + `<span id="zs-dbg-txt"></span>`
-        + `<button id="zs-dbg-next">▶</button>`;
+        + `<button id="zs-dbg-next">▶</button>`
+        // r38g: COMBO TRIGGERS (HANDOFF item 3) — one tap stages an n-fruit
+        // constellation and sweeps it, reproducing DYAD/TRIAD/CHORD/FLOURISH
+        // on demand. Iterating on the reward moment's mix/timing by earning a
+        // 5-fruit stroke by hand each attempt was the blocker.
+        + `<button class="zs-dbg-combo" data-n="2">2</button>`
+        + `<button class="zs-dbg-combo" data-n="3">3</button>`
+        + `<button class="zs-dbg-combo" data-n="4">4</button>`
+        + `<button class="zs-dbg-combo" data-n="5">5</button>`;
       root.appendChild(debugEl);
       debugTxt = debugEl.querySelector('#zs-dbg-txt');
       // NO stopPropagation here: the window-level pointerdown listener in
@@ -374,6 +392,40 @@ export function createHud() {
       const jump = (d) => { const dir = ctx.fruits; if (dir?.jumpLevel) dir.jumpLevel((dir.level | 0) + d); };
       debugEl.querySelector('#zs-dbg-prev').addEventListener('pointerdown', () => jump(-1));
       debugEl.querySelector('#zs-dbg-next').addEventListener('pointerdown', () => jump(1));
+      // stage n fruit in a centered row, hanging near-still, then sweep them
+      // with a bus stroke one frame later — the same ZS surface the probe
+      // harness drives, so the whole gather/voice/reward path is the real one.
+      // Mixed species so the voiced chord spans registers like a played one.
+      const combo = (nn) => {
+        const ZS = window.ZS;
+        if (!ZS?.spawn || !ZS?.swipe) return;
+        const kinds = ['orange', 'apple', 'kiwi', 'strawberry', 'pineapple'];
+        const span = 0.75 * (nn - 1);
+        const staged = [];
+        for (let i = 0; i < nn; i++) {
+          const f = ZS.spawn(kinds[i % kinds.length]);
+          if (!f) continue;
+          f.pos.set(-span / 2 + i * 0.75, 0.3, 0);
+          f.vel.set(0, 1.0, 0);
+          staged.push(f);
+        }
+        setTimeout(() => {
+          // aim the sweep at where the fruit ACTUALLY are — they rise during
+          // the settle, and a hardcoded row clipped the small species ("5
+          // often gets me a triad"): project the survivors and sweep their
+          // mean NDC row at swipe time, not the staging row
+          const alive = staged.filter((f) => f && !f.dead);
+          let y = 0.0;
+          if (alive.length && ctx.camera) {
+            for (const f of alive) y += f.pos.clone().project(ctx.camera).y;
+            y /= alive.length;
+          }
+          ZS.newStroke(); ZS.swipe(-0.85, y, 0.85, y, 12, 6.0);
+        }, 90);
+      };
+      for (const b of debugEl.querySelectorAll('.zs-dbg-combo')) {
+        b.addEventListener('pointerdown', () => combo(b.dataset.n | 0));
+      }
       debugAcc = 1;   // populate the text on the next frame, not in 500 ms
     } else if (!on && debugEl) {
       debugEl.remove();
@@ -409,17 +461,36 @@ export function createHud() {
     // re-parse the URL, because duplicating that parse is exactly the drift
     // r14b removed for cling.
     if (flagEl) {
-      // r18: droplet physics is the DEFAULT now, so the badge is no longer a
-      // "this is on" indicator — it is an "you have overridden the default"
-      // indicator, and it reports which way. A diagnostic that shows during
-      // ordinary play is game chrome, and this is not that.
-      const show = !!c.dropPhysExplicit;
-      const on = !!c.dropPhys;
-      const txt = !show ? ''
-        : (on ? `DROPLET PHYSICS ON · ${c.dropPhysSpheres | 0} colliders`
-              : 'DROPLET PHYSICS OFF');
-      if (flagEl.textContent !== txt) flagEl.textContent = txt;
-      if (show !== flagEl.classList.contains('on')) flagEl.classList.toggle('on', show);
+      // ══ r38f: SAY WHEN A MODULE IS DEAD ════════════════════════════════
+      // The r17 doctrine ("a prototype the player cannot SEE THE STATE OF is
+      // untestable") applied to failure: safe() records a dead module and
+      // logs it, but the phone has no console — a blade with dead input and
+      // a healthy one looked IDENTICAL on device, twice. In dev builds
+      // (DEBUG_UI_ALLOWED; App Store builds keep degrading silently — retail
+      // players should never see scary red text) the first fault takes over
+      // the flag badge unconditionally — no ?debug needed, because the whole
+      // failure mode is "nobody thought to look".
+      const faults = DEBUG_UI_ALLOWED ? (c.moduleErrors?.length | 0) : 0;
+      if (faults) {
+        const f0 = c.moduleErrors[0];
+        const txt = `⚠ ${f0.module}.${f0.phase} DEAD${faults > 1 ? ` +${faults - 1} more` : ''} · ${f0.error.split('\n')[0].slice(0, 80)}`;
+        if (flagEl.textContent !== txt) flagEl.textContent = txt;
+        if (!flagEl.classList.contains('on')) flagEl.classList.add('on');
+        if (!flagEl.classList.contains('fault')) flagEl.classList.add('fault');
+      } else {
+        if (flagEl.classList.contains('fault')) flagEl.classList.remove('fault');
+        // r18: droplet physics is the DEFAULT now, so the badge is no longer a
+        // "this is on" indicator — it is an "you have overridden the default"
+        // indicator, and it reports which way. A diagnostic that shows during
+        // ordinary play is game chrome, and this is not that.
+        const show = !!c.dropPhysExplicit;
+        const on = !!c.dropPhys;
+        const txt = !show ? ''
+          : (on ? `DROPLET PHYSICS ON · ${c.dropPhysSpheres | 0} colliders`
+                : 'DROPLET PHYSICS OFF');
+        if (flagEl.textContent !== txt) flagEl.textContent = txt;
+        if (show !== flagEl.classList.contains('on')) flagEl.classList.toggle('on', show);
+      }
     }
     const s = c.score?.score ?? 0;
     shownScore += (s - shownScore) * Math.min(1, dt * 9);
@@ -475,9 +546,14 @@ export function createHud() {
           // device tuning session. Space names the current reverb room.
           const mt = window.ZS?.audio?.meter?.();
           const mix = mt ? ` · mix ${mt.rms}/${mt.peak} [${mt.lo} ${mt.mid} ${mt.hi}]` : '';
+          // thermal-ratchet triage: live tier ≤ session ceiling + frame EMA.
+          // On device, `T1≤1` after 15 min = the ratchet held; `T2≤3` cycling
+          // = the chip recovered honestly.
+          const g = window.ZS?.gov?.();
+          const gv = g ? ` · T${g.tier}≤${g.ceil} ${g.ms}ms` : '';
           const txt = st
-            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${rec}${hap}${mix}`
-            : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}${hap}`;
+            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${rec}${hap}${mix}${gv}`
+            : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}${hap}${gv}`;
           if (debugTxt.textContent !== txt) debugTxt.textContent = txt;
         } catch (_) { /* diagnostic only */ }
       }

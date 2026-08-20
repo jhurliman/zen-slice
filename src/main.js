@@ -31,11 +31,19 @@
  *     without it `canvas.toDataURL()` from a later task returns a blank image —
  *     ZS.grab() would silently produce black PNGs.
  *
- * ── Module fault tolerance ──────────────────────────────────────────────────
+ * ── Module fault tolerance ──────────────────────────────────────────────────────
  * Modules are converted to TSL one at a time by different agents. A module
  * whose init() throws is recorded in `ZS.moduleErrors` and then skipped for the
  * rest of the session instead of taking the whole build down; the same applies
- * to fixed/frame/quality/resize. One agent mid-conversion can no longer blank
+ * to fixed/frame/quality/resize. ⚠ r38f: TOLERATED IS NOT INVISIBLE. This
+ * exact mechanism shipped a dead input module to the device twice (blade
+ * init() ReferenceError; every bus-driven probe green). The ledger is now
+ * WATCHED: hud.js paints a red fault badge in dev builds (ctx.moduleErrors),
+ * window 'error'/'unhandledrejection' funnel in the throws safe() can't see
+ * (DOM handlers, timers), tools/pointerprobe.mjs asserts the ledger empty
+ * through REAL PointerEvents and gates `npm run ios`, and audioprobe's
+ * session asserts it empty for all modules.
+ * One agent mid-conversion can no longer blank
  * the round for everyone else. Note that a raw ShaderMaterial does NOT throw —
  * three logs `Material "ShaderMaterial" is not compatible` and substitutes an
  * empty NodeMaterial — so a silently flat-shaded object is the symptom of a
@@ -162,6 +170,27 @@ export async function boot(canvas) {
 
   /** @type {{module:string,phase:string,error:string}[]} */
   const moduleErrors = [];
+  // r38f: THE FAULT LEDGER IS PUBLISHED, NOT JUST EXPOSED. safe() was doing
+  // its job (record + console.error) but nothing LOOKED: the phone has no
+  // console, most probes only checked their own module's errors, and a build
+  // with a dead input module sailed to the device twice. Three consumers now
+  // watch this array: the HUD fault badge (dev builds — hud.js reads
+  // ctx.moduleErrors), tools/pointerprobe.mjs (asserts it empty through the
+  // REAL pointer path), and audioprobe's session (asserts it empty for ALL
+  // modules, not just audio/haptics). Errors that never pass through safe()
+  // — DOM event handlers, timers, promise rejections — are funneled in below
+  // via the window listeners, tagged module 'window' and NOT marked dead:
+  // there is no module object to retire, but the fault must not be invisible.
+  const windowFault = (kind) => (ev) => {
+    if (moduleErrors.length >= 40) return;
+    const e = ev.error || ev.reason || ev.message || ev;
+    moduleErrors.push({ module: 'window', phase: kind, error: String(e && e.stack ? e.stack : e).slice(0, 400) });
+  };
+  window.addEventListener('error', windowFault('error'));
+  window.addEventListener('unhandledrejection', windowFault('rejection'));
+  // assigned HERE, after the const — putting `moduleErrors` in the ctx
+  // literal above would be this file's documented TDZ bug all over again
+  ctx.moduleErrors = moduleErrors;
 
   // ── WebGPU-only compatibility shims ────────────────────────────────────────
   // Both must be installed BEFORE the first render (module init() renders: the
@@ -291,8 +320,21 @@ export async function boot(canvas) {
   window.addEventListener('orientationchange', () => setTimeout(resize, 120));
   resize();
 
-  // ── quality governor ───────────────────────────────────────────────────────
+  // ── quality governor ───────────────────────────────────────────────────────────────────────
+  // THE THERMAL RATCHET (HANDOFF open item 6). The soak harness proved the
+  // 15-min on-device slowdown is not a JS/scene/heap leak — it is the SoC
+  // hitting its thermal limit. The old governor made that WORSE by
+  // oscillating: downshift on misses → chip cools → upshift after ~8 s clean
+  // → reheat → miss → downshift… a duty cycle that pins the device at its
+  // throttle point forever. Two changes:
+  //  · an upshift now needs ~30 s of clean, fast frames (transient hiccups —
+  //    shader compiles, GC — still recover; a hot chip won't fake this);
+  //  · if a downshift is needed within 90 s OF an upshift, that upshift was
+  //    a thermal mistake: a session-long tier CEILING ratchets down to where
+  //    we retreated. The governor stops re-testing a level the device has
+  //    already failed — sustained load drops, the SoC gets to actually cool.
   let emaMs = 8, sinceChange = 0, framesOver = 0, framesUnder = 0;
+  let govT = 0, tierCeil = TIER.ULTRA, lastUpAt = -1e9;
   function applyTier(t) {
     ctx.quality = { ...PROFILES[t] };
     for (const m of modules) safe(m, 'quality', ctx.quality);
@@ -300,13 +342,17 @@ export async function boot(canvas) {
     bus.emit('quality', { profile: ctx.quality });
   }
   function governor(ms, dt) {
+    govT += dt;
     emaMs += (ms - emaMs) * 0.05;
     sinceChange += dt;
     const budget = 1000 / 60 * 0.92;   // never dip under 60
     if (emaMs > budget) { framesOver++; framesUnder = 0; } else { framesUnder++; framesOver = 0; }
     if (sinceChange > 1.5 && framesOver > 45 && ctx.quality.tier > TIER.LOW) {
+      if (govT - lastUpAt < 90) tierCeil = Math.max(TIER.LOW, ctx.quality.tier - 1);
       applyTier(ctx.quality.tier - 1); sinceChange = 0; framesOver = 0; emaMs = budget * 0.8;
-    } else if (sinceChange > 6 && framesUnder > 500 && emaMs < 1000 / 120 * 0.7 && ctx.quality.tier < TIER.ULTRA) {
+    } else if (sinceChange > 30 && framesUnder > 1800 && emaMs < 1000 / 120 * 0.7
+      && ctx.quality.tier < Math.min(TIER.ULTRA, tierCeil)) {
+      lastUpAt = govT;
       applyTier(ctx.quality.tier + 1); sinceChange = 0; framesUnder = 0;
     }
   }
@@ -398,6 +444,9 @@ export async function boot(canvas) {
     /** Snapshot WITHOUT resetting — reading a profiler must never disturb it. */
     profileRead: () => __profSnapshot(),
     setTier: applyTier,
+    /** governor triage (the ?debug strip): live tier, the thermal ratchet's
+     *  session ceiling, and the frame-cost EMA the decisions are made on */
+    gov: () => ({ tier: ctx.quality.tier, ceil: tierCeil, ms: +emaMs.toFixed(2) }),
     /** Probe hook: fluid's per-frame GPU kernel off/on (see fluid.setCompute).
      *  Fast-forward harnesses dispatch it per step — minutes of wall under a
      *  software rasterizer. Gameplay sim is identical without it. */

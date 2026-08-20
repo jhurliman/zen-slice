@@ -35,9 +35,14 @@ swish/thump ───┤                                                  ├─
 pad bank ──────┴─ padBus → padLp → padGain → padDuck ─────────────┘     │
                                                                         ▼
                               warmth low-shelf (240 Hz) → air high-shelf (7.5 kHz)
-                                → trim → 28 Hz rumble highpass → destination
+                                → trim → 28 Hz rumble highpass
+                                → safety limiter (−3 dB, 20:1) → tanh ceiling → destination
                               (compressor −17.6 dB / 3.3:1 on the percussive bus;
-                               the sustained bed bypasses it so it never pumps)
+                               the sustained bed bypasses it so it never pumps —
+                               which is WHY the last two stages exist: nothing else
+                               bounds the summed signal before the DAC. The limiter
+                               has no lookahead, so a 4×-oversampled WaveShaper
+                               saturates the first-millisecond transients it misses)
 ```
 
 Reverb is a **pair of crossfaded convolvers** with procedurally rendered

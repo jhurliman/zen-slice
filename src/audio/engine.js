@@ -38,7 +38,7 @@ export function createEngine() {
     actx: null,
     // master chain, built by ensure()
     dry: null, reverbIn: null, wet: null, master: null, comp: null,
-    warmth: null, air: null, trim: null, rumble: null,
+    warmth: null, air: null, trim: null, rumble: null, limiter: null, clip: null,
     padBus: null, padLp: null, padGain: null, padDuck: null,
     noise: null,          // shared 1 s white-noise buffer (shhk, risers, hammer)
     nodesCreated: 0,      // steady-state pool-integrity counter for the harness
@@ -99,17 +99,47 @@ export function createEngine() {
     // trim: the ?tune master macro — separate from eng.master, which the mute
     // fader and visibilitychange own
     eng.trim = mk(actx.createGain()); eng.trim.gain.value = 1.0;
-    // r26, the one always-on mastering insert: a 28 Hz rumble highpass between
-    // master and the hardware. Nothing musical lives below it (the drone's A1
-    // bass is 55 Hz, the rock thump's tail ends at 45 Hz) but noise-derived
-    // buffers carry a little sub-30 energy, and on headphones that reads as
-    // pressure, not sound. Everything audible passes untouched.
+    // r26 mastering insert #1: a 28 Hz rumble highpass between master and the
+    // hardware. Nothing musical lives below it (the drone's A1 bass is 55 Hz,
+    // the rock thump's tail ends at 45 Hz) but noise-derived buffers carry a
+    // little sub-30 energy, and on headphones that reads as pressure, not
+    // sound. Everything audible passes untouched.
     eng.rumble = mk(actx.createBiquadFilter());
     eng.rumble.type = 'highpass'; eng.rumble.frequency.value = 28; eng.rumble.Q.value = 0.5;
+    // mastering insert #2, THE SAFETY LIMITER — the only brickwall before the
+    // DAC. The musical compressor (comp) sits BEFORE master and the pad/
+    // texture bed routes AROUND it by design (r17: a bed that pumps under
+    // piano hits reads as broken), so nothing bounded the SUM — at Golden
+    // Hour density the player heard the overflow as a "lofi digital chirp"
+    // (DAC clipping). No knee, 20:1, near-instant attack: it only ever
+    // touches the overs; at retail levels it passes bit-transparent.
+    eng.limiter = mk(actx.createDynamicsCompressor());
+    eng.limiter.threshold.value = -3; eng.limiter.knee.value = 0;
+    eng.limiter.ratio.value = 20; eng.limiter.attack.value = 0.001; eng.limiter.release.value = 0.12;
+    // mastering insert #3, THE TRANSIENT CEILING (r38b). The limiter alone
+    // still chirped on 4-fruit chords (2 of 3): DynamicsCompressor has NO
+    // LOOKAHEAD, so the first ~1 ms of a stacked transient — anchor accent +
+    // rolled chord + grand run over the full bed — rides through its attack
+    // and clips the DAC anyway. A WaveShaper is instantaneous: exactly linear
+    // below −6 dBFS, a tanh shoulder above (ceiling ~0.88 FS), so overs
+    // SATURATE smoothly instead of wrapping, and 4× oversampling keeps the
+    // shoulder's harmonics from aliasing — aliased clipping IS the "lofi
+    // digital chirp". Retail program lives under the knee; bit-transparent.
+    eng.clip = mk(actx.createWaveShaper());
+    {
+      const N = 4096, curve = new Float32Array(N), knee = 0.5;
+      for (let i = 0; i < N; i++) {
+        const x = (i / (N - 1)) * 2 - 1, a = Math.abs(x);
+        curve[i] = Math.sign(x) * (a <= knee ? a : knee + (1 - knee) * Math.tanh((a - knee) / (1 - knee)));
+      }
+      eng.clip.curve = curve; eng.clip.oversample = '4x';
+    }
     eng.comp.connect(eng.master);
     eng.master.connect(eng.warmth); eng.warmth.connect(eng.air);
     eng.air.connect(eng.trim); eng.trim.connect(eng.rumble);
-    eng.rumble.connect(actx.destination);
+    eng.rumble.connect(eng.limiter);
+    eng.limiter.connect(eng.clip);
+    eng.clip.connect(actx.destination);
 
     eng.dry = mk(actx.createGain()); eng.dry.gain.value = 1.0; eng.dry.connect(eng.comp);
     eng.reverbIn = mk(actx.createGain()); eng.reverbIn.gain.value = 1.0;
@@ -325,12 +355,17 @@ export function createEngine() {
    * lands. Depth is linear gain (0.6 = about −4.4 dB), release is a time
    * constant so the bloom-back is long and soft.
    */
-  eng.duckBed = (depth = 0.6, hold = 0.4, release = 2.2) => {
+  eng.duckBed = (depth = 0.6, hold = 0.4, release = 2.2, attack = 0.08) => {
     if (!eng.ready) return;
     const t = eng.now();
     const g = eng.padDuck.gain;
     g.cancelScheduledValues(t);
-    g.setTargetAtTime(depth, t, 0.08);
+    // r38g: `attack` is a parameter now. The chord sidechain needs ~0.03 —
+    // flush() ducks ≤30 ms before the notes land, and at the old fixed 0.08
+    // the bed was still ~70% up when the transient stack hit, so the duck
+    // made room AFTER the peak it existed to make room for. The level-change
+    // hush keeps the soft default.
+    g.setTargetAtTime(depth, t, attack);
     g.setTargetAtTime(1.0, t + hold, release / 3);
   };
 
@@ -369,7 +404,8 @@ export function createEngine() {
       analyser = eng.actx.createAnalyser();
       analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0.5;
-      eng.rumble.connect(analyser);
+      // tapped POST-ceiling so the numbers stay "what the hardware receives"
+      eng.clip.connect(analyser);
       meterTime = new Float32Array(analyser.fftSize);
       meterFreq = new Float32Array(analyser.frequencyBinCount);
     }

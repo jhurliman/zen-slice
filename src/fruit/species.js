@@ -2390,6 +2390,41 @@ def({
         alb.addAssign(vec3(0.032, 0.040, 0.011).mul(band).mul(ss(-0.05, 0.65, sp)));
         // dark veining threading through the light bands
         alb.mulAssign(ss(0.25, 0.85, abs(w3)).mul(-0.42).add(1.0));
+
+        // FIELD SPOT — the creamy patch where the melon sat in the field.
+        // r9 built this as a geometry facet; the shape-D overlay deleted every
+        // fixed body direction from the SILHOUETTE (pure within-species
+        // variance under uniform SO(3) — see geometry.js), but the pale patch
+        // is COLOUR, not outline, so it moves here (HANDOFF open item 4).
+        // Same axis the facet used ([0.60, 0.74, 0.30] normalised: ~42 deg
+        // off-pole, near the stem spur in azimuth), so old shots line up.
+        // dot(n, SPOT_D) is 1 only at the spot centre — no antipode ghost the
+        // way a tangent-plane length() would mirror one. The t1^2 term
+        // squeezes the contour along SPOT_T (azimuthal), leaving it long on
+        // the meridian the way a resting oblong melon flattens: semi-axes
+        // ~15 x 10 deg, so ~30 deg of arc end to end. Edge frayed by w1 + w3
+        // (both already in scope) — a compass-drawn ellipse reads as a
+        // sticker. Every term here is low-frequency, so no u.detail gating:
+        // like the stripes, the spot survives the LOW tier untouched.
+        const SPOT_D = vec3(0.6007, 0.7409, 0.3004);
+        const SPOT_T = vec3(-0.4473, 0.0, 0.8944);
+        const t1 = dot(n, SPOT_T).toVar();
+        const spot = ss(0.966, 0.988, dot(n, SPOT_D).sub(t1.mul(t1).mul(0.55))
+          .add(w1.mul(0.012)).add(w3.mul(0.005))).toVar();
+        // stripes, veins and speckle all STOP at the spot edge — a real field
+        // spot interrupts the pattern — but a subdued reuse of `mot` survives
+        // inside (the faint netting real spots keep). 0.3000 R sits at the
+        // capBudget knee (0.3010) even at the mottle peak, and R/G 1.18 is
+        // cream against the stripes' green (lite R/G 0.69). B is STARVED
+        // (0.050) rather than proportional cream: this scene's ambient is
+        // blue-rich — the fruitviews baseline shows the rind's own shaded
+        // flank photographing outright BLUE — so any albedo that keeps a
+        // real blue channel goes cold the moment the spot rotates into
+        // shade. Yellow that survives this lighting is made by starving B,
+        // not by adding R.
+        alb.assign(mix(alb,
+          vec3(0.3000, 0.2550, 0.0500).mul(mot.mul(0.30).add(0.85)), spot));
+
         // waxy bloom toward grazing angles
         alb.addAssign(vec3(0.011, 0.018, 0.009).mul(pow(graze, 3.0)));
         return alb;

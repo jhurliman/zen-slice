@@ -54,6 +54,26 @@ node build.mjs        # emits dist/index.html (unchanged)
 npx cap sync ios      # copies dist/ into ios/App/App/public + SPM sync
 ```
 
+⚠ `cap sync` REGENERATES `ios/App/CapApp-SPM/Package.swift` with
+`swift-tools-version: 5.9`, which cannot express the committed manifest's
+`.iOS(.v26)` — the next xcodebuild fails with "'v26' is unavailable". The
+committed file (tools-version 6.2) is the truth; restore it after every sync.
+`npm run ios` does the whole loop (build → sync → restore) in one step.
+
+Deploying from the CLI (Xcode GUI not required):
+
+```bash
+xcodebuild -project ios/App/App.xcodeproj -scheme App \
+  -destination 'id=<device-udid>' -allowProvisioningUpdates \
+  DEVELOPMENT_TEAM=<team-id> CODE_SIGN_STYLE=Automatic build
+xcrun devicectl device install app --device <device-udid> \
+  ~/Library/Developer/Xcode/DerivedData/App-*/Build/Products/Debug-iphoneos/App.app
+xcrun devicectl device process launch --device <device-udid> org.jhurliman.chordcut
+```
+
+(`xcrun devicectl list devices` for the UDID; launch requires the phone
+unlocked — install works either way.)
+
 ## On a Mac (the only part Linux can't do)
 
 1. Xcode 26+. `npx cap open ios`.
