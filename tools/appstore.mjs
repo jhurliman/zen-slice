@@ -23,11 +23,14 @@ const rawDir = join(root, 'art/appstore/raw');
 const outDir = join(root, 'art/appstore/out');
 mkdirSync(outDir, { recursive: true });
 
-// One entry per ASC slot worth filling. If an iPad set is ever needed:
-// { dir: 'ipad-13', W: 2064, H: 2752 }, same layout.
+// One entry per ASC slot worth filling. `source` picks the per-device raw
+// file from shots.json. `cropBottom` trims device pixels off the capture
+// before framing — the iPad set was taken with ?debug up, so the level-remote
+// strip sits in the bottom band of every frame.
 const SIZES = [
-  { dir: 'iphone-6.9', W: 1320, H: 2868 },
-  { dir: 'iphone-6.5', W: 1284, H: 2778 },
+  { dir: 'iphone-6.9', W: 1320, H: 2868, source: 'iphone' },
+  { dir: 'iphone-6.5', W: 1284, H: 2778, source: 'iphone' },
+  { dir: 'ipad-13', W: 2064, H: 2752, source: 'ipad', cropBottom: 320 },
 ];
 
 const { default: sharp } = await import('sharp');
@@ -37,7 +40,7 @@ const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, 
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 let failed = 0;
-for (const { dir, W, H } of SIZES) {
+for (const { dir, W, H, source, cropBottom = 0 } of SIZES) {
   mkdirSync(join(outDir, dir), { recursive: true });
   // layout constants were tuned at 1284 wide; scale everything with the canvas
   const K = W / 1284;
@@ -46,7 +49,9 @@ for (const { dir, W, H } of SIZES) {
   const RADIUS = Math.round(64 * K);
 
   for (let i = 0; i < manifest.shots.length; i++) {
-    const { file, headline, sub } = manifest.shots[i];
+    const { headline, sub } = manifest.shots[i];
+    const file = manifest.shots[i][source];
+    if (!file) continue;   // no capture for this device; the slot allows fewer
     const src = join(rawDir, file);
     if (!existsSync(src)) {
       console.error(`MISSING raw capture: art/appstore/raw/${file}`);
@@ -54,16 +59,19 @@ for (const { dir, W, H } of SIZES) {
       continue;
     }
 
-    // contain-fit the capture into the frame box
+    // crop (debug strip), then contain-fit the capture into the frame box
     const meta = await sharp(src).metadata();
-    const s = Math.min(IMG_W / meta.width, IMG_H_MAX / meta.height);
-    const iw = Math.round(meta.width * s), ih = Math.round(meta.height * s);
+    const srcH = meta.height - cropBottom;
+    const s = Math.min(IMG_W / meta.width, IMG_H_MAX / srcH);
+    const iw = Math.round(meta.width * s), ih = Math.round(srcH * s);
     const ix = Math.round(IMG_X + (IMG_W - iw) / 2), iy = IMG_Y;
 
     // round the capture's corners with a dest-in mask
     const mask = Buffer.from(
       `<svg width="${iw}" height="${ih}"><rect width="${iw}" height="${ih}" rx="${RADIUS}" fill="#fff"/></svg>`);
-    const shot = await sharp(src).resize(iw, ih)
+    const shot = await sharp(src)
+      .extract({ left: 0, top: 0, width: meta.width, height: srcH })
+      .resize(iw, ih)
       .composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer();
 
     // canvas: stage gradient, caption, gold hairline around the frame
