@@ -83,6 +83,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   const physics = createPhysics();
   let nextSpawn = 1.2;
   let lastFan = -1e9;   // r32: last constellation offer (sim seconds)
+  let titleWait = 0.5, titleSide = 1;   // r36: the marquee melon's cadence
   let t = 0;
   let levelT = 0;   // sim seconds in the current level (the r18 time gate)
   // running triangle total of the live population, maintained incrementally by
@@ -317,15 +318,39 @@ export function createDirector({ seed = 20260806 } = {}) {
 
   api.fixed = (sdt) => {
     t += sdt;
-    levelT += sdt;
+    // ══ r36 THE MARQUEE HOLD ════════════════════════════════════════════════
+    // While the title screen is up (hud.js publishes ctx.titleHold) the arc
+    // has not begun: the level clock waits and nothing ordinary spawns — the
+    // player read random toss traffic under the title as "stressful, like you
+    // are missing points". Instead ONE watermelon at a time lobs a slow arc
+    // past the wordmark (the icon, by request), alternating sides. Physics
+    // and retirement below run as normal so the melon flies and leaves.
+    // Probes never set the flag (?capture suppresses the title), so frozen
+    // rng streams are untouched.
+    const held = !!ctx.titleHold;
+    if (!held) levelT += sdt;
     const L = LEVELS[api.level];
     updateVisibleBox();
+
+    if (held) {
+      let whole = 0;
+      for (let i = 0; i < api.live.length; i++) if (api.live[i].generation === 0) whole++;
+      if (whole === 0 && (titleWait -= sdt) <= 0) {
+        titleSide = -titleSide;
+        spawn('watermelon', {
+          x: titleSide * rr(rng, 0.7, 1.3),
+          apexY: rr(rng, 2.5, 3.2),
+          z: rr(rng, -0.5, 0.5),
+        });
+        titleWait = rr(rng, 1.6, 2.6);
+      }
+    }
 
     // pacing. The generation-0 census used to be `api.live.filter(...)`, which
     // allocated a throwaway array every fixed step — 120 of them a second
     // against R4's "zero steady-state allocation in the hot loop".
     nextSpawn -= sdt;
-    if (nextSpawn <= 0) {
+    if (!held && nextSpawn <= 0) {
       // ══ r28 THE BEAT-QUANTIZED TOSS (the Lumines/Rez move) ══════════════
       // When the timer expires, the toss HOLDS until the conductor's next
       // audible 8th (audio.js publishes ctx.toss8In each render frame; the
@@ -516,6 +541,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   };
 
   api.reset = () => {
+    titleWait = 0.5; titleSide = 1;
     for (let i = api.live.length - 1; i >= 0; i--) api.remove(api.live[i]);
     api.level = 0; api.sliced = 0; levelT = 0; nextSpawn = 0.8; liveTris = 0; lastFan = -1e9;
     // ⚠ ROUND 10, FOR THE JUICE PIECE — READ THIS. The r9 juice verdict's open
