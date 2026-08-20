@@ -37,7 +37,7 @@
  *      DISPLAY space (after tone mapping) so that ±grain reads as ±grain rather
  *      than being stretched by the sRGB transfer in the shadows.
  * An idle frame's corners must measure essentially #000000. `api.probe()`
- * exists so a critic (or the next agent) can assert that without a screenshot.
+ * exists so a probe (or the next engineer) can assert that without a screenshot.
  *
  * ── Pass order ──────────────────────────────────────────────────────────────
  *   pass(scene, camera)
@@ -51,7 +51,7 @@
  * the graph through the node context, and `renderOutput()` consumes it. Setting
  * `outputColorTransform = false` is what lets the grade run AFTER the encode.
  *
- * ── Notes for the other builder agents ──────────────────────────────────────
+ * ── Notes for the other modules ─────────────────────────────────────────────
  *  - `ctx.stage.lights` is unchanged: { key, rim, fill } DirectionalLights.
  *    The light COUNT is fixed for the life of the program; adding or removing
  *    one forces every node material to recompile, and a recompile on the first
@@ -136,8 +136,7 @@
  *        OF RADIUS. That is not a bug to be tuned around; it is why
  *        **`api.lens` exists** (see the LENS BOUNDARY block further down).
  *        A billboard defocuses ITSELF: call `stage.lens.sprite(r0px, dist)` in
- *        the vertex shader and apply the four terms it returns. fluid.js's
- *        obligations are numbered in rounds/reports/r5-stage.md; do not invent
+ *        the vertex shader and apply the four terms it returns. Do not invent
  *        a second mechanism, because two of them will cancel.
  *      * The gather radius is the DILATED circle of confusion: a pixel is
  *        blurred by its own CoC or by that of any NEARER surface whose disc
@@ -1393,7 +1392,6 @@ export function createStage() {
    * disagree about it: `api.lens.sprite()` returns every number the billboard
    * needs, computed from the SAME `cocOf` the opaque gather uses, so a droplet
    * and the fruit behind it defocus by construction at the same rate.
-   * fluid.js's obligations are numbered in rounds/reports/r5-stage.md.
    *
    * UNITS. `dist` is metres down the lens (= -viewZ). All radii are DEVICE
    * pixels of the drawing buffer, which is the same unit as `U.bokeh` and the
@@ -2901,7 +2899,7 @@ export function createStage() {
     // ⚠ THIS WILL SCORE WORSE ON `defocus`, AND THAT IS THE COST, NOT A BUG.
     // `defocus 11-combo+550ms` and the r3/r4 "6.1 px of silhouette ramp against
     // a >4 px target" acceptance were both calibrated against plate-02. The
-    // player outranks plate-02. Numbers are in rounds/reports/r11-stage.md.
+    // player outranks plate-02.
     bokehBase = q.tier >= TIER.ULTRA ? 6.0 : (q.tier >= TIER.HIGH ? 5.5 : 4.2);
     U.bokeh.value = bokehBase * dofScale(W, H, DPR);
     // Distance over which the blur ramps from 0 to `bokeh`, world units, against
@@ -3114,7 +3112,6 @@ export function createStage() {
       // `lens 00-hero.png` ribbon peak runs 38.5-250.3 against plate-01's own
       // 167.1-249.8 on the same probe — the top of the range lands on the
       // plate and the bottom goes further, which is the point.
-      // Frozen-probe checks are in rounds/reports/r7-stage.md.
       U.fI.value = e * 3.60;
       U.fHot.value = flare.hot;
       // It stretches as it fades. Applied to the NDC extent the segment is cut

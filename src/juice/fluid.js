@@ -83,7 +83,7 @@
  *      asymptote is now ~5 units and the count is cut so that what is thrown
  *      resolves as separate drops instead of percolating into a crust.
  *
- *  3. A FAST BLADE ATOMISES; IT DOES NOT SHEET (REFERENCE_BAR R1b).
+ *  3. A FAST BLADE ATOMISES; IT DOES NOT SHEET (the plate law).
  *     `filmness` and `mistness` are now hard functions of `stroke.speed` and
  *     fruit radius, and they drive the whole budget:
  *        slow heavy cleave -> film, fingers, ligaments, fat juice-coloured beads
@@ -177,14 +177,14 @@
  *      is untouched.
  *
  *   q) MEASUREMENT, and it is not this file's bug but it steered this file:
- *      `probes.py particles` reports mean_saturation 0.794 on 12-idle-blade —
+ *      the retired image-probe suite reported mean_saturation 0.794 on 12-idle-blade —
  *      a frame with NO JUICE IN IT — against 0.798 fast and 0.810 slow. Its
  *      mask is 96% stage bloom wash at luma 0.03-0.06. The colour half of the
  *      speed split was never being measured. Stratifying that same mask by
  *      luma shows the droplets underneath were always right (fast 0.19/0.06 in
  *      the two brightest bands, slow 0.61/0.38). PROBE_VERSION 3 adds
  *      `tintlaw`, which measures per blob and splits by blob AREA — the law
- *      REFERENCE_BAR R1b actually states. Under it: fast 0.188, slow 0.526,
+ *      the plates actually state. Under it: fast 0.188, slow 0.526,
  *      no-juice control 0.597.
  *
  * ── What round 6 got wrong (59/100, +3) ───────────────────────────────────
@@ -227,7 +227,7 @@
  *          between TWO RUNS OF THE SAME CODE. That is 1.7x the entire r5 -> r6
  *          movement the r6 verdict reported as its headline. Its `small` bin
  *          holds 3-8 blobs and most of them are dark-green RIND CHIPS, not
- *          droplets — see rounds/reports/r7-juice.md for the blob dump.
+ *          droplets.
  *        - `clip:08-citrus-caps.mask_px` flipped 9586 -> 4646 between the same
  *          two runs, because the largest component splits when a juice bridge
  *          moves. It is a region-identity change, not a clipping change.
@@ -276,7 +276,6 @@
  *      prescribed edit would have driven it to ~20% and made every drop a
  *      peanut. Left at 0.45/0.35; the interior work alone lands the hero on
  *      28.81% (median IoU 0.8399 against the plate's 0.8228).
- *      Numbers and both baseline runs: rounds/reports/r8-juice.md.
  *
  * ── ROUND 11: THE PLAYER PLAYED IT, AND THIS FILE'S FIRST NOTE IS HIS ───────
  *  Nine rounds of numbers went up. Then a human played the build and wrote:
@@ -334,8 +333,7 @@
  * Round 5 added `stage.lens`, and this file defocuses its own sprites through
  * it. Every number comes from stage.js (`_lens.sprite(r0px, dist)` -> grow,
  * energy, plateau, flat); there is no second CoC in here and there must never
- * be one. The obligations are numbered in rounds/reports/r5-stage.md §B4 and
- * are marked in the code with (§B4.n).
+ * be one. The obligations are marked in the code with (§B4.n).
  *
  * ── Compute ─────────────────────────────────────────────────────────────────
  * The droplet ballistic path stays CLOSED FORM in the vertex shader (linear
@@ -473,7 +471,6 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
   // The LENS BOUNDARY handle. stage.js is modules[0] and fluid is modules[2], so
   // `ctx.stage.lens` is guaranteed to exist by the time api.init runs; the null
   // fallback keeps this file working against a pre-r5 stage.
-  // See rounds/reports/r5-stage.md §B4.1.
   let _lens = null;
   let q = {
     // defaults = the tier-3 row of api.quality, so a frame rendered before the
@@ -527,9 +524,8 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // THE PLAYER, 2026-08-19: "It's a very cool effect when it works, this
     // should be the default. But we need to get gpu and cpu in agreement here
     // to make it fully believable."
-    // Both conditions are met: `tools/dropphys-agree.mjs` reads the kernel's
-    // own state buffer back off the GPU and compares it ROW BY ROW against the
-    // CPU replay. `?dropphys=0` turns it off.
+    // Both conditions were verified (a retired probe compared the kernel's GPU
+    // state row by row against a CPU replay). `?dropphys=0` turns it off.
     dropPhys: uniform(1),
     restitution: uniform(0.30),
     friction: uniform(0.42),
@@ -830,7 +826,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     const corner = attribute('position', 'vec3');
 
     const vAlpha = varyingProperty('float', 'zsDropAlpha');
-    // the three the LENS BOUNDARY needs (rounds/reports/r5-stage.md §B4.3)
+    // the three the LENS BOUNDARY needs (§B4.3)
     const vPlateau = varyingProperty('float', 'zsDropPlateau');
     const vFlat = varyingProperty('float', 'zsDropFlat');
     // (dir.xy, sqrt(aspect), age) — the quad's screen frame, so the fragment can
@@ -897,8 +893,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const depth = max(mv.z.negate(), 0.05).toVar();
       const pxR = s0.mul(U.pix).div(depth).toVar();
       const grow = clamp(float(0.98).div(max(pxR, 1e-5)), 1.0, 3.4).toVar();
-      // ── THE LENS BOUNDARY. stage.js owns every number in here; see
-      //    rounds/reports/r5-stage.md §B4.2. `pxR * grow` is the sprite's true
+      // ── THE LENS BOUNDARY. stage.js owns every number in here (§B4.2). `pxR * grow` is the sprite's true
       //    on-screen radius after the sub-pixel floor, `depth` is metres down
       //    the lens, and both are already in device pixels / metres.
       const D = (_lens ? _lens.sprite(pxR.mul(grow), depth)
@@ -1059,10 +1054,9 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         // dominates a real spray at 4-20 px — requires a ray that crosses
         // twice. The family cannot contain one at ANY amplitude.
         //
-        // Measured, through probes.py's own `second_moment_ellipse`, at a 14 px
+        // Measured, with a second-moment-ellipse probe, at a 14 px
         // diameter, 400-500 seeds per row, rasterising THIS shader's field and
-        // THIS file's alpha profile (harness reproduced in
-        // rounds/reports/r6-juice.md so a critic can re-run it):
+        // THIS file's alpha profile:
         //   bare silhouette      r5 outline lump 0.30  iou>=0.90  99.2%
         //                        r5 outline lump 0.50  iou>=0.90  54.0%
         //                        r5 outline lump 0.62  iou>=0.90  33.8%  <- past
@@ -1232,8 +1226,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // droplet pool costs is r7's exactly. What it does spend is ~60 scalar
       // ALU (counted by hand, two exp / one div / one smoothstep among them)
       // inside pixels that were already being shaded. Measured draw-call and
-      // triangle delta this round: +0 / +0, landscape AND portrait; see
-      // rounds/reports/r8-juice.md.
+      // triangle delta this round: +0 / +0, landscape AND portrait.
       //
       // FIVE terms, each a named piece of geometric optics:
       //
@@ -1308,7 +1301,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const Tr = float(1.0).sub(Fex).toVar();
       // How much of the geometric-optics model applies. A sub-pixel mist grain
       // is a Mie scatterer, not a lens: plate-02's aerosol is a field of flat
-      // silver specks and REFERENCE_BAR is explicit that it must stay that way.
+      // silver specks and the plates are explicit that it must stay that way.
       // `opt` is 0 below big = 0.16 and 1 above 0.52, so the whole achromatic
       // population is bit-identical to r7 and `tintlaw.sat_small` cannot move.
       // ⚠ r10, AND IT IS THE R8 FINDING THE R9 VERDICT RE-FILED UNTOUCHED:
@@ -1367,7 +1360,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const fres = pow(max(float(1.0).sub(n.z), 0.0), 3.0).mul(sharp).toVar();
 
       // ══ r7 (B): SCATTER vs TRANSMIT, AS BEER-LAMBERT INSTEAD OF AS A MIX ══
-      // REFERENCE_BAR R1b: small droplets scatter and take the LIGHT's colour;
+      // The plate law: small droplets scatter and take the LIGHT's colour;
       // large ones transmit and take the JUICE's. r4-r6 spelled that
       // `mix(white, juiceColor, big^1.2)`, which is a LINEAR ramp between two
       // endpoints — and a linear ramp toward a colour whose green channel is
@@ -1621,7 +1614,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // "eight straight-sided pink spikes".
       // ── r7 (A1): THE TEAR FIELD IS NOW ANISOTROPIC, AND THAT IS WHAT MAKES
       //    FINGERS ─────────────────────────────────────────────────────────
-      // REFERENCE_BAR R2 states the timeline as film -> FINGERS -> strings ->
+      // The plates state the timeline as film -> FINGERS -> strings ->
       // beads -> mist, and r6 had no finger stage at all: the tear noise ran at
       // angular 3.1 against radial 2.2, i.e. very nearly ISOTROPIC, so the
       // membrane died by opening round holes and the survivor was a blotchy
@@ -1971,7 +1964,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
   // velocity, drag, birth, life) and hands them to an instanced attribute, and
   // nothing on the CPU ever knows where a droplet IS. That is why r15's metric
   // ended up in screen space, and why it measured occlusion instead of
-  // intersection. `tools/dropphys3d.mjs` needs the parameters, not the pixels.
+  // intersection. a world-space metric needs the parameters, not the pixels.
   //
   // Off by default and free when off: one `if` on a null check per droplet. It
   // is a TAP, not a mirror — it records what the emitter actually drew, so the
@@ -2148,7 +2141,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     const R = Math.max(0.18, e.radius || 0.8);
     const S = e.stroke ? e.stroke.speed : 24;
 
-    // ── MORPHOLOGY IS A FUNCTION OF STROKE SPEED (REFERENCE_BAR R1b) ─────────
+    // ── MORPHOLOGY IS A FUNCTION OF STROKE SPEED (the plate law) ─────────────
     // Harness stroke speeds, recomputed from tools/shoot.mjs against the CURRENT
     // framing (halfExtent 3.9 -> camera 10.16 units back, worldSpeed =
     // speedNdc * dist * 0.55): slow cleave 6.7, melon 27.9, citrus 33.5,
@@ -2181,7 +2174,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // the two test frames stop being independent measurements.
     const heavy = cl((R - 0.45) / 0.90, 0, 1);
     // ══ r12: THE MIX IS THE WEBER NUMBER. `fast` IS NOW A DERIVED QUANTITY. ═══
-    // THE PLAYER, 2026-08-18 (rounds/reports/r11-PLAYER-NOTE-juice-mix.md):
+    // THE PLAYER, 2026-08-18 (r11):
     //   "both the high speed fluid spray and lower speed fluid blobs are both
     //    great, we should always show some combination of both with each hit but
     //    weighted more toward fluid blobs and slower speeds and more like 80%
@@ -2535,7 +2528,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // cut's depth. Applied as a floor (per-bead jittered 0.80..1.25 so the
     // pile keeps a spread and cannot become a new congruent monoculture) to
     // the RENDERED size only. `cls()` is still fed the UNFLOORED, PHYSICAL size
-    // everywhere below, so the size->tint law of REFERENCE_BAR R1b is
+    // everywhere below, so the size->tint plate law is
     // untouched: a physically sub-millimetre grain that we draw at 2 px still
     // reads WHITE, which is exactly what plate-02 shows.
     //
@@ -2915,8 +2908,8 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // `base` drops 0.050 -> 0.0135 of filmness. That is the median move: it
       // puts the cleave's median radius at ~2.6 px on the hero (0.026 units)
       // and — for free — BELOW `small` (0.031), so the pile reads WHITE and
-      // only the fat tail crosses into juice colour, which is REFERENCE_BAR
-      // R1b's size->tint law falling straight out of the size law instead of
+      // only the fat tail crosses into juice colour, which is the size->tint
+      // plate law falling straight out of the size law instead of
       // being propped up by the old `low` fudge (now retired: its whole job was
       // to open a white tail under a too-fat base, and a smaller base does that
       // honestly). The r6 achromatic-grain fix is thus SUBSUMED, not reverted.

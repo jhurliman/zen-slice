@@ -273,8 +273,14 @@ export function createAudio() {
     // for its echo slot like any other voice.
     const byPitch = pending.map((_, i) => i).sort((a, b) => semis[b] - semis[a]);
     const echoes = new Set(byPitch.slice(0, 3));
-    // the stroke's first cut leads the roll, ON the tick
-    playNote(semis[0], first.v, panOf(first.x), t, brightOf(first.v), wetOf(first.y));
+    // the stroke's first cut leads the roll, ON the tick. r34: at 3+ the
+    // anchor carries an ACCENT — the r18 boost only ever lifted the LATER
+    // cuts, so the downbeat of the reward moment landed at single-note
+    // weight and triads read flatter than they scored ("big game moments
+    // should be sonic exclamation points"). Modest and size-scaled.
+    const accent = n >= 3 ? Math.min(1.22, 1 + 0.08 * (n - 2)) : 1;
+    const av = Math.min(1, first.v * accent);
+    playNote(semis[0], av, panOf(first.x), t, brightOf(av), wetOf(first.y));
     if (echoes.has(0)) conductor.echo(semis[0], first.v, panOf(first.x));
 
     if (n > 1) {
@@ -303,7 +309,12 @@ export function createAudio() {
       // which is an off-chord semitone at the exact reward moment.
       if (n >= 3) {
         const sub = semis[byPitch[byPitch.length - 1]] - 12;
-        if (sub >= -25) playNote(sub, Math.min(1, first.v * boost) * 0.5, 0, t, 900, 0.45);
+        // r34: the foundation grows a step with the stroke (0.5 / 0.55 / 0.6)
+        const subG = 0.5 + 0.05 * Math.min(2, n - 3);
+        if (sub >= -25) playNote(sub, Math.min(1, first.v * boost) * subG, 0, t, 900, 0.45);
+        // r34: the mix breathes for a TRIAD too — a light one-beat dip (the
+        // 4+ duck below is the deep one). Oomph by making room, not loudness.
+        if (n === 3) engine.duckBed(0.78, 0.3, 1.4);
       }
       // r26: FOUR and up earns the grand run — the player: a 4+ harmony "is
       // quite rare… it should be rewarded with a more impactful musical
@@ -314,13 +325,15 @@ export function createAudio() {
       if (n >= 4) {
         // r27 sidechain breathing: the bed makes room for the reward moment,
         // then swells back while the run rings — authored, not pumping
-        engine.duckBed(0.6, 0.5, 2.4);
+        // (r34: a touch deeper, ~+0.7 dB more room for the exclamation point)
+        engine.duckBed(0.55, 0.5, 2.4);
         const run = harmony.runNotes(n >= 5 ? 3 : 2);
         const t0 = t + 0.10 + (order.length + 1) * STRUM;
         const last = run.length - 1;
         for (let k = 0; k < run.length; k++) {
           const u = last > 0 ? k / last : 1;
-          const gv = (k === last ? 0.46 : 0.20 + 0.14 * u);
+          // r34: the crown of the run rings a little prouder (0.46 → 0.52)
+          const gv = (k === last ? 0.52 : 0.20 + 0.14 * u);
           playNote(run[k], gv, (u - 0.5) * 0.9, t0 + k * 0.052,
             3000 + 2600 * u, 0.8);
         }

@@ -4,85 +4,19 @@
  * No fail state, no bombs, no timer. The only pressure is the gentle pull of a
  * combo window that rewards slicing two or three things in one arc.
  *
- * ── ROUND 11: SLOW MOTION IS GONE, AND THIS IS THE FILE THAT KILLED IT ───────
- * The human played the build for the first time and wrote:
- *
- *     "performance is not great. it slows down every time i slice, is there an
- *      intentional slo-mo effect? if so get rid of it, it's distracting."
- *
- * There was. This file used to end its `slice` handler with:
- *
- *     const depth = clamp(0.34 - (api.combo - 1) * 0.05, 0.16, 0.34);
- *     const dur   = clamp(0.30 + (api.combo - 1) * 0.12, 0.30, 0.85);
- *     c.bus.emit('slowmo', { scale: depth, seconds: dur });
- *
- * i.e. EVERY cut ran the world at a sixth to a third speed for 0.30-0.85 s.
- * It was built as a combo reward. It reads as the game stuttering every time
- * you do the one thing the game is about, which is the correct reading: a
- * frame-time hitch and a deliberate 3x time dilation are indistinguishable to
- * a player, and this game gave them one on every single input.
- *
- * ⚠ IT WAS ALSO CORRUPTING THE MEASUREMENT LOOP, WHICH IS THE BIGGER STORY.
- * main.js feeds its fixed-step accumulator `dt * ctx.timeScale`, so with
- * slow-mo live the screenshot harness's beat labels were fiction. Measured
- * (tools/simbeats.mjs, added this round, desktop, dark run) on the shipped
- * beat sheet, sim time elapsed since the cut:
- *
- *      label            BEFORE (slow-mo)      AFTER (this change)
- *      02-cut+33ms          16.7 ms               33.3 ms
- *      03-cut+100ms         41.7 ms              100.0 ms
- *      04-cut+250ms         91.7 ms              250.0 ms
- *      05-cut+500ms        241.7 ms              500.0 ms
- *      06-cut+1000ms       716.7 ms             1000.0 ms
- *      09-combo+50ms        25.0 ms               50.0 ms
- *      10-combo+200ms       75.0 ms              200.0 ms
- *      11-combo+550ms      283.3 ms              550.0 ms
- *
- * fluid.js's note (h) derived the 3x by hand and authored every juice lifetime
- * and drag constant against it. Those constants are now being sampled 2-2.4x
- * LATER in sim time than they were tuned for, which is one mechanical reason
- * the human sees the juice "disappear way too quickly". The beat labels now
- * mean what they say; fluid.js's RULE 2 block is obsolete and its lifetimes
- * want a re-read against the honest clock, not against the 3x correction.
- *
- * The combo reward is now entirely visual/audible: a fatter score jump (the
- * HUD score pop), the 'combo' callout, and the pentatonic chime that audio.js
- * already climbs with `ctx.score.combo`. Nothing here touches time. Do not put
- * a screen shake in either — the founding spec asks for "relaxing, meditative".
+ * ⚠ NO TIME DILATION, EVER. r11 removed a per-cut slow-mo reward after the
+ * player called it out ("it slows down every time i slice… get rid of it") —
+ * a deliberate 3x dilation is indistinguishable from a frame hitch, and it
+ * also made every sim-time measurement downstream a fiction. The combo reward
+ * is visual/audible only. No screen shake either — the founding spec asks for
+ * "relaxing, meditative".
  */
 import { nowSec } from '../core/contract.js';
 import { loadPrefs, savePref } from '../core/prefs.js';
 
-// Real seconds. NOT sim seconds: a player's hand moves in real time, and this
-// is the only clock in the game that should stay wall-clock even if a future
-// round reintroduces any kind of time scaling (it should not).
-//
-// ⚠ THIS NUMBER WAS TUNED WITH SLOW-MO LIVE AND IS DELIBERATELY UNCHANGED,
-// WHICH IS A JUDGEMENT CALL — HERE IS THE EVIDENCE SO A LATER ROUND CAN
-// OVERTURN IT. Slow-mo never touched the window itself (the window was always
-// real seconds); what it changed is how far the world DRIFTS inside the
-// window. Measured, simbeats.mjs, sim time elapsed in the 0.55 real seconds
-// following a cut:  BEFORE 0.29 s   AFTER 0.55 s. So a two-stroke chain is
-// genuinely ~1.9x harder now — the second fruit travels nearly twice as far
-// before your second swipe lands.
-//
-// I did not widen the window to compensate, for two reasons:
-//  1. The chain that matters in this game is ONE arc through two fruits, and
-//     that resolves inside a few milliseconds; the window only governs
-//     stroke-to-stroke chaining, which is the rarer case.
-//  2. Widening it is the kind of quiet retune the brief explicitly asks not to
-//     do on a hunch, and the direct evidence is ambiguous. simbeats.mjs
-//     cadence probe, mean combo at the moment of each swipe, 24 real seconds:
-//        level 5, swipe every 1.2 s:  BEFORE 1.60 (8 cuts) -> AFTER 2.25 (18)
-//        level 5, swipe every 0.5 s:  BEFORE 1.73 (19)     -> AFTER 1.43 (20)
-//     Those two disagree in sign, and the cut counts are not paired (the live
-//     population differs once the clock changes), so neither is evidence of
-//     anything. A real answer needs a human with a thumb, not this probe.
-//
-// r26 — THE HUMAN WITH A THUMB ANSWERED. The player, after real sessions:
-// "It's quite difficult to keep a combo multiplier going given the slow
-// nature of fruits tossing up in the air… maybe we could make it like 15%
-// easier." 0.55 → 0.63 was exactly that 15%.
+// Real seconds, NOT sim seconds: a player's hand moves in real time.
+// 0.63 is the r26 tuning (the player asked for "like 15% easier" over the
+// original 0.55, from real sessions).
 //
 // r27 — BEAT-SYNCED, at the player's explicit request ("make the combo
 // window beat synced, that makes a lot more sense"). The window is now ONE

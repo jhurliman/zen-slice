@@ -10,7 +10,7 @@
  * built every time, and additionally reports the fixed post-stack cost and the
  * marginal cost per body, so a draw-call number can be attributed.
  *
- * It does not write to shots/ and it is not a probe in probes.py's sense: it
+ * It does not write to shots/ and it measures the live scene, not images: it
  * measures the renderer, not a PNG. PROBE_VERSION is untouched.
  *
  *   node tools/drawprobe.mjs [--tier 3]
@@ -172,7 +172,7 @@ out.cpu = await page.evaluate(() => {
 });
 
 // (6) steady-state allocation: 600 sim steps with NOTHING happening.
-// REFERENCE_BAR R4 requires zero allocation in the hot loop.
+// The perf bar requires zero allocation in the hot loop.
 out.idleAlloc = await page.evaluate(() => {
   const ZS = window.ZS;
   ZS.clear();
