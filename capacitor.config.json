@@ -1,0 +1,10 @@
+{
+  "appId": "org.jhurliman.zenslice",
+  "appName": "Zen Slice",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "backgroundColor": "#000000"
+  }
+}

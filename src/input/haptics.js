@@ -27,11 +27,12 @@
  *    safe() would otherwise bench us for the session).
  *  · neither → the module is inert.
  *
- * When the game wraps in Capacitor, only the backend swaps (for
- * UIImpactFeedbackGenerator impacts); the mapping below already encodes what
- * each moment should feel like: slices are light ticks scaled by blade
- * speed, a big harmony is a double tap, a rock is a dull heavy knock, a
- * level is a soft arrival.
+ * r26: the Capacitor shell landed, and inside it the backend is 'native' —
+ * real UIImpactFeedbackGenerator through the injected `window.Capacitor`
+ * bridge (no import, so the web/PWA bundle is untouched). The mapping below
+ * encodes what each moment should feel like on every backend: slices are
+ * light ticks scaled by blade speed, a big harmony is a double tap, a rock
+ * is a dull heavy knock, a level is a soft arrival.
  */
 
 import { loadPrefs } from '../core/prefs.js';
@@ -52,6 +53,17 @@ export function createHaptics() {
   const vel = (speed) => Math.min(1, Math.max(0, Math.log(Math.max(1e-3, speed / 5)) / Math.log(34)));
 
   function detectBackend() {
+    // r26: the NATIVE backend — inside the Capacitor shell the bridge injects
+    // `window.Capacitor` and registers the Haptics plugin natively, so no
+    // import touches the web bundle (the PWA stays dependency-free). This is
+    // real UIImpactFeedbackGenerator: the thing the whole switch-hack saga
+    // was approximating.
+    try {
+      const C = window.Capacitor;
+      if (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.Haptics) {
+        return 'native';
+      }
+    } catch (_) { /* */ }
     try {
       if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') return 'vibrate';
     } catch (_) { /* */ }
@@ -126,6 +138,7 @@ export function createHaptics() {
     if (now - lastPulse < MIN_GAP) return;
     lastPulse = now;
     try {
+      if (api.backend === 'native') { nativeImpact(ms); return; }
       if (api.backend === 'vibrate') { navigator.vibrate(ms); return; }
       requestTaps(ms >= 30 ? 2 : 1);
     } catch (_) { /* */ }
@@ -137,9 +150,26 @@ export function createHaptics() {
     if (now - lastPulse < MIN_GAP) return;
     lastPulse = now;
     try {
+      if (api.backend === 'native') {
+        nativeImpact(25);
+        setTimeout(() => nativeImpact(8), 60);
+        return;
+      }
       if (api.backend === 'vibrate') { navigator.vibrate(arr); return; }
-      // no true patterns on iOS: one tick per ON segment
+      // no true patterns on iOS web: one tick per ON segment
       requestTaps(Math.max(1, Math.ceil(arr.length / 2)));
+    } catch (_) { /* */ }
+  }
+
+  /** Fire-and-forget UIImpactFeedbackGenerator via the Capacitor bridge —
+   *  never awaited (the ~1-2 ms bridge post is the whole latency). The ms
+   *  intensity the mapping already speaks maps onto impact styles. */
+  function nativeImpact(ms) {
+    try {
+      const style = ms < 10 ? 'LIGHT' : ms < 25 ? 'MEDIUM' : 'HEAVY';
+      const p = window.Capacitor.Plugins.Haptics.impact({ style });
+      if (p && p.catch) p.catch(() => {});
+      clicks++;   // same diagnostic counter as the web backend
     } catch (_) { /* */ }
   }
 

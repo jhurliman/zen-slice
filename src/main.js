@@ -54,6 +54,7 @@ import { createScore } from './play/score.js';
 import { createHud } from './ui/hud.js';
 import { createHaptics } from './input/haptics.js';
 import { createAudio } from './audio/audio.js';
+import { initNative } from './core/native.js';
 
 const PROFILES = {
   // fruitSegments is PolyhedronGeometry `detail`: triangles = 20*(detail+1)^2
@@ -146,6 +147,8 @@ export async function boot(canvas) {
   const modules = [stage, director, fluid, blade, slicer, score, hud, haptics, audio];
   const names = ['stage', 'director', 'fluid', 'blade', 'slicer', 'score', 'hud', 'haptics', 'audio'];
   for (let i = 0; i < modules.length; i++) modules[i].__zsName = names[i];
+  // Capacitor shell bootstrap (r26): no-op outside the native app
+  ctx.native = initNative();
   ctx.stage = stage;
   ctx.score = score;
 
