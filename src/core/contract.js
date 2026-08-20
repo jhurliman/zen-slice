@@ -261,7 +261,14 @@ export class Bus {
  * @property {number}  bornAt
  */
 
-export const MAX_GENERATION = 2; // pieces stop being cuttable after this
+// r29: 2 → 3 — quarters are now cuttable into eighths ("the highest impact
+// thing for the game", the owner). Performance holds by existing design, not
+// by luck: cuts are rate-limited to ONE per rendered frame (r19-perf), and
+// the scene-budget governor (director.enforceBudget) hard-caps draw calls
+// AND triangles, retiring off-screen highest-generation fragments first —
+// eighths are the first bodies it reclaims under pressure. Measured with
+// drawprobe before/after the change; numbers in the r29 PR.
+export const MAX_GENERATION = 3; // pieces stop being cuttable after this
 
 // ── Utility ──────────────────────────────────────────────────────────────────
 export const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);

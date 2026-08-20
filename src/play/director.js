@@ -25,8 +25,12 @@ import { createPhysics } from './physics.js';
  * be around 30 minutes of content."
  *
  * Ten levels now form a dawn→night arc, and a level needs BOTH its `dur`
- * seconds of sim time AND its `need` slices. Time is the pacer (predictable
- * ~90s early ramping to ~4min late, 27 minutes to the coda); the slice gate
+ * seconds of sim time AND its `need` slices. r29 tightened the whole arc
+ * 30 → 20 minutes at the player's request ("the beginning is so slow…
+ * now that we throw fruits on the beat there are no overlapping fruits in
+ * round one"): durs sum to ~18.3 min to the coda, cadence up across the
+ * board, and burst 2 arrives at First Light (was Orchard Rain) so dyad
+ * strokes exist from the second level. Time is still the pacer; the slice gate
  * just proves you are playing — idling never advances, which keeps the
  * founding "advance on participation" philosophy. The advance itself still
  * fires from noteSlice(), never from the clock, so a level never changes
@@ -49,17 +53,17 @@ import { createPhysics } from './physics.js';
  * baselines shift — re-baselining is expected, not a regression.
  */
 export const LEVELS = [
-  { name: 'Still Water', pool: ['orange', 'apple'], every: [1.9, 2.6], burst: 1, need: 12, dur: 90, rock: 0 },
-  { name: 'First Light', pool: ['orange', 'apple', 'kiwi'], every: [1.7, 2.3], burst: 1, need: 20, dur: 120, rock: 0.04 },
-  { name: 'Morning Dew', pool: ['apple', 'kiwi', 'strawberry'], every: [1.5, 2.1], burst: 1, need: 30, dur: 150, rock: 0.07 },
-  { name: 'Orchard Rain', pool: ['orange', 'apple', 'kiwi', 'strawberry'], every: [1.3, 1.9], burst: 2, need: 40, dur: 180, rock: 0.10 },
-  { name: 'Noon Bloom', pool: ['watermelon', 'orange', 'apple', 'strawberry'], every: [1.2, 1.8], burst: 2, need: 45, dur: 180, rock: 0.12 },
-  { name: 'Summer Weight', pool: ['watermelon', 'pineapple', 'orange', 'kiwi'], every: [1.2, 1.7], burst: 2, need: 50, dur: 210, rock: 0.14 },
-  { name: 'Golden Hour', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [1.0, 1.6], burst: 2, need: 50, dur: 210, rock: 0.15 },
-  { name: 'Dusk Ember', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [1.0, 1.5], burst: 2, need: 55, dur: 240, rock: 0.16 },
-  { name: 'Night Jasmine', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.9, 1.4], burst: 3, need: 55, dur: 240, rock: 0.18 },
+  { name: 'Still Water', pool: ['orange', 'apple'], every: [1.6, 2.2], burst: 1, need: 10, dur: 60, rock: 0 },
+  { name: 'First Light', pool: ['orange', 'apple', 'kiwi'], every: [1.3, 1.8], burst: 2, need: 16, dur: 90, rock: 0.04 },
+  { name: 'Morning Dew', pool: ['apple', 'kiwi', 'strawberry'], every: [1.2, 1.7], burst: 2, need: 24, dur: 110, rock: 0.07 },
+  { name: 'Orchard Rain', pool: ['orange', 'apple', 'kiwi', 'strawberry'], every: [1.1, 1.6], burst: 2, need: 32, dur: 130, rock: 0.10 },
+  { name: 'Noon Bloom', pool: ['watermelon', 'orange', 'apple', 'strawberry'], every: [1.0, 1.5], burst: 2, need: 36, dur: 130, rock: 0.12 },
+  { name: 'Summer Weight', pool: ['watermelon', 'pineapple', 'orange', 'kiwi'], every: [1.0, 1.4], burst: 3, need: 40, dur: 140, rock: 0.14 },
+  { name: 'Golden Hour', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.95, 1.35], burst: 3, need: 42, dur: 140, rock: 0.15 },
+  { name: 'Dusk Ember', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [0.9, 1.3], burst: 3, need: 45, dur: 150, rock: 0.16 },
+  { name: 'Night Jasmine', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.25], burst: 3, need: 48, dur: 150, rock: 0.18 },
   // the endless coda — the journey arrives here and stays
-  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.35], burst: 3, need: Infinity, dur: Infinity, rock: 0.18 },
+  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.8, 1.2], burst: 3, need: Infinity, dur: Infinity, rock: 0.18 },
 ];
 
 export function createDirector({ seed = 20260806 } = {}) {
@@ -282,8 +286,12 @@ export function createDirector({ seed = 20260806 } = {}) {
       let worst = -1, worstKeep = 1e9, worstAge = -1;
       for (let i = 0; i < api.live.length; i++) {
         const f = api.live[i];
-        const keep = (onScreen(f) ? 4 : 0)
-          + (f.generation === 0 ? 2 : f.generation === 1 ? 1 : 0);
+        // r29 (codex): every generation gets its own rank — gen 2 and 3 used
+        // to tie at 0 and the age tiebreak then retired OLDER (larger)
+        // quarters before fresh eighths. The on-screen weight (4) still
+        // dominates the whole generation span (max 3), so "off-screen first"
+        // is preserved exactly.
+        const keep = (onScreen(f) ? 4 : 0) + Math.max(0, 3 - f.generation);
         const age = t - f._addedAt;
         if (keep < worstKeep || (keep === worstKeep && age > worstAge)) {
           worst = i; worstKeep = keep; worstAge = age;
