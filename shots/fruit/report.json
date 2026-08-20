@@ -4,20 +4,20 @@
   "shots": [
     {
       "name": "strawberry-side",
-      "luma": 4.03,
-      "ms": 3688,
+      "luma": 3.9,
+      "ms": 5605,
       "ok": true
     },
     {
       "name": "strawberry-top",
-      "luma": 3.988,
-      "ms": 994,
+      "luma": 3.846,
+      "ms": 1799,
       "ok": true
     },
     {
       "name": "strawberry-threequarter",
-      "luma": 4.102,
-      "ms": 982,
+      "luma": 3.947,
+      "ms": 1567,
       "ok": true
     }
   ],

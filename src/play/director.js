@@ -63,7 +63,8 @@ export const LEVELS = [
   { name: 'Dusk Ember', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [0.9, 1.3], burst: 3, need: 45, dur: 150, rock: 0.16 },
   { name: 'Night Jasmine', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.25], burst: 3, need: 48, dur: 150, rock: 0.18 },
   // the endless coda — the journey arrives here and stays
-  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.8, 1.2], burst: 3, need: Infinity, dur: Infinity, rock: 0.18 },
+  // r32: the coda is ROCK-FREE — "you get that far and it's just fruit swiping bliss"
+  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.8, 1.2], burst: 3, need: Infinity, dur: Infinity, rock: 0 },
 ];
 
 export function createDirector({ seed = 20260806 } = {}) {
@@ -81,6 +82,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   // ballistic integrator below runs exactly as it did in round 10.
   const physics = createPhysics();
   let nextSpawn = 1.2;
+  let lastFan = -1e9;   // r32: last constellation offer (sim seconds)
   let t = 0;
   let levelT = 0;   // sim seconds in the current level (the r18 time gate)
   // running triangle total of the live population, maintained incrementally by
@@ -161,7 +163,7 @@ export function createDirector({ seed = 20260806 } = {}) {
     f.dead = true;
   };
 
-  function spawn(speciesId) {
+  function spawn(speciesId, aim) {
     const sp = SPECIES[speciesId];
     const geom = geomFor(sp, ctx.quality.fruitSegments);
     // r20: rocks carry a per-instance crack `damage` uniform, so they get a
@@ -174,15 +176,21 @@ export function createDirector({ seed = 20260806 } = {}) {
     else mats = matsFor(sp);
     const mesh = new THREE.Mesh(geom, mats);
 
-    const x = rr(rng, -STAGE.halfWidth * 0.62, STAGE.halfWidth * 0.62);
-    const z = rr(rng, STAGE.nearZ * 0.6, STAGE.farZ * 0.6);
+    // r32: `aim` (optional) is the CONSTELLATION override — a coordinated
+    // toss hands each fruit its exact x/z/apex so a whole fan hangs at the
+    // same height at the same moment. The ordinary path's rng draw order is
+    // untouched (aim skips those draws entirely).
+    const x = aim ? aim.x : rr(rng, -STAGE.halfWidth * 0.62, STAGE.halfWidth * 0.62);
+    const z = aim ? aim.z : rr(rng, STAGE.nearZ * 0.6, STAGE.farZ * 0.6);
     const pos = new THREE.Vector3(x, STAGE.floorY + 0.5, z);
 
     // aim the apex into the slice window
-    const apexY = rr(rng, 4.2, 7.0);
+    const apexY = aim ? aim.apexY : rr(rng, 4.2, 7.0);
     const vy = Math.sqrt(Math.max(1, 2 * -GRAVITY * (apexY - pos.y)));
-    const drift = -x * rr(rng, 0.10, 0.24);   // gently converge toward centre
-    const vel = new THREE.Vector3(drift, vy, rr(rng, -0.25, 0.25));
+    // gently converge toward centre — a FIXED rate for a fan so its authored
+    // spacing survives to the apex instead of scrambling
+    const drift = aim ? -x * 0.12 : -x * rr(rng, 0.10, 0.24);
+    const vel = new THREE.Vector3(drift, vy, aim ? 0 : rr(rng, -0.25, 0.25));
 
     const f = {
       id: nextId(), species: sp, mesh, pos, vel,
@@ -336,7 +344,58 @@ export function createDirector({ seed = 20260806 } = {}) {
       } else {
         let whole = 0;
         for (let i = 0; i < api.live.length; i++) if (api.live[i].generation === 0) whole++;
-        if (whole < ctx.quality.maxFruit) {
+        // ══ r32 THE CONSTELLATION ══════════════════════════════════════════
+        // "It is very rare to get a 4x or 5x… it's really a highlight moment"
+        // — so the sky occasionally OFFERS the chord: on a clear sky (whole
+        // fruit only readable when nothing else is up), from Morning Dew on,
+        // a fan of 4 fruit (5 from Summer Weight, tier maxFruit permitting)
+        // launches together with a SHARED apex height and even x spacing —
+        // they hang side by side at the top of the arc, one clean stroke
+        // wide. Never rocks (it is a gift), 22 s minimum between offers, and
+        // an extra beat of empty sky afterward so the moment breathes.
+        // ⚠ the eligibility gate draws one rng, so spawn streams shift for
+        // levels ≥ 2 (same documented trade as L.rock; L0-L1 streams and
+        // their frozen baselines are untouched).
+        if (api.level >= 2 && whole === 0 && t - lastFan > 22 && rng() < 0.16) {
+          // codex r32: the fan must be born COLLISION-FREE, or physics'
+          // separateAtSpawn() shoves the overlapping bodies apart while
+          // their velocities still aim from the authored spots — the
+          // formation dies before it is visible. So: species are chosen
+          // FIRST (small fruit only, radius ≤ 1.0 — a melon fan would not
+          // fit one stroke anyway), every gap is computed from its actual
+          // neighbours' radii, and an alternating depth stagger (±DZ) buys
+          // clearance without adding width. Same-z second neighbours sit
+          // two gaps apart, which always clears too. If five will not fit
+          // inside one stroke's reach, four fly instead.
+          const fanPool = [];
+          for (const id of L.pool) if (SPECIES[id].radius <= 1.0) fanPool.push(id);
+          const DZ = 0.6;
+          let n = Math.min(ctx.quality.maxFruit, api.level >= 5 ? 5 : 4);
+          let ids, xs, span;
+          for (;;) {
+            ids = []; xs = [0];
+            for (let i = 0; i < n; i++) ids.push(fanPool[Math.floor(rng() * fanPool.length)]);
+            for (let i = 1; i < n; i++) {
+              const need = (SPECIES[ids[i - 1]].radius + SPECIES[ids[i]].radius) * 1.06 * 0.98;
+              const gap = Math.max(0.8, Math.sqrt(Math.max(0.2, need * need - 4 * DZ * DZ)) * 1.08);
+              xs.push(xs[i - 1] + gap);
+            }
+            span = xs[n - 1];
+            if (span <= 5.2 || n <= 4) break;
+            n--;
+          }
+          const apexY = rr(rng, 5.0, 6.1);
+          const zBase = rr(rng, STAGE.nearZ * 0.4, STAGE.farZ * 0.4);
+          for (let i = 0; i < n; i++) {
+            spawn(ids[i], {
+              x: xs[i] - span / 2,
+              apexY: apexY + rr(rng, -0.12, 0.12),
+              z: zBase + (i & 1 ? DZ : -DZ),
+            });
+          }
+          lastFan = t;
+          nextSpawn = rr(rng, L.every[0], L.every[1]) + 1.2;
+        } else if (whole < ctx.quality.maxFruit) {
           const n = 1 + Math.floor(rng() * L.burst);
           for (let i = 0; i < n; i++) {
             // the L.rock > 0 guard keeps levels with no rocks from drawing rng,
@@ -458,7 +517,7 @@ export function createDirector({ seed = 20260806 } = {}) {
 
   api.reset = () => {
     for (let i = api.live.length - 1; i >= 0; i--) api.remove(api.live[i]);
-    api.level = 0; api.sliced = 0; levelT = 0; nextSpawn = 0.8; liveTris = 0;
+    api.level = 0; api.sliced = 0; levelT = 0; nextSpawn = 0.8; liveTris = 0; lastFan = -1e9;
     // ⚠ ROUND 10, FOR THE JUICE PIECE — READ THIS. The r9 juice verdict's open
     // item (1) is that `api.reset` retires the bodies but nothing retires the
     // live beads/grains/strands/sheets, so shots/*/00-hero.png carries eleven

@@ -469,7 +469,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
   let scene, camera, renderer;
   let drops, sheet;
   let simT = 0, emitted = 0, frames = 0;
-  let computeNode = null, computeOK = false, computeWanted = true;
+  let computeNode = null, computeOK = false, computeWanted = true, computeAllowed = true;
   // The LENS BOUNDARY handle. stage.js is modules[0] and fluid is modules[2], so
   // `ctx.stage.lens` is guaranteed to exist by the time api.init runs; the null
   // fallback keeps this file working against a pre-r5 stage.
@@ -3234,7 +3234,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     const h = renderer && renderer.domElement ? renderer.domElement.height : 720;
     U.pix.value = 0.5 * Math.max(1, h) * P11;
 
-    if (computeOK && computeWanted) {
+    if (computeOK && computeWanted && computeAllowed) {
       try {
         renderer.compute(computeNode);
       } catch (err) {
@@ -3360,8 +3360,20 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     U.turbAmp.value = t >= 3 ? 11.0 : t >= 2 ? 8.0 : 5.5;
     computeWanted = t >= 1;
     if (!computeWanted) U.turbMix.value = 0;
-    else if (computeOK) U.turbMix.value = 1;
+    else if (computeOK && computeAllowed) U.turbMix.value = 1;
     if (q.sheets > 0) sheet && (sheet.head = sheet.head % q.sheets);
+  };
+
+  /** The switch the header promises ("disabled by api.setCompute(false)").
+   *  Probes that fast-forward frame() thousands of times per wall second pay
+   *  a kernel dispatch PER CALL, and under a software rasterizer that is the
+   *  whole machine: soak v3 measured single steps blocking 3.6s-60s+ on the
+   *  backed-up GL queue. Off = the analytic wind path; the gameplay sim is
+   *  identical. Survives quality() tier changes until switched back on. */
+  api.setCompute = (on) => {
+    computeAllowed = !!on;
+    if (!computeAllowed) U.turbMix.value = 0;
+    else if (computeOK && computeWanted) U.turbMix.value = 1;
   };
 
   api.dispose = () => {

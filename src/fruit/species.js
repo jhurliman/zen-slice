@@ -3742,13 +3742,21 @@ def({
         alb.assign(mix(alb, vec3(0.3700, 0.2750, 0.0550), a.seed.mul(0.92)));  // yellow achene
         return alb;
       },
-      rough: (f) => ach(f).dimple.mul(0.22).add(0.22),
+      // r32: the EXTERIOR goes matte — the player: "strawberry exteriors are
+      // too shiny. The inside should be this shiny but not the outside."
+      // A real strawberry's skin is dull; only the achene seeds glint. Base
+      // roughness 0.22 → 0.42, and the seed mask dips it back down so the
+      // seeds keep their sparkle. The flesh (cut face) material is untouched.
+      rough: (f) => { const a = ach(f); return a.dimple.mul(0.18).add(0.42).sub(a.seed.mul(0.25)); },
       relief: (f) => { const a = ach(f); return a.seed.mul(2.1).sub(a.dimple.mul(1.2)); },
     }, {
       bump: 0.0070,
       leafFresh: true,   // a living calyx, green to the root — see skinMaterial
       mat: {
-        roughness: 0.30, clearcoat: 0.70, clearcoatRoughness: 0.13, specularIntensity: 0.75,
+        // r32 matte skin: clearcoat 0.70 → 0.15 (a whisper, not a candy
+        // shell), its roughness up, specular eased — the wet-shine look now
+        // belongs exclusively to the cut face
+        roughness: 0.42, clearcoat: 0.15, clearcoatRoughness: 0.40, specularIntensity: 0.55,
       },
     });
   },

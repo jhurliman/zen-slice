@@ -394,6 +394,10 @@ export async function boot(canvas) {
     /** Snapshot WITHOUT resetting — reading a profiler must never disturb it. */
     profileRead: () => __profSnapshot(),
     setTier: applyTier,
+    /** Probe hook: fluid's per-frame GPU kernel off/on (see fluid.setCompute).
+     *  Fast-forward harnesses dispatch it per step — minutes of wall under a
+     *  software rasterizer. Gameplay sim is identical without it. */
+    setFluidCompute: (on) => fluid.setCompute?.(on),
     pause: () => { running = false; },
     resume: () => { running = true; useVirtual = false; Clock.virtual = false; firstFrame = true; requestAnimationFrame(frame); },
     /** Deterministic single-step. Detaches from wall clock entirely so that a
