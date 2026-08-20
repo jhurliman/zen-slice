@@ -219,47 +219,6 @@ export function createHarmony() {
     },
 
     /**
-     * Voice the REST of a stroke around a note that already sounded (r23:
-     * the first cut of a stroke plays at contact — zero hold — so by flush
-     * time its pitch is fixed history). `entries` = [{id, climb}] for the
-     * later cuts; returns their semitones in the same order, voiced with the
-     * same beauty rules as voiceChord but treating `fixedSemis` as an
-     * immovable voice: collisions against it lift the MOVABLE note instead.
-     * Lifting can reorder voices, so resolve by re-sort passes, one lift per
-     * pass. The pass budget is derived from the stroke size (codex r23): a
-     * voice climbing past k others needs at most k+1 lifts, so n movables
-     * need at most n·(n+1) — a fixed cap of 8 left a 5-fruit stroke like
-     * orange:0 + [apple:1, orange:2, pineapple:3, apple:4] with two voices
-     * in exact unison, the dissonance this function exists to remove.
-     */
-    voiceAround(fixedSemis, entries) {
-      const out = new Array(entries.length);
-      for (let i = 0; i < entries.length; i++) {
-        out[i] = api.noteFor(entries[i].id, entries[i].climb);
-      }
-      const maxPass = entries.length * (entries.length + 1) + 4;
-      for (let pass = 0; pass < maxPass; pass++) {
-        const all = out.map((n, i) => ({ n, i }));
-        all.push({ n: fixedSemis, i: -1 });
-        all.sort((a, b) => a.n - b.n);
-        let lifted = false;
-        for (let k = 1; k < all.length; k++) {
-          const lo = all[k - 1], hi = all[k];
-          const minGap = lo.n < E2 || hi.n < E2 ? 7 : 3;
-          if (hi.n - lo.n < minGap) {
-            // never move the note the player already heard
-            const mov = hi.i >= 0 ? hi : lo;
-            out[mov.i] += 12;
-            lifted = true;
-            break;
-          }
-        }
-        if (!lifted) break;
-      }
-      return out;
-    },
-
-    /**
      * A melodic degree for the level motifs (conductor.js): degree `d` walks
      * the chord's tones then its color, `oct` shifts register around the
      * octave above middle. Always in-chord, always in the kit's span.

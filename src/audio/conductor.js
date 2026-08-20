@@ -173,7 +173,14 @@ export function createConductor(engine, harmony) {
       const iv = t - lastSliceT;
       lastSliceT = t;
       heat = Math.min(1.4, heat + 0.22);
-      bloom = Math.min(1, bloom + 0.06);
+      // r30: bloom stops pegging. The old +0.06 flat gain against a 70 s
+      // decay had its equilibrium at 4.2 — ANY steady slicing pinned it at
+      // 1 ("it stays pegged at 1 more or less unless you stop swiping").
+      // Diminishing gain + the faster playing decay in frame() put the
+      // equilibria where the arc belongs: ~0.5 at a calm slice every 2 s,
+      // ~0.75 at one per second, and only genuinely hot streaks (2+/s,
+      // multi-cuts, eighths flurries) reach and hold 1 for a while.
+      bloom = Math.min(1, bloom + 0.05 * (1 - 0.55 * bloom));
       if (iv > 0.3 && iv < 2.5) {
         let b = 60 / iv;
         while (b < 55) b *= 2;
@@ -249,6 +256,16 @@ export function createConductor(engine, harmony) {
 
     onComboPeak() { nudged = true; },
 
+    /** r30: a rock DIMS THE ARRANGEMENT — the mistake costs the music you
+     *  grew, not just points. Half the bloom (with a small floor cut so a
+     *  near-zero bloom still audibly flinches) and a knock to heat; at the
+     *  new bloom dynamics, playing well earns it back in ~10-20 s — the
+     *  same shape as the score penalty. */
+    onRockHit() {
+      bloom = Math.max(0, bloom * 0.5 - 0.03);
+      heat *= 0.7;
+    },
+
     setLevel(l) {
       const next = Math.max(0, Math.min(PAD_COUNT.length - 1, l | 0));
       if (next !== level) {
@@ -292,9 +309,10 @@ export function createConductor(engine, harmony) {
       intensity = Math.min(1, heat);
       const sinceSlice = now - lastSliceT;
       const idle = sinceSlice > 10;
-      // bloom decays over ~a minute while playing, faster once truly idle —
-      // the arrangement you grew lingers, then the world settles back down
-      bloom *= Math.exp(-dt / (sinceSlice > 15 ? 14 : 70));
+      // bloom decays while playing (r30: 70 → 26 s — the other half of the
+      // un-pegging, see onSlice), faster once truly idle — the arrangement
+      // you grew lingers, then the world settles back down
+      bloom *= Math.exp(-dt / (sinceSlice > 15 ? 10 : 26));
       gBass = smooth01((bloom - 0.04) / 0.22);
       gMotif = smooth01((bloom - 0.22) / 0.34);
       gEcho = smooth01((bloom - 0.08) / 0.18);
@@ -321,12 +339,24 @@ export function createConductor(engine, harmony) {
       // pooled voices are only held for the ~120 ms they actually need. Full
       // scan, not head-only: a second tap queues with a LATER time than
       // echoes recorded after it, so the queue is not time-sorted.
-      for (let i = 0; i < echoQ.length;) {
-        if (echoQ[i].t < now + LOOKAHEAD) {
-          const e = echoQ[i];
-          echoQ[i] = echoQ[echoQ.length - 1]; echoQ.pop();
-          if (e.t > now - 0.05 && playNote) playNote(e.semis, e.vel, e.pan, e.t, e.bright, e.wet);
-        } else i++;
+      // r31: an echo is an answer recorded up to TWO SECONDS ago, and the
+      // chord can advance in between — replaying the old pitch over the new
+      // chord was audible ("the notes don't always flow well into the
+      // track"; the sharpest case: E7sus4(9)'s D echoed over Amaj9, a minor
+      // 9th against C#). Each echo's pitch class is re-checked against the
+      // chord AT DRAIN TIME; an answer that no longer fits stays silent —
+      // dropping a quiet echo is invisible, a clash is not.
+      if (echoQ.length) {
+        const ch = harmony.chord();
+        for (let i = 0; i < echoQ.length;) {
+          if (echoQ[i].t < now + LOOKAHEAD) {
+            const e = echoQ[i];
+            echoQ[i] = echoQ[echoQ.length - 1]; echoQ.pop();
+            const pc = ((e.semis % 12) + 12) % 12;
+            const fits = ch.bass === pc || ch.color === pc || ch.tones.indexOf(pc) >= 0;
+            if (fits && e.t > now - 0.05 && playNote) playNote(e.semis, e.vel, e.pan, e.t, e.bright, e.wet);
+          } else i++;
+        }
       }
 
       // a long suspend leaves the cursor in the past; jump, don't catch up

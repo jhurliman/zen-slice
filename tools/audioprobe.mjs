@@ -80,37 +80,6 @@ ok(SPACE_FOR_LEVEL.length === N_LEVELS, `SPACE_FOR_LEVEL has ${SPACE_FOR_LEVEL.l
           ok(gap >= (low ? 7 : 3), `L${level} ${chord.name}: voiced gap ${gap} (${low ? 'low' : 'mid'}) in [${v}]`);
         }
       }
-      // r23 voiceAround: the immediate first note is IMMOVABLE — the rest of
-      // the stroke voices around it. Laws: every returned voice keeps its
-      // noteFor pitch class (octave lifts only), and the full set INCLUDING
-      // the fixed note respects the same interval gaps as voiceChord.
-      for (const combo of [
-        SPECIES.map((id, i) => ({ id, climb: i })),
-        [{ id: 'watermelon', climb: 0 }, { id: 'orange', climb: 0 }, { id: 'orange', climb: 0 }],
-        [{ id: 'strawberry', climb: 0 }, { id: 'kiwi', climb: 1 }],
-        // codex r23 regression: this 5-fruit stroke needed >8 lifts — the old
-        // fixed pass cap left its top two voices in exact unison
-        [{ id: 'orange', climb: 0 }, { id: 'apple', climb: 1 }, { id: 'orange', climb: 2 },
-          { id: 'pineapple', climb: 3 }, { id: 'apple', climb: 4 }],
-      ]) {
-        const fixed = h.noteFor(combo[0].id, combo[0].climb);
-        const rest = combo.slice(1);
-        const out = h.voiceAround(fixed, rest);
-        ok(out.length === rest.length,
-          `L${level} ${chord.name}: voiceAround returned ${out.length} of ${rest.length}`);
-        for (let i = 0; i < out.length; i++) {
-          const base = h.noteFor(rest[i].id, rest[i].climb);
-          ok((((out[i] - base) % 12) + 12) % 12 === 0,
-            `L${level} ${chord.name}: voiceAround moved ${rest[i].id} off its pitch class (${base} → ${out[i]})`);
-        }
-        const all = [fixed, ...out].sort((a, b) => a - b);
-        for (let i = 1; i < all.length; i++) {
-          const gap = all[i] - all[i - 1];
-          const low = all[i] < E2 || all[i - 1] < E2;
-          ok(gap >= (low ? 7 : 3),
-            `L${level} ${chord.name}: voiceAround gap ${gap} (${low ? 'low' : 'mid'}) in [${all}] around fixed ${fixed}`);
-        }
-      }
       // the flourish/arp pool and pad voicing stay inside the kit's span
       for (const n of h.glissNotes()) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: gliss note ${n} out of range`);
       // r26 grand run: in-chord, in-range, strictly ascending, both spans
@@ -269,10 +238,11 @@ ok(chordProbe.swishesFired === 1,
 // r25: the multiplier chip must be lit at ×1.5 while the 2-cut chain is alive
 ok(chordProbe.multOn === true && chordProbe.multText === '×1.5',
   `multiplier chip after a 2-fruit stroke: on=${chordProbe.multOn} text="${chordProbe.multText}", expected ×1.5 lit`);
-// r23: the first note sounds AT CONTACT — before the gather flushes, with
-// pending still open, at least one voice must already be live
+// r31: pitches are derived at flush (the field at sound time decides), so
+// no piano voice is reserved at contact anymore — but the SWISH still owns
+// contact, so at least one voice must be live before the flush
 ok(chordProbe.voicesAtContact >= 1,
-  `no voice live at contact (voicesActive=${chordProbe.voicesAtContact}) — the first note must be immediate`);
+  `no voice live at contact (voicesActive=${chordProbe.voicesAtContact}) — the contact swish is missing`);
 ok(chordProbe.pendingAfter === 0, `gather never flushed (pending=${chordProbe.pendingAfter})`);
 ok(chordProbe.voices >= chordProbe.slices, `chord flushed but only ${chordProbe.voices} voices active`);
 
