@@ -220,15 +220,13 @@
  * revalidated this round against contract v5's measured albedo->display table
  * (RMS < 3/255 in every cell) and against the contract's own inversions of
  * plate-01 (flesh 0.3088/0.0800/0.0582 vs its 0.307/0.0795/0.0578; apple
- * 0.3931/0.3311/0.2127 vs its 0.391/0.327/0.210). Predictions are in
- * `rounds/reports/r5-fruit-mat.md`.
+ * 0.3931/0.3311/0.2127 vs its 0.391/0.327/0.210).
  *
  * Every number below was solved against a closed-form model of the full chain
  * (albedo -> E(N.L) -> exposure 1.28 -> NeutralToneMapping -> sRGB -> stage.js's
  * gradeFn), validated by reproducing the contract's own measured albedo->display
  * table to within 2/255, then Monte-Carlo'd over the actual shader expressions
- * (200k samples over the cap, 120k over the peel hemisphere). Predicted numbers
- * are in `rounds/reports/r4-fruit-mat.md`.
+ * (200k samples over the cap, 120k over the peel hemisphere).
  *
  * ── Round-6 rewrite. Round 5 scored 55/100 (+4). ────────────────────────────
  *
@@ -246,7 +244,7 @@
  * derivative that is constant across a 2x2 quad, and BOTH of those features are
  * narrower than that. Full argument, arithmetic and rendered A/B at the
  * "ROUND 6 — NOTHING BELOW THE PIXEL GOES INTO THE NORMAL" block above
- * `blobFade`, and in rounds/reports/r6-fruit-mat.md.
+ * `blobFade`.
  *
  * Cost: ~30 ALU per cut-face pixel in normalNode/roughnessNode. Zero draw
  * calls, zero triangles, zero programs, zero per-frame JS, one static uniform.
@@ -308,8 +306,8 @@
  *     0.28/1.05: identical at N.L = 0 (the budget is normalised there), 0.084 at
  *     N.L = 1, and 1.59x at the most backlit a visible face can be.
  *
- * Measured A/B (r6 file vs this file, same bench, same frozen probe code, the
- * full table is in rounds/reports/r7-fruit-mat.md), key N.L 0.755 / 0.932:
+ * Measured A/B (r6 file vs this file, same bench, same frozen probe code),
+ * key N.L 0.755 / 0.932:
  *     flesh_mean R   138.3 / 154.0  ->  161.2 / 183.6   (plate-01 189.2)
  *     face p50 lin   0.237 / 0.282  ->  0.304 / 0.390   (contract s8.4 asks 0.43)
  *     % over 0.655    7.50 / 8.23   ->   1.77 / 3.82    (plate-01 1.21)
@@ -1680,7 +1678,7 @@ function wetField(cc, u, freq) {
   // TOKSVIG. The variance blobFade just took out of the normal is not deleted,
   // it is filtered: unresolved normal variance is a wider NDF, i.e. roughness.
   // roughnessNode adds this, which is what keeps the face "bright specular
-  // across the entire area" (REFERENCE_BAR R1b) once the 1 px spikes are gone —
+  // across the entire area" (the plate law) once the 1 px spikes are gone —
   // the same energy, spread, instead of the same energy, clipped.
   //
   // Evaluated at each scale's MEAN radius, NOT per blob: the per-blob fade is
@@ -1810,7 +1808,7 @@ function fleshMaterial(sp, body, o = {}) {
     const w = wetField(cc, u, freq);
     const f = w.bubble.mul(u.foam).toVar();
     // Sub-millimetre foam scatters rather than transmits, so it reads WHITE
-    // (REFERENCE_BAR R1b.2). Pull the albedo toward achromatic, don't tint it.
+    // (the plate law). Pull the albedo toward achromatic, don't tint it.
     //
     // ROUND 3: round 2 *claimed* this was "weighted by the underlying value" and
     // it was not — the vec3(0.26) lift was flat, so it went into black seeds at
@@ -1894,7 +1892,7 @@ function fleshMaterial(sp, body, o = {}) {
     // is fixed, so 0.115 -> 0.170 spreads the same energy over 2.2x the solid
     // angle and takes the peak down by the same factor without removing any
     // sheen: the face stays "bright specular across the entire area"
-    // (REFERENCE_BAR R1b) because that read comes from the 4 px foam domes in
+    // (the plate law) because that read comes from the 4 px foam domes in
     // normalNode scattering ONE delta highlight into hundreds, not from the
     // lobe being narrow. The hard floor moves 0.055 -> 0.105 so no pixel
     // anywhere on any cut face can see the env cores as a mirror.
@@ -2575,8 +2573,7 @@ def({
         // "pale radial fibre bundles". `pale` below is authored 10% over that
         // measurement because `capBudget`'s knee (0.301 R) then rolls it back
         // onto it — the guard rail is doing the last 10% rather than being
-        // bypassed. Verified by render, not by arithmetic; see the bench table
-        // in rounds/reports/r7-fruit-mat.md.
+        // bypassed. Verified by render, not by arithmetic.
         //
         // WHY THIS DOES NOT RE-BREAK THE CLIPPING (contract v5 s8.5, the trap):
         // a gain lands on the median and on p99.7 together. This does not,
@@ -3026,8 +3023,8 @@ def({
         // the frame at 6x and the face's fine angular energy rises 20.83 -> 22.75
         // (`spokes` face window, scale 0.70, landscape) — but `radial_coh_hi` on
         // the same probe call goes 0.4952 -> 0.6245 against plate-640's 0.4994,
-        // and that is the starburst discriminator, i.e. an auto-fail axis in
-        // REFERENCE_BAR. The mechanism is not a mistake in the ramp: `fib`'s
+        // and that is the starburst discriminator — an auto-fail axis against
+        // the plates. The mechanism is not a mistake in the ramp: `fib`'s
         // filaments are ~3 px, the probe's rings are ~1 px apart, and ANY texture
         // whose features are larger than the ring spacing correlates between
         // adjacent rings whatever its orientation. That is a real tension with

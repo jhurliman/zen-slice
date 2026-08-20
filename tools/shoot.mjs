@@ -321,7 +321,7 @@ const RENDER_MS = 90000;
 
 // H2. Nothing reaches the disk until it is known not to be black. The harness
 // wrote a fully black 1280x720 frame silently once in six runs, and a black
-// frame is far more dangerous than a missing one: `probes.py` will measure it,
+// frame is far more dangerous than a missing one: a probe will measure it,
 // return a plausible-looking mask of 0 px, and a critic will report the number.
 // The floor is deliberately very low (mean luma 0.35/255 over the whole frame,
 // with the game's own letterbox black counted in): this is a "did the readback

@@ -381,7 +381,7 @@
  * Orthographic silhouette rasteriser, 256^2, 360-ray trace from the mask
  * centroid, signature normalised by its own mean, distance = flip-invariant RMS
  * minimised over circular shift. `nearest other species / own within-species`,
- * median over poses. (Now `probes.py species`, PROBE_VERSION 4 — see below.)
+ * median over poses. (Later formalised in the retired image-probe suite.)
  *
  *                  director pose            uniform SO(3)
  *                  r5     r6                r5     r6
@@ -397,10 +397,8 @@
  * BOTH COLUMNS ARE RE-DERIVABLE, NOT QUOTED. The r5 column is not a number in a
  * report: tools/geometry-r5-snapshot.js is a reconstruction of the r5 table
  * whose fidelity is pinned by triangle count (3480/3144/2300/3376/5616/8376,
- * total 26292 — exactly what the r5 critic got rebuilding it independently), and
- *     python3 tools/probes.py species src=tools/geometry-r5-snapshot.js
- *     python3 tools/probes.py species
- * prints the two rows above. Round 5 plateaued partly because each round's
+ * total 26292 — exactly what the r5 critic got rebuilding it independently).
+ * Round 5 plateaued partly because each round's
  * baseline lived in that round's scratch directory.
  *
  * The critic's ship bar was "clears 1.6 for every species". The worst species
@@ -464,16 +462,12 @@
  *    pineapple, ranked last by the frozen probe in BOTH pose distributions ────
  *
  * The verdict also asked, at the end, for the instrument that could see the
- * defect. It exists now: `tools/probes.py limb`, PROBE_VERSION 6 -> 7, added at
- * the START of this round to the verdict's own specification (concave angular
+ * defect. It existed from that round on (the retired suite's `limb` probe),
+ * built to the verdict's own specification (concave angular
  * fraction and protrusion angular width against a k<=3 fit) plus a convex-hull
  * control, because the specified statistic turns out to be gameable — a narrow
  * spike drags the fit up and makes a convex body read as concave, which is why
- * it scores the r6 kiwi, a barrel with no concavity anywhere, at 25.6%. See the
- * loud notice at the top of probes.py. No existing probe changed; `suite
- * shots/r5`, `suite shots/r6` and `species pose=ship n=24` all reproduce byte
- * for byte, and tools/geometry-r6-snapshot.js exists so every number below is
- * re-derivable in one command instead of quoted.
+ * it scores the r6 kiwi, a barrel with no concavity anywhere, at 25.6%.
  *
  * `species pose=ship n=24`, r6 -> r7:
  *
@@ -569,10 +563,10 @@
  * line, and it is SATURATED — it was already right when the critic could not
  * name a single fruit:
  *
- *   probes.py species pose=so3 n=32, r8 geometry, accuracy by raster
+ *   species probe, pose=so3 n=32, r8 geometry, accuracy by raster
  *     res  48     64     96     128    256      (chance 0.1667)
  *         0.9635 0.9844 0.9896 0.9896 0.9948
- *   probes.py species pose=ship n=32 res=256   ->  1.0000, every species 1.000
+ *   species probe, pose=ship n=32 res=256   ->  1.0000, every species 1.000
  *
  * A 6-way closed-set 1-NN on the full 64-to-128-bin normalised radial
  * signature is a DISCRIMINATION test, and six bodies at elongation 1.01 / 1.14
@@ -593,8 +587,8 @@
  * bridge" — the property a viewer reads as a stem, a calyx, a crown or a flat.
  * It has no within-species denominator, so an appendage cannot be deleted to
  * raise it, and unlike a Fourier-residual statistic it cannot be faked by a
- * narrow spike dragging its own baseline up (the r7 note over probes.py added
- * the hull control for exactly that reason). Zero means CONVEX, which is the
+ * narrow spike dragging its own baseline up (r7 added the hull control for
+ * exactly that reason). Zero means CONVEX, which is the
  * one thing no real fruit outline is. Two species measured exactly 0.00.
  *
  * `limb pose=ship n=32 rays=128 res=256`, r8 -> r9, no probe modified:
@@ -841,7 +835,7 @@
  * object. The same fruit in shots/r9-iphone reads 1.947 px, 1.9x sharper — and
  * portrait is exactly the orientation where the r9 apple's outline scored
  * (hull_concave_depth 20.85 against landscape's 5.88). Shallow DOF is REQUIRED
- * by REFERENCE_BAR R1b and is not a defect; it does mean that an outline
+ * by the plates and is not a defect; it does mean that an outline
  * statistic on a defocused fruit is measured through a 4-px kernel on a 99-px
  * subject, and that half of "the mesh gain did not transfer" is stage's focal
  * plane rather than this file's geometry. Quoted as a within-frame RATIO only —
@@ -918,7 +912,6 @@
  * frame in shots/r9 and shots/r10 stays reproducible; select any variant with
  * `?shape=A` on the URL of the shipped build, or `setShapeVariant('A')` from a
  * rig. See the block above `SHAPE_DEFAULT` for what D buys and costs.
- * The bake-off images are rounds/reports/r11-shape-*.png.
  */
 
 import * as THREE from 'three';
@@ -1145,8 +1138,7 @@ const SHAPE = {
     // 0.464 rad, spur 0.785 rad). I measured the botanically tidier opposite
     // side too — it reads stronger (hullF 6.64 -> 10.55) but costs 3.4% of
     // on-screen area and a melon identity pose, and this species is the hero
-    // that REFERENCE_BAR sizes with a 25%-of-frame-height auto-fail. The
-    // cheaper placement wins.
+    // the plates size at ~25% of frame height. The cheaper placement wins.
     facets: [{ d: [0.60, 0.74, 0.30], p: 0.88, k: 0.13 }],
     crown: {
       cols: 48, woody: true,
@@ -2050,7 +2042,7 @@ export const SHAPE_VARIANTS = {
  * "outline events" and a metric that measures DEVIATION FROM A SPHERE rewarded
  * every one of them. Choosing the replacement by the same authority that caused
  * the defect would have been the identical mistake one level up. On 2026-08-17
- * he looked at `rounds/reports/r11-shape-bakeoff-portrait.png` and picked
+ * he looked at the r11 shape bake-off portraits and picked
  * **D — premium smooth**.
  *
  * What that buys, from the bake-off's own frozen-probe table: the orange goes
@@ -2064,7 +2056,7 @@ export const SHAPE_VARIANTS = {
  * triangles against B/T's 1.71x, because removing spikes removes mesh. Draw
  * calls are unchanged in every variant (they are exactly `13 + 2*bodies`).
  * On-screen fruit AREA rises — orange mask_px_median +21%, kiwi +15% — which is
- * a straight gain against the REFERENCE_BAR framing auto-fail.
+ * a straight gain against the plates' framing bar.
  *
  * A/T/B/C are KEPT, not deleted. `A` still reproduces r10's mesh bit for bit on
  * all 24 species x detail combinations, so every frame in `shots/r9`, `shots/r10`
@@ -2220,8 +2212,8 @@ const NBASE_MAX = 60;
  * that the r5 critic finally accepted is not touched at all. The saving comes
  * entirely off the four small species.
  *
- * Facet check, because "visible polygon facets on a fruit silhouette" is an
- * auto-fail in REFERENCE_BAR: the worst case is the strawberry, 46 columns on a
+ * Facet check, because "visible polygon facets on a fruit silhouette" fails
+ * against the plates: the worst case is the strawberry, 46 columns on a
  * body that is 120 px across at review framing -> silhouette sagitta
  * 60*(1-cos(pi/46)) = 0.14 px. Two orders of magnitude under a pixel.
  */

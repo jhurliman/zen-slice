@@ -1,10 +1,9 @@
 # Publish the game to GitHub Pages.
 #
-# The whole site is TWO self-contained files — `build.mjs` inlines the JS, the
-# CSS and Rapier's WASM into one `dist/index.html`, and `tools/progress.mjs`
-# inlines every round's frames into `dist/progress.html` as base64 WebP. So
-# there is nothing to serve but HTML: no asset paths to get wrong, no CORS, no
-# MIME types to configure, and the page works from any subdirectory.
+# The whole site is ONE self-contained file — `build.mjs` inlines the JS, the
+# CSS and Rapier's WASM into `dist/index.html`. So there is nothing to serve
+# but HTML: no asset paths to get wrong, no CORS, no MIME types to configure,
+# and the page works from any subdirectory.
 #
 # ⚠ WHY PAGES AND NOT A LOCAL SERVER: **WebGPU requires a secure context.**
 # `navigator.gpu` is undefined over plain http:// from anything but localhost,
@@ -50,13 +49,6 @@ jobs:
 
       - name: build the game
         run: node build.mjs
-
-      # The founding spec asked for a live progress page, so it ships next to
-      # the game. Best-effort: it reads rounds/*.json and shots/, and a missing
-      # or malformed round record must never block the game from deploying.
-      - name: build the progress page
-        continue-on-error: true
-        run: node tools/progress.mjs
 
       # ── the same discipline the screenshot harness uses ────────────────────
       # `tools/shoot.mjs` refuses to write a black frame because a black frame
