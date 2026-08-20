@@ -8,7 +8,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = CAPBridgeViewController()
+        // GameViewController, not the stock CAPBridgeViewController: under the
+        // Capacitor 8.5 UIScene template THIS assignment decides the root VC —
+        // the Main.storyboard class reference is not consulted — and the
+        // subclass carries the home-indicator hiding and edge-gesture deferral
+        // a full-screen slicing game needs (codex r26).
+        window?.rootViewController = GameViewController()
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
