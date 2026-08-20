@@ -377,6 +377,10 @@ export async function boot(canvas) {
   // one without changing tools/shoot.mjs in the same commit.
   const ZS = {
     ctx, stats, bus, director, score, audio, haptics,
+    // r36c: fluid joins the surface for its debugTap — the ballistics
+    // measurements (%out-before-death, exit route, sink speed) need the
+    // emitter's actual parameters, not pixels. See fluid.js `api.debugTap`.
+    fluid,
     moduleErrors,
     // reported by the harness so a run can never silently be judging the wrong
     // backend (WebGL2 fallback frames are legitimate for critique, but we must

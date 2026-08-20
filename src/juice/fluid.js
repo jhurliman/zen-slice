@@ -379,6 +379,28 @@ import {
 } from 'three/tsl';
 import { GRAVITY, clamp as cl, makeRng } from '../core/contract.js';
 
+// ══ r36c: THE JUICE GETS ITS OWN GRAVITY, AND IT IS 2.6x THE WORLD'S ════════
+// THE PLAYER: "all of the particles still seem to fall unrealistically
+// slowly … i want all of the particles, fluid blobs and spray, to feel WET."
+//
+// He is right, and the number says why: contract.js GRAVITY is -14 dm/s^2,
+// "tuned for hang-time not realism" — a deliberate 0.14x-of-Earth so the
+// FRUIT floats through long zen arcs. The juice inherited that constant, so
+// every droplet has been falling on the Moon. r11 fixed reach (droplets can
+// cross the frame), r14 fixed direction (they arc down instead of out the
+// sides) — but acceleration itself stayed lunar, and no reach or lifetime
+// tuning can fake weight the acceleration doesn't provide.
+//
+// The fruit keeps its float — that IS the game feel — and the fluid falls at
+// 2.6x the world (-36.4 dm/s^2, ~0.37x Earth): still inside the game's
+// slow-motion register, but juice now visibly outruns the fruit downward,
+// which is exactly what "wet" is. One constant, used in BOTH places the
+// ballistics live (the U.grav uniform the shaders read, and the JS-side
+// exitTime/filmAt solvers) — they must never disagree or derived lifetimes
+// detach from the rendered paths. Every lifetime adapts automatically:
+// lifeOf() re-solves the exit instant under whatever gravity this is.
+const FLUID_G = GRAVITY * 2.6;
+
 // ── r8: A CROSS-FILE CONTRACT THAT EXISTED ONLY IN THIS COMMENT ─────────────
 // The line here used to read "Must match render/stage.js: key = (7.5, 8.2,
 // 5.0), rim = (-2.6, 1.6, -9.0)". It did not match. I went and read stage.js
@@ -496,7 +518,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     T: uniform(0),                                   // sim seconds
     dt: uniform(1 / 120),
     pix: uniform(500),                               // 0.5 * viewportH * P[1][1]
-    grav: uniform(GRAVITY),
+    grav: uniform(FLUID_G),   // r36c: the fluid's own gravity, NOT the world's
     L1: uniform(new THREE.Vector3().copy(L1)),       // VIEW space (billboards)
     L2: uniform(new THREE.Vector3().copy(L2)),
     wL1: uniform(new THREE.Vector3().copy(L1)),      // WORLD space (the sheet)
@@ -702,10 +724,18 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         const P = o.xyz.add(v.xyz.mul(e))
           .add(vec3(0.0, U.grav.mul(t.sub(e)).div(k), 0.0)).add(D).toVar();
 
-        // two octaves of divergence-free curl noise, advected in time
+        // two octaves of divergence-free curl noise, advected in time.
+        // r36c: the AMBIENT curl (not the wake) x0.60 — "they are modeling
+        // something closer to tiny aerosolized particulates that hang in the
+        // air and twist in the wind". r14 cut the wind's authority (turbAmp);
+        // this cuts only the idle drift term, so the blade's wake below keeps
+        // its full billow — the twist that remains is the slash's own, not
+        // the weather's. Heavier gravity (FLUID_G) does the rest: a droplet
+        // that crosses the frame in half the time gives the curl half as
+        // long to bend it.
         const q0 = P.mul(U.turbScale).add(vec3(U.turbFlow, U.turbFlow.mul(0.71), U.turbFlow.mul(1.33)));
         const q1 = P.mul(U.turbScale.mul(2.7)).add(vec3(U.turbFlow.mul(-1.9), U.turbFlow.mul(1.4), U.turbFlow.mul(0.6)));
-        const F = curlNoise(q0).add(curlNoise(q1).mul(0.45)).toVar();
+        const F = curlNoise(q0).add(curlNoise(q1).mul(0.45)).mul(0.60).toVar();
 
         // the blade's wake: a vortex about the stroke axis, anchored at the cut
         // and decaying fast. This is what drags mist behind the trailing edge.
@@ -1871,7 +1901,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       else if (kE <= 0) t = 0;
     }
     // ── floor. y(t) = oy + (vy - a)*E + a*t, a = g/k = terminal fall speed ──
-    const a = GRAVITY / k;
+    const a = FLUID_G / k;   // r36c: MUST match U.grav or lifetimes detach
     const edge = FB.cy - FB.h;
     let s = (edge - oy - (vy - a) / k) / a;         // linear-asymptote seed
     if (s > 0 && s < 1e4) {
@@ -1946,7 +1976,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     const sv = v * (0.70 + 0.30 * v);
     const sp = B.spd * TBL[o + 6];
     const es = e * sv;
-    const gp = GRAVITY * (t - e) / k * sv;
+    const gp = FLUID_G * (t - e) / k * sv;   // r36c: the film sags with the same weight
     const th = (ai / NA) * TAU;
     const rip = B.R * 0.18 * sv * jsWig(th * 5.0 + v * 3.1, B.seed * 2.3);
     const sag = B.R * -0.10 * sv * sv;
@@ -2491,7 +2521,13 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // r11: 2.40x, same argument. A fast flick is 2165 grains and ~34 beads, so
     // the aerosol IS the flick's juice; at a 0.69-unit median asymptote it
     // stopped dead inside the fruit's own silhouette and then faded there.
-    const mistReach = 2.40 * R * (0.55 + 1.70 * fast + 0.95 * filmness) * (0.85 + 0.25 * amt);
+    // r36c: 2.40x -> 3.10x, paired with kM 2.6..6.4 -> 1.7..4.0. Two jobs in
+    // one number: (a) v0 = reach*k, so the drag cut alone would soften the
+    // launch by ~35% and the slash must not lose its snap — 3.10x buys most
+    // of it back; (b) the asymptote grows 1.29x, so the fine spray that used
+    // to stall mid-frame now crosses it — "a satisfying slash of fluid
+    // spraying out and flying off screen or falling to the ground", his words.
+    const mistReach = 3.10 * R * (0.55 + 1.70 * fast + 0.95 * filmness) * (0.85 + 0.25 * amt);
 
     // A 5-fruit combo delivers ten bursts inside one frame. Fade the budget as
     // they stack so the worst case stays inside the 2 ms JS ceiling; the first
@@ -3007,7 +3043,18 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // aerosol still visibly stalls and billows (the curl-noise kernel now has
       // 1.5 s to work on it instead of 70 ms) and then DRIFTS DOWN AND OUT
       // instead of hanging.
-      const kM = rr(2.6, 6.4);
+      // r36c: rr(2.6, 6.4) -> rr(1.7, 4.0). THE PLAYER: "the spray particles
+      // … are modeling something closer to tiny aerosolized particulates that
+      // hang in the air and twist in the wind." The physical check above was
+      // right and did not go far enough: this class draws at 1.0-2.2 mm,
+      // which is DRIZZLE, and drizzle is ballistic — it stings your face, it
+      // does not billow. Lower k = less air authority (the wind window at
+      // `resp` maps 1.7-4.0 to the middle of its range, off the maximum),
+      // and under FLUID_G the terminal sink is 9-21 units/s: the fine spray
+      // now RAINS OUT of the frame instead of drifting down. The launch
+      // speed this class loses to the lower k (v0 = reach*k) is bought back
+      // at `mistReach` below.
+      const kM = rr(1.7, 4.0);
       if (wake) {
         const back = rr(0.15, 1.6) * R;
         _o.copy(B.O).addScaledVector(B.D, -back)
