@@ -5,6 +5,7 @@
   "ios": {
     "contentInset": "never",
     "scrollEnabled": false,
-    "backgroundColor": "#000000"
+    "backgroundColor": "#000000",
+    "hideHomeIndicator": true
   }
 }

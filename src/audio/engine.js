@@ -391,6 +391,32 @@ export function createEngine() {
   eng.suspend = () => { try { eng.actx?.suspend?.()?.catch?.(() => { }); } catch (_) { /* */ } };
   eng.dispose = () => { try { eng.actx?.close?.(); } catch (_) { /* */ } };
 
+  /** The ZOMBIE cure (r36): a suspend→resume CYCLE. After a WKWebView
+   *  background/resume the context can claim 'running' with a frozen clock
+   *  and a dead render pipeline — resume() alone is a no-op on a context
+   *  that already says it is running, so the only lever WebKit gives us is
+   *  a full state round-trip, which rebuilds the pipeline. If the resume
+   *  half is rejected (no gesture), the context parks at 'suspended' —
+   *  a state the watchdog and the permanent tap listeners already revive. */
+  eng.cycle = () => {
+    try {
+      const a = eng.actx; if (!a) return;
+      const go = () => { try { a.resume?.()?.catch?.(() => { }); } catch (_) { /* */ } };
+      const p = a.suspend?.();
+      if (p && p.then) p.then(go, go); else go();
+    } catch (_) { /* */ }
+  };
+  /** One silent frame straight to the destination — wakes the render thread
+   *  after a cycle. Inaudible, O(1), source is one-shot garbage. */
+  eng.kick = () => {
+    try {
+      const a = eng.actx; if (!a) return;
+      const s = a.createBufferSource();
+      s.buffer = a.createBuffer(1, 1, a.sampleRate);
+      s.connect(a.destination); s.start(0);
+    } catch (_) { /* */ }
+  };
+
   return eng;
 }
 

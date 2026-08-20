@@ -73,6 +73,8 @@ export function createAudio() {
   const HUM_Q_MAX = 8;
   let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9, lastHum = -1e9;
   let lastWatchdog = 0, swishCount = 0;
+  // r36: zombie-context detection — see the watchdog in api.frame().
+  let lastCT = -1, frozenSecs = 0, recoveries = 0;
   // r21: the settings mute. Everything keeps RUNNING (engine, conductor,
   // scheduler) — mute is just the master fader at 0, so unmute is instant.
   let soundOn = loadPrefs().sound !== false;
@@ -150,6 +152,18 @@ export function createAudio() {
     ['pointerdown', 'touchstart', 'keydown'].forEach((ev) =>
       window.addEventListener(ev, unlock, { passive: true }));
 
+    // r36: shared return-to-foreground path — resume, unmute, and arm the
+    // zombie watchdog to check FAST (~0.5 s instead of up to 3): baseline
+    // the clock now, count this as the first frozen second, and let the
+    // next watchdog tick decide. A healthy context advances its clock and
+    // resets the count; a zombie gets cycled half a second after return.
+    const wake = () => {
+      engine.resume();
+      engine.setMaster(masterLevel(), 0.4);
+      lastCT = engine.actx ? engine.actx.currentTime : -1;
+      frozenSecs = 1; lastWatchdog = 0.5;
+    };
+
     document.addEventListener('visibilitychange', guard(() => {
       if (!started) return;
       if (document.hidden) {
@@ -158,11 +172,19 @@ export function createAudio() {
         // "audio is gone when I come back" bug: the resume was rejected and
         // nothing retried. Let the OS own the context; we own the fader.
         engine.setMaster(0, 0.05);
-      } else {
-        engine.resume();
-        engine.setMaster(masterLevel(), 0.4);
-      }
+      } else wake();
     }));
+
+    // r36: in the Capacitor shell, the App plugin's appStateChange is the
+    // shell's own foreground truth — belt-and-braces beside visibilitychange
+    // (WebKit has a history of dropping one or the other after edge cases
+    // like Siri or a call). Reads the injected global like haptics.js does:
+    // zero wrapper bytes and a guaranteed no-op on the web.
+    try {
+      window.Capacitor?.Plugins?.App?.addListener?.('appStateChange', guard((s) => {
+        if (started && s?.isActive && !document.hidden) wake();
+      }));
+    } catch (_) { /* */ }
 
     c.bus.on('pref', guard((e) => {
       if (e.key !== 'sound') return;
@@ -421,7 +443,28 @@ export function createAudio() {
       lastWatchdog += dt;
       if (lastWatchdog > 1) {
         lastWatchdog = 0;
-        if (!document.hidden && engine.actx && engine.actx.state !== 'running') engine.resume();
+        if (!document.hidden && engine.actx) {
+          const st = engine.actx.state, ct = engine.actx.currentTime;
+          if (st !== 'running') { engine.resume(); frozenSecs = 0; }
+          else if (ct === lastCT) {
+            // r36 ZOMBIE: the context CLAIMS 'running' but its clock is
+            // frozen and it renders silence — the WKWebView (and old mobile
+            // Safari) background/resume failure this watchdog could never
+            // see, because every retry path here trusts `state`. Two
+            // consecutive frozen checks while visible = declared dead;
+            // cycle rebuilds the pipeline, the kick wakes the render
+            // thread. Worst case the cycle's resume needs a gesture and
+            // the context parks at 'suspended' — a state the branch above
+            // and the permanent tap listeners already revive. Silent-
+            // while-'running' is the one state nothing retried; not anymore.
+            frozenSecs += 1;
+            if (frozenSecs >= 2) {
+              frozenSecs = 0; recoveries += 1;
+              engine.cycle(); engine.kick();
+            }
+          } else frozenSecs = 0;
+          lastCT = ct;
+        }
       }
       conductor.frame(dt);
       // r27: publish the live beat for the beat-synced combo window —
@@ -483,6 +526,10 @@ export function createAudio() {
     started, pianoReady: !!pianoKit,
     muted: !soundOn,
     actxState: engine.actx ? engine.actx.state : 'none',
+    // r36: times the zombie watchdog declared the context dead and cycled
+    // it. Nonzero on device = the WKWebView background/resume bug fired
+    // and was caught; visible on the ?debug strip as `rec N`.
+    recoveries,
     // hardware truth for the latency conversation: seconds from "we scheduled
     // it" to "the speaker moves". Read these off the device via ?debug.
     baseLatency: engine.actx?.baseLatency ?? null,

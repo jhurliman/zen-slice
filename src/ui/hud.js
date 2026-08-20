@@ -414,6 +414,10 @@ export function createHud() {
           const st = window.ZS?.audio?.state?.();
           const dir = c.fruits;
           const lat = st && st.outputLatency != null ? ` · lat ${(st.outputLatency * 1000) | 0}ms` : '';
+          // r36 zombie triage: `rec N` = times the audio watchdog caught a
+          // frozen-clock 'running' context after background/resume and
+          // cycled it back to life. Absent = it never fired.
+          const rec = st && st.recoveries ? ` · rec ${st.recoveries}` : '';
           // r26 haptics triage: `hap switch·12c` = backend + label.clicks
           // issued. Clicks rising but no buzz = WebKit swallows it in this
           // context (·SA marks a home-screen standalone app, the suspect);
@@ -428,7 +432,7 @@ export function createHud() {
           const mt = window.ZS?.audio?.meter?.();
           const mix = mt ? ` · mix ${mt.rms}/${mt.peak} [${mt.lo} ${mt.mid} ${mt.hi}]` : '';
           const txt = st
-            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${hap}${mix}`
+            ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${rec}${hap}${mix}`
             : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}${hap}`;
           if (debugTxt.textContent !== txt) debugTxt.textContent = txt;
         } catch (_) { /* diagnostic only */ }
