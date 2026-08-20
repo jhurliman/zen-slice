@@ -3,21 +3,21 @@
   "zoom": false,
   "shots": [
     {
-      "name": "pineapple-side",
-      "luma": 11.589,
-      "ms": 3681,
+      "name": "strawberry-side",
+      "luma": 4.03,
+      "ms": 3688,
       "ok": true
     },
     {
-      "name": "pineapple-top",
-      "luma": 8.845,
-      "ms": 1113,
+      "name": "strawberry-top",
+      "luma": 3.988,
+      "ms": 994,
       "ok": true
     },
     {
-      "name": "pineapple-threequarter",
-      "luma": 8.095,
-      "ms": 1124,
+      "name": "strawberry-threequarter",
+      "luma": 4.102,
+      "ms": 982,
       "ok": true
     }
   ],

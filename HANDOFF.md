@@ -177,7 +177,7 @@ separate files without collision. `SliceStroke` is the load-bearing noun.
 |---|---|
 | `src/render/stage.js` | stage — lighting, grade, DOF, post, blade streak. **Serialised "exposure owner"**: round 3 was lost when two agents moved the same physical quantity in opposite directions. |
 | `src/fruit/species.js` | fruit-mat (flesh/rind TSL) **and** cutter (the cap/collar code). Two owners, disjoint regions, stated explicitly in briefs. |
-| `src/fruit/geometry.js` | fruit-geo — silhouette and mesh |
+| `src/fruit/geometry.js` | fruit-geo — silhouette and mesh. r24: `S.leaves` builds REAL leaf blades (buildLeafCrown) — closed pillow strips appended to the body soup, standing FREE of the surface (a crown bump is attached along its whole footprint by construction and can never put air under a leaf; that structural fact killed every bump-calyx attempt). Legal with the cutter because chainLoops caps every closed loop per cut plane. Only the D-variant strawberry uses it; leaves land in the leaf uv band so species.js's `leafFresh` path paints them. |
 | `src/slice/cutter.js`, `slicer.js` | cutter — plane splitting, cap generation |
 | `src/juice/fluid.js` | juice — sheets, ligaments, beads, mist |
 | `src/input/blade.js` | blade — swept steel band, one draw call |

@@ -1043,6 +1043,7 @@ const BASE = {
   stem: null,
   stemLeaf: false,
   crown: null,
+  leaves: null,
   facets: null,
   asym: 0, asymFreq: 1.2, asymOct: 2,
   bend: 0, bend2: 0,
@@ -2006,24 +2007,22 @@ export const SHAPE_VARIANTS = {
         // broad green star with leaves that lie back over the shoulder and turn
         // up at the tips; wide leaves at 1.45x crown columns are 9 columns each,
         // so they shade as leaves. This is the fruit that most needs its crown.
-        // r20: the player's verdict on that version — "growing out of the top
-        // sides… little horns or bumps, not leaves". The horn was structural:
-        // a radial bump peaking mid-shoulder, so r20 leaned it back and cut
-        // len to 0.36. r23: the player's verdict on THAT — "still total
-        // trash" — and the portrait shows why: short + wide-azimuth + fat
-        // meridian (wArc 0.165 × wp 0.240 at len 0.36) renders six dark
-        // SLUGS draped on the shoulder, roughly as wide as they are long.
-        // A calyx leaf is long, thin in azimuth, broad along the meridian
-        // (round 7's 2.8:1 law) with its TIP standing clear of the body.
-        // Two ranks now: an outer star of six long pointed sepals whose tips
-        // project past the shoulder (the plate-01 silhouette), and a short
-        // inner rank filling the root so the star grows from the stem
-        // instead of floating. Both keep a gentle lean so they lie back.
-        crown: {
-          cols: 96,
+        // r24: REAL LEAVES, after the player put the reference photo on the
+        // table ("this is what a strawberry looks like — if you can't make
+        // leaves like this we should drop the poor leaf attempts entirely").
+        // Every crown-bump attempt (needles r6, horns r20, slugs r22, flames
+        // r23) failed for one structural reason: a bump cannot leave the
+        // surface. The calyx is now buildLeafCrown geometry — broad flat
+        // pillow blades rooted at the stem hub, splayed over the shoulder
+        // with open air underneath, exactly the photo's anatomy: an outer
+        // star of five big leaves reaching about the fruit's own width, and
+        // an inner rank of four filling the hub. The body crown is deleted.
+        crown: null,
+        leaves: {
+          rootR: 0.06, rootLift: 0.04,
           whorls: [
-            { n: 6, a: 0.72, len: 0.66, wArc: 0.150, round: true, skew: 0.30, wp: 0.220, lean: 2.0, pPol: 2.30, pAz: 1.20, phase: 0.00, jit: 0.10, jitA: 0.028 },
-            { n: 6, a: 0.46, len: 0.34, wArc: 0.130, round: true, skew: 0.22, wp: 0.180, lean: 1.4, pPol: 2.00, pAz: 1.25, phase: 0.50, jit: 0.08, jitA: 0.018 },
+            { n: 6, beta: 0.82, len: 1.25, width: 0.32, thick: 0.060, droop: 0.72, kick: 0.34, cup: 0.15, jitPhi: 0.09, jitBeta: 0.26, jitLen: 0.14 },
+            { n: 4, beta: 0.45, len: 0.85, width: 0.20, thick: 0.055, droop: 0.55, kick: 0.28, cup: 0.15, phase: 0.5, jitPhi: 0.12, jitBeta: 0.20, jitLen: 0.12 },
           ],
         },
       },
@@ -2502,6 +2501,104 @@ function bladeHeight(blades, a, phi) {
  * @param {object} species  needs .radius and (optionally) .shape / .id
  * @param {number} detail   resolution knob, 4..11 (main.js's fruitSegments)
  */
+/**
+ * ── r24: REAL LEAVES ─────────────────────────────────────────────────────────
+ *
+ * The reference photograph that decided this: a strawberry's calyx is a whorl
+ * of BROAD FLAT LEAF BLADES that stand FREE of the fruit, splayed over the
+ * shoulder with open air underneath. A crown "blade" in this file is a radial
+ * height field h(polar, azimuth) — a bump ON the body surface — and a bump is
+ * attached to the surface along its entire footprint by construction. No
+ * parameterization of a bump can put air under a leaf, which is why every
+ * calyx attempt so far (needles r6, horns r20, slugs r22) failed the same way.
+ *
+ * So `S.leaves` builds actual leaf geometry: authored triangle strips appended
+ * to the same non-indexed soup the body becomes. Each leaf is a closed PILLOW
+ * — a top and bottom sheet sharing their rim, thickness tapering to zero at
+ * the edges and tip — so there is no open silhouette edge, winding stays
+ * outward, and the welded-normal pass shades the rim smoothly. Roots are
+ * buried inside the stem hub so the open root edge is never visible.
+ *
+ * Legality with the cutter is not hoped for, it is already load-bearing:
+ * cutter.js chainLoops caps EVERY closed loop a plane produces (built for the
+ * pineapple's eye bumps), small loops get flat fans, and degenerate/open runs
+ * are dropped — a plane through a 0.05-thick leaf yields exactly such a small
+ * loop. The star-shape invariant protects the BODY's cap ring and the body
+ * remains star-shaped; leaves are separate sheets the loop chainer handles.
+ *
+ * Spine model, per leaf: polar angle θ(s) = beta + droop·s − kick·s², walked
+ * from a root near the stem base; the blade is widest ~40% out and tapers to
+ * a point; `cup` folds the edges up around the midrib. All lengths in body-
+ * radius units like every crown number. uv.y runs 1.0 → 1.66 root → tip (the
+ * leaf band), so species.js paints it foliage — the strawberry's `leafFresh`
+ * path — with no shader work here.
+ */
+function buildLeafCrown(LS, yRoot, seedPh) {
+  const P = [], UV = [], idx = [];
+  const SEC = 8;                       // cross sections along the spine
+  const rootR = LS.rootR ?? 0.06;
+  let wi = 0;
+  for (const w of LS.whorls) {
+    for (let i = 0; i < w.n; i++) {
+      const j1 = ihash(i + wi * 31, 3.1 + seedPh), j2 = ihash(i + wi * 31, 7.7 + seedPh);
+      const j3 = ihash(i + wi * 31, 12.9 + seedPh);
+      const phi = (TAU * (i + (w.phase || 0))) / w.n + (w.jitPhi || 0) * (j1 * 2 - 1);
+      const beta = w.beta + (w.jitBeta || 0) * (j2 * 2 - 1);
+      const L = w.len * (1 + (w.jitLen || 0) * (j3 * 2 - 1));
+      const cp = Math.cos(phi), sp = Math.sin(phi);
+      const er = [cp, 0, sp], ep = [-sp, 0, cp];   // radial / azimuthal frame
+
+      const base = P.length / 3;
+      let dR = rootR, yy = yRoot + (LS.rootLift ?? 0.0);
+      const ds = L / (SEC - 1);
+      for (let sI = 0; sI < SEC; sI++) {
+        const s = sI / (SEC - 1);
+        const theta = beta + (w.droop || 0) * s - (w.kick || 0) * s * s;
+        const st = Math.sin(theta), ct = Math.cos(theta);
+        // in-plane sheet normal (perpendicular to the spine, pointing up-out)
+        const nr = -ct, ny = st;
+        // blade half-width: broad by 40% out, tapering to a point
+        const shape = s < 0.4 ? 0.30 + 0.70 * (s / 0.4) : Math.pow(1 - (s - 0.4) / 0.6, 0.85);
+        const hw = w.width * Math.max(0.02, shape);
+        const th = (w.thick ?? 0.045) * Math.max(0.02, shape);
+        const cupL = (w.cup ?? 0.3) * hw;
+        // section center
+        const cx = dR * er[0], cy = yy, cz = dR * er[2];
+        // 4 verts: edge−, edge+ (rim, cupped up), top mid, bottom mid
+        const exm = cx - hw * ep[0] + cupL * (nr * er[0]);
+        const eym = cy + cupL * ny;
+        const ezm = cz - hw * ep[2] + cupL * (nr * er[2]);
+        const exp_ = cx + hw * ep[0] + cupL * (nr * er[0]);
+        const ezp = cz + hw * ep[2] + cupL * (nr * er[2]);
+        const tmx = cx + 0.5 * th * (nr * er[0]), tmy = cy + 0.5 * th * ny;
+        const tmz = cz + 0.5 * th * (nr * er[2]);
+        const bmx = cx - 0.5 * th * (nr * er[0]), bmy = cy - 0.5 * th * ny;
+        const bmz = cz - 0.5 * th * (nr * er[2]);
+        P.push(exm, eym, ezm, exp_, eym, ezp, tmx, tmy, tmz, bmx, bmy, bmz);
+        const u = phi / TAU - Math.floor(phi / TAU);
+        const v = 1.0 + 0.66 * s;      // the LEAF uv band — see the contract
+        UV.push(u, v, u, v, u, v, u, v);
+        // advance the spine
+        dR += st * ds; yy += ct * ds;
+      }
+      // stitch sections: per pair, 4 top + 4 bottom triangles.
+      // Winding derived in the local frame (X=azimuth, up=sheet normal,
+      // Z=spine): top sheet CCW seen from the normal side, bottom reversed.
+      for (let sI = 0; sI + 1 < SEC; sI++) {
+        const a = base + sI * 4, b = base + (sI + 1) * 4;
+        const aM = a, aP = a + 1, aT = a + 2, aB = a + 3;
+        const bM = b, bP = b + 1, bT = b + 2, bB = b + 3;
+        idx.push(aM, bT, aT, aM, bM, bT);        // top, − half
+        idx.push(aT, bT, bP, aT, bP, aP);        // top, + half
+        idx.push(aM, aB, bB, aM, bB, bM);        // bottom, − half
+        idx.push(aB, aP, bP, aB, bP, bB);        // bottom, + half
+      }
+      wi++;
+    }
+  }
+  return { P, UV, idx };
+}
+
 export function makeFruitGeometry(species, detail = 3) {
   // ROUND 11 — the variant overlay is applied LAST, on top of the species'
   // round-10 entry, so an overlay that names nothing is the shipped fruit.
@@ -2534,6 +2631,15 @@ export function makeFruitGeometry(species, detail = 3) {
   // than the whole rest of the build.
   const blades = S.crown ? buildBlades(S.crown, res.crownCols) : null;
 
+  // r24 real leaves (see buildLeafCrown): rooted just under the body's top
+  // pole, inside the stem hub, so the pillow's open root edge never shows.
+  let leaves = null;
+  if (S.leaves) {
+    let yTop = -1e9;
+    for (const r of rings) if (!r.stem && r.y > yTop) yTop = r.y;
+    leaves = buildLeafCrown(S.leaves, yTop - 0.02, seed * 0.01);
+  }
+
   // Ribbing needs columns to live on: at 8-column tiers a 7-lobe rib aliases
   // into a random wobble, so fade it with the base resolution the same way the
   // pebble/eye relief is faded.
@@ -2559,6 +2665,8 @@ export function makeFruitGeometry(species, detail = 3) {
   // ── vertex pass ───────────────────────────────────────────────────────────
   let total = 2;                                   // two apexes
   for (let i = 0; i < rings.length; i++) total += rings[i].cols;
+  const leafStart = total;
+  if (leaves) total += leaves.P.length / 3;
   const P = new Float64Array(total * 3);
   const UV = new Float32Array(total * 2);
 
@@ -2733,6 +2841,13 @@ export function makeFruitGeometry(species, detail = 3) {
     }
   }
 
+  // r24: append the real leaf vertices — the scale/lean pass and the welded
+  // normal pass below run over `total`, so they cover these for free
+  if (leaves) {
+    P.set(leaves.P, leafStart * 3);
+    UV.set(leaves.UV, leafStart * 2);
+  }
+
   // ── scale + lean ──────────────────────────────────────────────────────────
   // The lean is a LINEAR shear (x += b*y), which maps a star-shaped solid to a
   // star-shaped solid exactly; the quadratic banana term is kept small enough
@@ -2783,6 +2898,7 @@ export function makeFruitGeometry(species, detail = 3) {
       idx.push(rN.start + j, APEX_HI, rN.start + ((j + 1) % rN.cols));
     }
   }
+  if (leaves) for (let i = 0; i < leaves.idx.length; i++) idx.push(leafStart + leaves.idx[i]);
   const index = new Uint32Array(idx);
 
   // ── true smooth normals, computed while the mesh is still welded ───────────

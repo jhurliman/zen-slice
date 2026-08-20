@@ -86,6 +86,10 @@ ok(SWISH_FOR_LEVEL.length === N_LEVELS, `SWISH_FOR_LEVEL has ${SWISH_FOR_LEVEL.l
         SPECIES.map((id, i) => ({ id, climb: i })),
         [{ id: 'watermelon', climb: 0 }, { id: 'orange', climb: 0 }, { id: 'orange', climb: 0 }],
         [{ id: 'strawberry', climb: 0 }, { id: 'kiwi', climb: 1 }],
+        // codex r23 regression: this 5-fruit stroke needed >8 lifts — the old
+        // fixed pass cap left its top two voices in exact unison
+        [{ id: 'orange', climb: 0 }, { id: 'apple', climb: 1 }, { id: 'orange', climb: 2 },
+          { id: 'pineapple', climb: 3 }, { id: 'apple', climb: 4 }],
       ]) {
         const fixed = h.noteFor(combo[0].id, combo[0].climb);
         const rest = combo.slice(1);
