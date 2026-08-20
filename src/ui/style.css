@@ -214,7 +214,12 @@ html, body {
   color: rgba(255,255,255,0.34); animation: zsPulse 3.2s ease-in-out infinite;
   transition: opacity .6s ease;
 }
-.zs-hint.gone { opacity: 0; }
+/* r34: `animation: none` is the fix, not a nicety — a running CSS animation
+ * outranks normal declarations for the properties it animates, so while
+ * zsPulse held `opacity`, `.gone { opacity: 0 }` could never win and the
+ * hint pulsed forever (the player's report). Stop the animation and the
+ * .6s opacity transition above carries the fade-out. */
+.zs-hint.gone { animation: none; opacity: 0; }
 @keyframes zsPulse { 0%,100%{opacity:.22} 50%{opacity:.55} }
 
 /* ══ r21: THE SETTINGS THAT BARELY EXIST ═════════════════════════════════════
