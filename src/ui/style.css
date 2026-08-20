@@ -214,6 +214,9 @@ html, body {
   color: rgba(255,255,255,0.34); animation: zsPulse 3.2s ease-in-out infinite;
   transition: opacity .6s ease;
 }
+/* held silent while the title screen is up (same mechanics as .gone, but
+ * removable — the hint takes over the moment the title lets go) */
+.zs-hint.hold { animation: none; opacity: 0; }
 /* r34: `animation: none` is the fix, not a nicety — a running CSS animation
  * outranks normal declarations for the properties it animates, so while
  * zsPulse held `opacity`, `.gone { opacity: 0 }` could never win and the
@@ -303,11 +306,66 @@ html, body {
   100% { opacity: 0; color: rgba(255,235,170,0); }
 }
 
+/* ══ r36: THE TITLE SCREEN ═══════════════════════════════════════════════════
+ * The game's name, said once, in the voice the HUD already speaks: the level
+ * name's thin tracked capitals over the score's cool glow. The world keeps
+ * playing behind a soft vignette — the title is a veil, not a wall — and the
+ * first tap anywhere lifts it (the same tap is the audio unlock gesture, so
+ * the music can begin the moment the name fades). Nothing here takes pointer
+ * events; hud.js's window listener owns the dismissal. */
+.zs-title {
+  position: fixed; inset: 0; z-index: 10;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 22px;
+  pointer-events: none;
+  background: radial-gradient(ellipse 90% 70% at 50% 44%,
+    rgba(0,0,0,0.20) 0%, rgba(0,0,0,0.62) 100%);
+  opacity: 1; transition: opacity 0.9s ease;
+}
+.zs-title.out { opacity: 0; }
+.zs-title-word {
+  font-size: clamp(30px, 8.4vmin, 64px); font-weight: 200;
+  letter-spacing: 0.42em; margin-right: -0.42em;   /* re-centre tracked caps */
+  text-transform: uppercase; color: rgba(255,255,255,0.92);
+  text-shadow: 0 0 34px rgba(180,220,255,0.5), 0 2px 14px rgba(0,0,0,0.8);
+  white-space: nowrap;
+  animation: zsTitleIn 2.4s cubic-bezier(.2,.6,.2,1) both;
+}
+@keyframes zsTitleIn {
+  0%   { opacity: 0; letter-spacing: 0.62em; margin-right: -0.62em; }
+  100% { opacity: 1; letter-spacing: 0.42em; margin-right: -0.42em; }
+}
+.zs-title-sub {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  font-size: clamp(9px, 2.45vw, 12px);
+  letter-spacing: 0.16em; margin-right: -0.16em; text-transform: lowercase;
+  color: rgba(200,220,255,0.60);
+  text-shadow: 0 0 18px rgba(140,190,255,0.25);
+  white-space: nowrap;
+  animation: zsTitleFade 1.8s ease 1.1s both;
+}
+.zs-title-sub svg { width: 24px; height: 24px; opacity: 0.75; }
+.zs-title-go {
+  position: absolute; bottom: max(30px, env(safe-area-inset-bottom)); left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px; letter-spacing: 0.34em; text-transform: uppercase;
+  color: rgba(255,255,255,0.34);
+  white-space: nowrap;
+  animation: zsTitleFade 1.2s ease 2.2s both, zsPulse 3.2s ease-in-out 3.4s infinite;
+}
+/* the score readout has nothing to say before play begins */
+.zs-hud.zs-title-up .zs-score { opacity: 0; }
+.zs-hud .zs-score { transition: opacity 0.9s ease; }
+@keyframes zsTitleFade { 0% { opacity: 0; } 100% { opacity: 1; } }
+
 /* prefers-reduced-motion: the level name simply fades — no tracking sweep —
  * and the hint stops pulsing. Callout motion is zeroed in hud.js. */
 @media (prefers-reduced-motion: reduce) {
   .zs-level.show { animation: zsLevelStill 3.4s ease forwards; }
   .zs-hint { animation: none; opacity: 0.4; }
+  .zs-hint.hold, .zs-hint.gone { opacity: 0; }
+  .zs-title-word { animation: zsTitleFade 1.2s ease both; }
+  .zs-title-go { animation: zsTitleFade 1.2s ease 1.6s both; }
 }
 @keyframes zsLevelStill {
   0%   { opacity: 0; color: rgba(255,255,255,0); }

@@ -26,7 +26,7 @@ export function createHud() {
   // r21: the settings glyph and its three-row panel; idle is TOUCH idle —
   // the director tosses fruit whether or not anyone plays, so "no fruit in
   // the air" never holds and the sky's quiet is measured at the fingertip
-  let settingsEl = null, panelEl = null, gearEl = null;
+  let settingsEl = null, panelEl = null, gearEl = null, titleEl = null;
   let idleT = 0, panelOpen = false, captureMode = false, reducedMotion = false;
   let swipeCount = 0;
   const IDLE_SHOW_S = 3;
@@ -199,10 +199,12 @@ export function createHud() {
     // three attempts: whoever is doing that has understood the game. Taps on
     // the settings UI are not swipes and don't count; this listener also
     // feeds the idle clock for the glyph below.
+    let forceTitle = false;
     try {
       const q = new URLSearchParams(location.search || '');
       captureMode = q.has('capture') && q.get('capture') !== '0';
       debugOn = q.has('debug') && q.get('debug') !== '0';
+      forceTitle = q.has('title');
     } catch (_) { /* */ }
     try { reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { /* */ }
     window.addEventListener('pointerdown', (ev) => {
@@ -211,7 +213,44 @@ export function createHud() {
       if (panelOpen) togglePanel(false);
       else if (gearEl) gearEl.classList.remove('show');
       if (++swipeCount >= 3 && hintEl) hintEl.classList.add('gone');
+      // ══ r36: the title screen lets go on the first touch ═══════════════════
+      // The same tap is audio.js's unlock gesture, so the music begins as the
+      // name fades. The swipe hint was held silent underneath; it takes over.
+      if (titleEl) {
+        const t = titleEl; titleEl = null;
+        t.classList.add('out');
+        root.classList.remove('zs-title-up');
+        setTimeout(() => t.remove(), 1000);
+        if (hintEl) hintEl.classList.remove('hold');
+      }
     }, { passive: true });
+
+    // ══ r36: THE TITLE SCREEN ════════════════════════════════════════════════
+    // The name, once, in the HUD's own voice, over the world already playing
+    // behind a soft vignette. One functional line under it: this game is a
+    // music instrument first, and phone speakers flatten it — say so at the
+    // door, with a headphone outline in the hint's stroke weight. Suppressed
+    // under ?capture (probes never tap, so it would sit in every DOM count);
+    // ?title forces it back for design screenshots.
+    if (!captureMode || forceTitle) {
+      titleEl = document.createElement('div');
+      titleEl.className = 'zs-title';
+      titleEl.innerHTML =
+        `<div class="zs-title-word">Chord Cut</div>`
+        + `<div class="zs-title-sub">`
+        + `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"`
+        + ` stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`
+        + `<path d="M4 17.5v-5.2a8 8 0 0 1 16 0v5.2"/>`
+        + `<rect x="3.2" y="14.2" width="4.2" height="6.2" rx="2.1"/>`
+        + `<rect x="16.6" y="14.2" width="4.2" height="6.2" rx="2.1"/>`
+        + `</svg>`
+        + `<span>best experienced with headphones or surround audio</span>`
+        + `</div>`
+        + `<div class="zs-title-go">tap anywhere to begin</div>`;
+      root.appendChild(titleEl);
+      root.classList.add('zs-title-up');
+      if (hintEl) hintEl.classList.add('hold');
+    }
 
     // ══ r21: THE SETTINGS GLYPH ══════════════════════════════════════════════
     // Three choices, no screen. The glyph exists only when the fingertip has
