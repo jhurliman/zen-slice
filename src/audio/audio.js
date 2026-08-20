@@ -97,7 +97,10 @@ export function createAudio() {
    *  expressive range instead. */
   const vel = (speed) => Math.min(1, Math.max(0, Math.log(Math.max(1e-3, speed / 5)) / Math.log(34)));
   const panOf = (x) => Math.max(-1, Math.min(1, x / 4.4)) * 0.7;
-  const brightOf = (v) => 1200 * Math.pow(7000 / 1200, v);
+  // r33: ceiling 7 kHz → 5.2 kHz. A full-speed flick used to throw the note
+  // filter wide open onto the piano's harshest band; the top of the velocity
+  // range now lands where the felt still sounds like felt.
+  const brightOf = (v) => 1200 * Math.pow(5200 / 1200, v);
 
   /** Every pitched note goes through here — piano when the kit has rendered,
    *  the old pluck until then. Also handed to the conductor for bass/arps. */
