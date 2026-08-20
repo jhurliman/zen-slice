@@ -35,7 +35,7 @@ export const PIANO_CENTERS = [-24, -18, -12, -6, 0, 6, 12, 18, 24, 30];
  * measured the consequence on the phone: "a good 15+ seconds before any audio
  * plays" — the offline renders were starving the LIVE context's media thread
  * at exactly the moment it was trying to start. 24 kHz is free quality-wise
- * (the piano is lowpassed at ≤7 kHz at play time and BufferSource resamples
+ * (the piano is lowpassed at ≤5.2 kHz at play time and BufferSource resamples
  * automatically) and the 60 ms gaps let the live thread breathe. The caller
  * additionally delays the whole render until after first sound.
  */
@@ -84,25 +84,38 @@ export function pianoSample(kit, semis) {
 async function renderPianoNote(sr, f0, idx, vnt = 0) {
   const dur = Math.min(4.2, Math.max(1.6, 4.2 * Math.pow(220 / f0, 0.3)));
   const off = new OfflineAudioContext(1, Math.ceil(dur * sr), sr);
-  // r27 per-take variation (vnt 0 = the shipped r16 note, bit-identical):
+  // r27 per-take variation (vnt 0 = the reference take; r33 rewarmed the
+  // shared voicing — rolloff, tails, register loudness — for all takes):
   // strike point wanders 1/8 → 1/7.2 or 1/8.9, string detune breathes ±12%,
   // inharmonicity ±5%, hammer brightness ±6% — a different touch per take.
   const strike = vnt === 0 ? 8 : vnt === 1 ? 7.2 : 8.9;
   const detK = 1 + 0.12 * (vnt === 1 ? 1 : vnt === 2 ? -1 : 0);
   const bK = 1 + 0.05 * (vnt === 1 ? 1 : vnt === 2 ? -1 : 0);
   const hamK = 1 + 0.06 * (vnt === 1 ? -1 : vnt === 2 ? 1 : 0);
-  const B = (0.0002 + (idx / (PIANO_CENTERS.length - 1)) * 0.0006) * bK;
+  // r33: treble stretch eased 0.0008 → 0.00065 max — with the long tails of
+  // r16-r32 the detuned upper partials read as bells; less stretch, less chime
+  const B = (0.0002 + (idx / (PIANO_CENTERS.length - 1)) * 0.00045) * bK;
   const strings = f0 < 500 ? 2 : 1;
   const out = off.createGain(); out.gain.value = 1; out.connect(off.destination);
 
   for (let p = 1; p <= 14; p++) {
     const fp = p * f0 * Math.sqrt(1 + B * p * p);
     if (fp > sr * 0.45) break;
-    // strike-point comb + spectral rolloff
-    const amp = Math.pow(p, -1.05) * (0.25 + Math.abs(Math.sin(Math.PI * p / strike)) * 0.75);
+    // strike-point comb + spectral rolloff. r33: the player heard the old
+    // p^-1.05 slope as "shrieking" — partial 10 sat only -21 dB under the
+    // fundamental, parking real energy in the harsh 2-6 kHz band. A felt
+    // hammer at mezzo touch rolls off far steeper, so: -1.35 exponent AND a
+    // gentle absolute-frequency shade above ~3.4 kHz (felt, not a brick).
+    const amp = Math.pow(p, -1.35) * (0.25 + Math.abs(Math.sin(Math.PI * p / strike)) * 0.75)
+      / (1 + Math.pow(fp / 3400, 2));
     // prompt decay fast and register-dependent, then a quiet long tail
     const tauP = Math.min(3.0, Math.max(0.08, 3.0 * Math.pow(220 / fp, 0.85)));
     const tSwitch = tauP * 1.2;
+    // r33: the tail handoff is what read as "windchimey" — every partial,
+    // however high, handed 12% into a long pure-sine ring. Real piano upper
+    // partials die almost entirely in the prompt stage; only the warm low
+    // ones keep singing. Shade the handoff by frequency and shorten the ring.
+    const hand = 0.12 * Math.min(1, Math.pow(600 / fp, 0.5));
     for (let s = 0; s < strings; s++) {
       const det = strings === 1 ? 0 : (s === 0 ? -0.65 : 0.65) * detK;
       const o = off.createOscillator();
@@ -111,21 +124,22 @@ async function renderPianoNote(sr, f0, idx, vnt = 0) {
       const a = (amp * 0.5) / strings;
       g.gain.setValueAtTime(0, 0);
       g.gain.linearRampToValueAtTime(a, 0.002);
-      g.gain.setTargetAtTime(a * 0.12, 0.002, tauP);        // prompt
-      g.gain.setTargetAtTime(0, tSwitch, tauP * 3);          // tail
+      g.gain.setTargetAtTime(a * hand, 0.002, tauP);         // prompt
+      g.gain.setTargetAtTime(0, tSwitch, tauP * 2.2);        // tail
       o.connect(g); g.connect(out);
       o.start(0); o.stop(dur);
     }
   }
 
-  // sympathetic fifth — the soundboard ghost
+  // sympathetic fifth — the soundboard ghost (r33: quieter and shorter; a
+  // pure fifth ringing for seconds was one more voice in the chime choir)
   {
     const o = off.createOscillator();
     o.frequency.value = f0 * 1.5 * 0.997;
     const g = off.createGain();
     g.gain.setValueAtTime(0, 0);
-    g.gain.linearRampToValueAtTime(0.02, 0.01);
-    g.gain.setTargetAtTime(0, 0.01, 2.2);
+    g.gain.linearRampToValueAtTime(0.012, 0.01);
+    g.gain.setTargetAtTime(0, 0.01, 1.5);
     o.connect(g); g.connect(out);
     o.start(0); o.stop(dur);
   }
@@ -139,7 +153,9 @@ async function renderPianoNote(sr, f0, idx, vnt = 0) {
     const src = off.createBufferSource(); src.buffer = nb;
     const bp = off.createBiquadFilter();
     bp.type = 'bandpass';
-    bp.frequency.value = Math.min(6000, Math.max(800, f0 * 6 * hamK));
+    // r33: 6·f0 capped 6 kHz put the click of every high note right in the
+    // shriek band; 5·f0 capped 5.2 kHz keeps the knuckle, loses the spike
+    bp.frequency.value = Math.min(5200, Math.max(800, f0 * 5 * hamK));
     bp.Q.value = 0.8;
     const g = off.createGain();
     g.gain.setValueAtTime(0, 0);
@@ -150,11 +166,15 @@ async function renderPianoNote(sr, f0, idx, vnt = 0) {
   }
 
   const buf = await off.startRendering();
-  // normalize to a fixed headroom so every sample plays at a predictable level
+  // normalize to a REGISTER-WEIGHTED headroom (r33). The old fixed 0.5 made a
+  // D#6 exactly as loud as an A1 — no acoustic piano does that, and the equal-
+  // loudness treble was half the "shrieking" report. Treble sits back ~2.5 dB;
+  // bass keeps its old level.
   const d = buf.getChannelData(0);
   let peak = 1e-6;
   for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
-  const k = 0.5 / peak;
+  const target = Math.min(0.5, Math.max(0.34, 0.5 * Math.pow(220 / f0, 0.18)));
+  const k = target / peak;
   for (let i = 0; i < d.length; i++) d[i] *= k;
   return buf;
 }
