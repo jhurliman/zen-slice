@@ -79,7 +79,7 @@ export function createAudio() {
   // scheduler) — mute is just the master fader at 0, so unmute is instant.
   let soundOn = loadPrefs().sound !== false;
   const masterLevel = () => (soundOn ? 0.85 : 0);
-  let caps = { background: true, arps: true, voices: 16, wet: 1.0 };
+  let caps = { background: true, arps: true, voices: 22, wet: 1.0 };   // r38h: see engine pool
 
   const nosound = (() => {
     try {
@@ -528,8 +528,10 @@ export function createAudio() {
     caps = q.tier <= 0
       ? { background: false, arps: false, voices: 8, wet: 0.5 }
       : q.tier === 1
-        ? { background: true, arps: false, voices: 12, wet: 0.8 }
-        : { background: true, arps: true, voices: 16, wet: 1.0 };
+        ? { background: true, arps: false, voices: 14, wet: 0.8 }
+        // r38h: 16 → 22 — a flourish is ~18 pitched notes; at 16 the run's
+        // second half was guaranteed voice-stealing (the chirps)
+        : { background: true, arps: true, voices: 22, wet: 1.0 };
     if (!started) return;
     conductor.setCaps(caps);
     engine.setPianoCap(caps.voices);

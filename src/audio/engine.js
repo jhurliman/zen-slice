@@ -208,7 +208,12 @@ export function createEngine() {
       gain.connect(eng.dry); // low frequencies stay centered — they pan badly
       return { gain, src: null, until: 0 };
     };
-    pianoPool = []; for (let i = 0; i < 16; i++) pianoPool.push(mkPiano());
+    // r38h: 16 → 24 voices. A FLOURISH alone is ~18 pitched notes (anchor +
+    // strums + sub + a 12-note run) with seconds of ring each, over a bed of
+    // background bass/motif/echo voices from the same pool — 16 guaranteed
+    // steals in the run's second half. Idle voices are 4 silent nodes each;
+    // 8 more is noise in the node budget, silence in the mix.
+    pianoPool = []; for (let i = 0; i < 24; i++) pianoPool.push(mkPiano());
     shhkPool = []; for (let i = 0; i < 6; i++) shhkPool.push(mkSwish());
     // r20: the pool doubles — the contact tick and the wet thump both play
     // through it, per fruit, so a 3-fruit combo is six one-shots in one tick
@@ -228,10 +233,14 @@ export function createEngine() {
       if (!oldest || v.until < oldest.until) oldest = v;
     }
     const v = free || oldest;
-    if (!free && v.src) {
+    // r38h: the flag playPiano needs to actually HONOR this fade — see there
+    v.stolen = !free && !!v.src;
+    if (v.stolen) {
       // click-free steal: yank the envelope down, stop the old source
+      // (τ FADE*0.25: ≈98% faded by the stop — 0.35 left 5.7%, a tickable
+      // residual once playPiano stopped snapping over the top of it)
       v.gain.gain.cancelScheduledValues(when);
-      v.gain.gain.setTargetAtTime(0, when, FADE * 0.35);
+      v.gain.gain.setTargetAtTime(0, when, FADE * 0.25);
       try { v.src.stop(when + FADE); } catch (_) { /* already stopped */ }
     }
     return v;
@@ -244,13 +253,25 @@ export function createEngine() {
   eng.playPiano = (buffer, rate, when, gain, pan, brightHz, wet = 0.5) => {
     const actx = eng.actx;
     const v = acquire(pianoPool, pianoCap, when);
-    const t = Math.max(when, actx.currentTime);
+    // r38h THE STEAL CLICKED, AND THE GRAND RUN IS WHERE IT SHOWED. acquire()
+    // schedules a click-free fade on the stolen voice — and this function
+    // then cancelled it and setValueAtTime(0) over a note still ringing at
+    // full amplitude: an instantaneous truncation (click), with the old
+    // buffer's 10 ms remainder then amplitude-modulated by the new attack
+    // ramp (the chirp). A flourish is ~18 notes over the pool with seconds
+    // of ring each, so its second half steals in quick succession — "a
+    // quick succession of chirps", inconsistent because it depends on how
+    // many background voices happen to be ringing. A stolen voice now WAITS
+    // OUT the fade: the new note starts FADE (10 ms) late — inaudible at the
+    // run's 52 ms note spacing — on a gain that is actually silent, with the
+    // old source already stopped.
+    const t = Math.max(when, actx.currentTime) + (v.stolen ? FADE : 0);
     const src = actx.createBufferSource();
     src.buffer = buffer; src.playbackRate.value = rate;
     src.connect(v.lpf);
     v.lpf.frequency.setValueAtTime(brightHz, t);
     v.send.gain.setValueAtTime(wet, t);
-    v.gain.gain.cancelScheduledValues(t);
+    if (!v.stolen) v.gain.gain.cancelScheduledValues(t);   // never cancel the steal fade
     v.gain.gain.setValueAtTime(0, t);
     v.gain.gain.linearRampToValueAtTime(gain * noteScale, t + 0.004);
     v.pan.pan.setValueAtTime(pan, t);
