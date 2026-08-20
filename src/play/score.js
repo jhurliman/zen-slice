@@ -30,6 +30,15 @@ import { loadPrefs, savePref } from '../core/prefs.js';
 // the music's beat.
 const COMBO_WINDOW_FALLBACK = 0.63;
 
+// r37b: A BEST HAS TO BE EARNED — no personal best below this. The player:
+// "you should have to hit 1000 points before we register as personal best /
+// high score." Under r36's streak scoring the first minutes of ANY session
+// drift past a few hundred points, so a sub-1000 "best" is warm-up noise
+// that would (a) whisper 'personal best' at every new install's third slice
+// and (b) submit junk to the Game Center board. 1000 is a real streak —
+// roughly a clean run deep into the second level.
+const BEST_FLOOR = 1000;
+
 export function createScore() {
   const api = { score: 0, combo: 0, best: 0, total: 0, level: 0, levelName: 'Still Water', bestScore: 0 };
   let ctx, lastSliceT = -1e9;
@@ -74,6 +83,9 @@ export function createScore() {
   api.init = (c) => {
     ctx = c;
     api.bestScore = Math.max(0, loadPrefs().bestScore | 0);
+    // r37b: a legacy sub-floor best (saved before the rule existed) is
+    // discarded rather than grandfathered — the floor is the meaning.
+    if (api.bestScore < BEST_FLOOR) api.bestScore = 0;
     c.bus.on('slice', (e) => {
       const now = e.stroke.t;
       if (now - lastSliceT < api.comboWindow()) api.combo++; else api.combo = 1;
@@ -100,7 +112,7 @@ export function createScore() {
       const gain = frozen ? 0 : Math.round(base * mult);
       api.score += gain;
 
-      if (api.score > api.bestScore) {
+      if (api.score >= BEST_FLOOR && api.score > api.bestScore) {
         if (api.bestScore > 0 && !announcedBest) {
           announcedBest = true;
           c.bus.emit('newbest', { score: api.score });
