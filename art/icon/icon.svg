@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Chord Cut app icon: half melon, cut face up; sound ripples off the cut
+       ("the cut is the note"). Palette from src/fruit/species.js: rind
+       #6a7e38/#465526, flesh #d55e56 family, juice-gold #ffc61a, on the dark
+       warm stage. Master is 1024x1024, opaque, square corners (iOS masks it).
+       Regenerate the iOS asset: node tools/icon.mjs -->
+  <defs>
+    <radialGradient id="bg2" cx="50%" cy="40%" r="85%">
+      <stop offset="0%" stop-color="#2b2320"/>
+      <stop offset="60%" stop-color="#171211"/>
+      <stop offset="100%" stop-color="#0b0908"/>
+    </radialGradient>
+    <linearGradient id="flesh2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ea7a70"/>
+      <stop offset="100%" stop-color="#c9534c"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg2)"/>
+  <g transform="translate(512 548) rotate(-6) scale(1.06)">
+    <!-- ripples radiate upward from the cut face -->
+    <g fill="none" stroke="#ffc61a" stroke-linecap="round">
+      <path d="M -238 -140 A 280 280 0 0 1 238 -140" stroke-width="13" opacity="0.9"/>
+      <path d="M -292 -212 A 360 360 0 0 1 292 -212" stroke-width="10" opacity="0.5"/>
+      <path d="M -338 -290 A 445 445 0 0 1 338 -290" stroke-width="8" opacity="0.26"/>
+    </g>
+    <!-- half melon: stacked domes, rind -> pith -> flesh -->
+    <path d="M -330 -20 A 330 330 0 0 0 330 -20 Z" fill="#465526"/>
+    <path d="M -312 -20 A 312 312 0 0 0 312 -20 Z" fill="#6a7e38"/>
+    <path d="M -284 -20 A 284 284 0 0 0 284 -20 Z" fill="#c9d8a0"/>
+    <path d="M -258 -20 A 258 258 0 0 0 258 -20 Z" fill="url(#flesh2)"/>
+    <!-- gleam along the cut face -->
+    <rect x="-258" y="-26" width="516" height="12" rx="6" fill="#fff3c0" opacity="0.95"/>
+    <!-- seeds -->
+    <g fill="#241a16">
+      <ellipse cx="-140" cy="92" rx="16" ry="24" transform="rotate(18 -140 92)"/>
+      <ellipse cx="0" cy="150" rx="16" ry="24"/>
+      <ellipse cx="140" cy="92" rx="16" ry="24" transform="rotate(-18 140 92)"/>
+      <ellipse cx="-66" cy="52" rx="13" ry="20" transform="rotate(-8 -66 52)"/>
+      <ellipse cx="70" cy="52" rx="13" ry="20" transform="rotate(8 70 52)"/>
+    </g>
+  </g>
+</svg>
