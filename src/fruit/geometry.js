@@ -1965,7 +1965,12 @@ export const SHAPE_VARIANTS = {
         // table. The wells stay — an apple IS dished, that is its profile — and
         // are softened 8% so the shoulder crest carries the eye instead of a rim.
         lobeN: 0, lobeAmp: 0, lobeTwist: 0, lobeBias: 0,
-        asym: 0.024, lumps: 0.008,
+        // r23: the player's read of the r20 build — "too short and kind of
+        // looks low poly". Both are silhouette calls: ry 0.880 was the
+        // squattest ratio a green apple wears, and the asym/lump wobble at
+        // this size reads as faceting, not organic irregularity. Taller
+        // (0.945) and calmer (asym 0.017, lumps 0.006).
+        ry: 0.945, asym: 0.017, lumps: 0.006,
         // AND THE BLOSSOM END STOPS BEING A CRATER. wellBot 0.46 with taper
         // 0.28 gives the apple a flat dished base with a hard rim, which is why
         // it reads as a bell pepper in the A/B/C sheets rather than as an apple.
@@ -1978,12 +1983,15 @@ export const SHAPE_VARIANTS = {
         stem: { r: 0.115, len: 1.05, taper: 0.45, tip: 0.85 },
         // the calyx survives ONLY as a low brown rosette, because species.js's
         // `wood` uv band needs geometry under it and because a real blossom end
-        // does have five dried points — at 0.085 of the radius, which is what
-        // they are on a real apple, instead of 0.225.
+        // does have five dried points. r23: at a=2.58 (32° off the bottom
+        // pole) even len 0.085 nubs sat on the BASE CURVE, outside the dimple
+        // — the player saw "brown horns or bumps on the bottom". Pulled to
+        // a=2.88 (14° off the pole) and halved, they now live INSIDE the
+        // wellBot dimple where a real dried calyx lives, off the silhouette.
         crown: {
           cols: 45, woody: true,
           whorls: [
-            { n: 5, a: 2.58, len: 0.085, wArc: 0.210, wp: 0.205, pPol: 1.70, pAz: 1.80, round: true, phase: 0.20, jit: 0.06, jitA: 0.014 },
+            { n: 5, a: 2.88, len: 0.045, wArc: 0.190, wp: 0.170, pPol: 1.70, pAz: 1.80, round: true, phase: 0.20, jit: 0.05, jitA: 0.010 },
           ],
         },
       },
@@ -2000,15 +2008,22 @@ export const SHAPE_VARIANTS = {
         // so they shade as leaves. This is the fruit that most needs its crown.
         // r20: the player's verdict on that version — "growing out of the top
         // sides… little horns or bumps, not leaves". The horn was structural:
-        // a radial bump peaking mid-shoulder. The new `lean` field (see
-        // bladeHeight) lets the sepal peak AT its attachment near the stem
-        // (a 0.78→0.55) and tail off 2.2× down the shoulder — a leaf lying
-        // back — while len drops (0.60→0.36, flat not proud), the azimuth
-        // widens (wArc 0.125→0.165) and softens (pAz 1.10→1.55).
+        // a radial bump peaking mid-shoulder, so r20 leaned it back and cut
+        // len to 0.36. r23: the player's verdict on THAT — "still total
+        // trash" — and the portrait shows why: short + wide-azimuth + fat
+        // meridian (wArc 0.165 × wp 0.240 at len 0.36) renders six dark
+        // SLUGS draped on the shoulder, roughly as wide as they are long.
+        // A calyx leaf is long, thin in azimuth, broad along the meridian
+        // (round 7's 2.8:1 law) with its TIP standing clear of the body.
+        // Two ranks now: an outer star of six long pointed sepals whose tips
+        // project past the shoulder (the plate-01 silhouette), and a short
+        // inner rank filling the root so the star grows from the stem
+        // instead of floating. Both keep a gentle lean so they lie back.
         crown: {
           cols: 96,
           whorls: [
-            { n: 6, a: 0.55, len: 0.36, wArc: 0.165, round: true, skew: 0.22, wp: 0.240, lean: 2.2, pPol: 1.60, pAz: 1.55, phase: 0.00, jit: 0.07, jitA: 0.030 },
+            { n: 6, a: 0.72, len: 0.66, wArc: 0.150, round: true, skew: 0.30, wp: 0.220, lean: 2.0, pPol: 2.30, pAz: 1.20, phase: 0.00, jit: 0.10, jitA: 0.028 },
+            { n: 6, a: 0.46, len: 0.34, wArc: 0.130, round: true, skew: 0.22, wp: 0.180, lean: 1.4, pPol: 2.00, pAz: 1.25, phase: 0.50, jit: 0.08, jitA: 0.018 },
           ],
         },
       },

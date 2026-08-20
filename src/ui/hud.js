@@ -29,7 +29,7 @@ export function createHud() {
   let settingsEl = null, panelEl = null, gearEl = null;
   let idleT = 0, panelOpen = false, captureMode = false, reducedMotion = false;
   let swipeCount = 0;
-  const IDLE_SHOW_S = 6;
+  const IDLE_SHOW_S = 3;
 
   /**
    * Place a callout over a world point and keep it on screen. ONE function
@@ -130,9 +130,11 @@ export function createHud() {
       // `data-t` is what draws the dark outline: a ::before pseudo-element
       // stroked and painted BEHIND the gradient fill, because -webkit-text-stroke
       // and background-clip:text cannot both live on one element.
+      // DYAD/TRIAD carry their count in the word; CHORD and FLOURISH show it
+      // ("when I get a chord it just says CHORD, I don't know if I got 4 or 5")
       const l1 = e.size === 2 ? 'DYAD'
         : e.size === 3 ? 'TRIAD'
-          : e.size === 4 ? 'CHORD'
+          : e.size === 4 ? 'CHORD · 4'
             : `FLOURISH · ${e.size}`;
       const l2 = `+${Math.max(1, Math.round(e.gain ?? e.size))}`;
       el.innerHTML =

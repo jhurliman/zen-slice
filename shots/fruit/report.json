@@ -3,21 +3,21 @@
   "zoom": false,
   "shots": [
     {
-      "name": "rock-side",
-      "luma": 4.255,
-      "ms": 1882,
+      "name": "pineapple-side",
+      "luma": 11.589,
+      "ms": 3681,
       "ok": true
     },
     {
-      "name": "rock-top",
-      "luma": 4.15,
-      "ms": 887,
+      "name": "pineapple-top",
+      "luma": 8.845,
+      "ms": 1113,
       "ok": true
     },
     {
-      "name": "rock-threequarter",
-      "luma": 4.262,
-      "ms": 836,
+      "name": "pineapple-threequarter",
+      "luma": 8.095,
+      "ms": 1124,
       "ok": true
     }
   ],

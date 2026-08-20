@@ -7,23 +7,26 @@
  * This file is the only one on the bus.
  *
  * ── The architecture in one paragraph ───────────────────────────────────────
- * Foreground sounds are IMMEDIATE: the noise "shhk" and the mass thump fire
- * per fruit at the instant of the cut, and the piano is held only long enough
- * to gather one stroke into one chord (below). Cohesion comes from harmony,
- * not quantization — every pitched voice draws from the shared harmonic
- * field, so the player can never play a wrong note. Background layers (pad,
- * bass pulse, arp sparkle) ARE grid-quantized, but the grid's tempo is
- * inferred from the player's own slicing cadence: the music follows the
- * player, never the reverse, and no note is ever delayed to fit a beat.
+ * The cut IS the note (r23): the first fruit of a stroke plays its piano
+ * note at the instant of contact — zero hold — with a breath of air (the
+ * swish) and a soft wet weight under it. The player is painting on the
+ * audio canvas, not triggering pads. Cohesion comes from harmony, not
+ * quantization — every pitched voice draws from the shared harmonic field,
+ * so the player can never play a wrong note. Background layers (pad, bass
+ * pulse, arp sparkle) ARE grid-quantized, but the grid's tempo is inferred
+ * from the player's own slicing cadence: the music follows the player,
+ * never the reverse, and no note is ever delayed to fit a beat.
  *
- * ── The chord gather (multi-fruit combos) ───────────────────────────────────
+ * ── The chord gather (multi-fruit strokes) ──────────────────────────────────
  * One swipe through three fruit is three 'slice' events — same tick if the
  * segment crosses them together, tens of ms apart when the blade travels
- * between them. Either way it is ONE musical gesture: piano notes are pooled
- * for CHORD_GATHER seconds from the first cut of a stroke, then voiced as a
- * single rolled chord — strummed in fruit x-order, roll direction from the
- * swipe, each note panned to its fruit. The shhk under it is instant, so the
- * gather reads as "cut… then the fruit sings", not as latency.
+ * between them. It is ONE musical gesture, and its first note must not
+ * wait: the first cut sounds immediately, and the gather window collects
+ * only the REST of the stroke, voiced AROUND that already-sounding pitch
+ * (harmony.voiceAround) and rolled in behind it — strummed in fruit
+ * x-order, roll direction from the swipe, each note panned to its fruit.
+ * So a stroke reads as "the fruit sings, then blooms into a chord" — the
+ * old 80 ms hold before ANY pitch was the last audible latency.
  *
  * iOS: the context is created suspended and resumed on the first gesture;
  * visibilitychange suspends/resumes so an interruption never leaves a stuck
@@ -36,11 +39,11 @@ import { createEngine } from './engine.js';
 import { createHarmony } from './harmony.js';
 import { createConductor } from './conductor.js';
 import {
-  renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank, makeSnickBuffer, SWISH_FOR_LEVEL,
+  renderPianoKit, pianoSample, makeThumpBuffer, makeSwishBank, SWISH_FOR_LEVEL,
   playPluck, playRiser, playSigh, playBloom,
 } from './instruments.js';
 
-const CHORD_GATHER = 0.08;  // s from first cut of a stroke to the chord (blade travel time)
+const CHORD_GATHER = 0.08;  // s to gather a stroke's LATER cuts (first note is immediate)
 const STRUM = 0.028;        // s between rolled chord notes
 const MAX_ERRORS = 20;
 
@@ -51,7 +54,7 @@ export function createAudio() {
   const conductor = createConductor(engine, harmony);
 
   let ctxRef = null, started = false;
-  let pianoKit = null, thumpBuf = null, swishBank = null, snickBuf = null;
+  let pianoKit = null, thumpBuf = null, swishBank = null;
   let pending = [];            // gathered notes of the current stroke
   let pendingAt = -1;          // engine time of the stroke's first cut
   let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9;
@@ -110,7 +113,6 @@ export function createAudio() {
     engine.setMaster(masterLevel(), 0.25);   // audible within ~0.5 s, not ~2.5
     thumpBuf = makeThumpBuffer(engine.actx);
     swishBank = makeSwishBank(engine.actx);
-    snickBuf = makeSnickBuffer(engine.actx);
     conductor.start(playNote);
     conductor.setCaps(caps);
     engine.setPianoCap(caps.voices);
@@ -175,79 +177,96 @@ export function createAudio() {
     // The swish is per STROKE, not per fruit (r18): pending.length === 1
     // below means this is the stroke's first cut, and a hard 120 ms floor
     // stops even separate rapid strokes from clattering. The recipe follows
-    // the level — a breath at dawn, rain grains in the orchard, dry leaves
-    // at dusk — so the cut is part of the scenery, not an effect on top.
+    // the level — a dark breath at dawn, brighter air at first light, dew
+    // mist, dusk air — so the cut is part of the scenery, never percussion.
     if (pending.length === 0 && t - lastSwish > 0.12) {
       lastSwish = t;
       swishCount++;
-      const recipe = swishBank[SWISH_FOR_LEVEL[harmony.level()]] || swishBank.wind;
+      const recipe = swishBank[SWISH_FOR_LEVEL[harmony.level()]] || swishBank.air;
       engine.playSwish(recipe[(Math.random() * recipe.length) | 0],
         0.92 + v * 0.22 + Math.random() * 0.08,
-        t, 0.14 + v * 0.12, 1100 + v * 2400, pan);
+        t, 0.12 + v * 0.10, 1100 + v * 2400, pan);
     }
-    // the CONTACT — the SNICK (r22): per fruit, unconditional, at the exact
-    // cut instant, loud enough to BE the slice sound. The swish is air behind
-    // it, the piano waits out the chord gather; this owns the first frame.
-    // Heavy fruit snick lower via playbackRate.
-    engine.playThump(snickBuf, Math.min(1.22, Math.max(0.8, 1.25 - mass * 0.12)),
-      t, 0.16 + v * 0.14);
-    // the wet weight under it
+    // the wet weight under the cut — felt more than heard. r23 tamed it hard:
+    // at 0.10 × mass·0.5 the player heard "a big bongo or kick underneath"
+    // late-level cuts. The piano's own hammer transient is the hit now.
     engine.playThump(thumpBuf, Math.min(2.2, Math.max(0.8, 0.8 + 0.5 / mass)),
-      t, 0.10 * Math.min(1.4, mass * 0.5));
+      t, 0.06 * Math.min(1.0, mass * 0.4));
 
     conductor.onSlice();
 
-    // ── gathered: the note. combo is already incremented (audio runs last),
-    //    so combo-1 is this cut's climb up the chord. ──
+    // ── the note — IMMEDIATE on the stroke's first cut (r23) ──
+    // "As soon as my blade comes into contact with fruit … in that first
+    // frame is when I want to hear the immediate feedback slice sound."
+    // The first note sounds AT CONTACT and its pitch is fixed; the gather
+    // window collects only the stroke's later cuts, voiced around it at
+    // flush. combo is already incremented (audio runs last), so combo-1 is
+    // this cut's climb up the chord.
     const combo = ctxRef.score?.combo ?? 1;
-    pending.push({
+    const entry = {
       id: e.fruit.species.id, pitch: e.fruit.species.pitch,
       x: e.fruit.pos.x, y: e.fruit.pos.y,
       v, dirY: e.stroke.dir.y, climb: Math.max(0, combo - 1), combo,
-    });
-    if (pending.length === 1) pendingAt = t;
+      semis: 0,
+    };
+    if (pending.length === 0) {
+      pendingAt = t;
+      try { entry.semis = harmony.noteFor(entry.id, entry.climb); }
+      catch (err) { fail(err); entry.semis = harmony.fallbackPitch(entry.pitch, entry.combo); }
+      playNote(entry.semis, v, pan, t, brightOf(v), wetOf(entry.y));
+    }
+    pending.push(entry);
 
     // silence broken: the first note back blooms
     if (wasIdle) playBloom(engine, harmony.noteFor('orange', 0), t);
   }
 
-  /** Voice and play everything the stroke gathered. */
+  /** Voice and play what the stroke gathered AFTER its first note. r23: the
+   *  first cut already sounded at contact and its pitch is history — flush
+   *  owes only the REST of the chord, voiced around that pitch
+   *  (harmony.voiceAround never moves it), plus the shared dressing: the
+   *  conductor's echo answer, the low reinforcement, the 5+ gliss. */
   function flush() {
     const n = pending.length;
     const t = engine.now();
+    const first = pending[0];
 
     let semis;
-    try {
-      semis = n === 1
-        ? [harmony.noteFor(pending[0].id, pending[0].climb)]
-        : harmony.voiceChord(pending);
-    } catch (err) {
-      fail(err);
-      semis = pending.map((p) => harmony.fallbackPitch(p.pitch, p.combo));
+    if (n === 1) {
+      semis = [first.semis];
+    } else {
+      try {
+        semis = [first.semis].concat(harmony.voiceAround(first.semis, pending.slice(1)));
+      } catch (err) {
+        fail(err);
+        semis = pending.map((p, i) =>
+          (i === 0 ? first.semis : harmony.fallbackPitch(p.pitch, p.combo)));
+      }
     }
 
-    if (n === 1) {
-      const p = pending[0];
-      playNote(semis[0], p.v, panOf(p.x), t, brightOf(p.v), wetOf(p.y));
-      conductor.echo(semis[0], p.v, panOf(p.x));
-    } else {
-      // strum in fruit x-order; an up-swipe rolls ascending, down descending
-      const order = pending.map((_, i) => i);
-      const d = pending[0].dirY;
-      if (Math.abs(d) > 0.5) order.sort((a, b) => (semis[a] - semis[b]) * Math.sign(d));
+    // the top three voices (by PITCH, not strum position — a descending
+    // roll's last notes are its lowest) come back as the answer; a full
+    // five-note echo would be a blob, not a phrase. The first note competes
+    // for its echo slot like any other voice.
+    const byPitch = pending.map((_, i) => i).sort((a, b) => semis[b] - semis[a]);
+    const echoes = new Set(byPitch.slice(0, 3));
+    if (echoes.has(0)) conductor.echo(semis[0], first.v, panOf(first.x));
+
+    if (n > 1) {
+      // strum the LATER cuts in fruit x-order (an up-swipe rolls ascending,
+      // down descending); the already-played first note anchors the roll
+      const order = [];
+      for (let i = 1; i < n; i++) order.push(i);
+      const dir = first.dirY;
+      if (Math.abs(dir) > 0.5) order.sort((a, b) => (semis[a] - semis[b]) * Math.sign(dir));
       else order.sort((a, b) => pending[a].x - pending[b].x);
-      // the top three of a chord (by PITCH, not strum position — a descending
-      // roll's last notes are its lowest) come back as the answer; a full
-      // five-note echo would be a blob, not a phrase
-      const byPitch = pending.map((_, i) => i).sort((a, b) => semis[b] - semis[a]);
-      const echoes = new Set(byPitch.slice(0, 3));
       // r18: chords land FULLER than single notes — a combo is the game's
       // reward moment and the player asked for "a touch more oomph"
       const boost = Math.min(1.35, 1.1 + 0.07 * n);
       for (let k = 0; k < order.length; k++) {
         const i = order[k];
         const p = pending[i];
-        const taper = 1 - k * 0.04;
+        const taper = 1 - (k + 1) * 0.04;   // the first note was roll position 0
         const bv = Math.min(1, p.v * boost) * taper;
         playNote(semis[i], bv, panOf(p.x), t + k * STRUM, brightOf(bv), wetOf(p.y));
         if (echoes.has(i)) conductor.echo(semis[i], p.v * taper, panOf(p.x));
@@ -259,7 +278,7 @@ export function createAudio() {
       // which is an off-chord semitone at the exact reward moment.
       if (n >= 3) {
         const sub = semis[byPitch[byPitch.length - 1]] - 12;
-        if (sub >= -25) playNote(sub, Math.min(1, pending[0].v * boost) * 0.5, 0, t, 900, 0.45);
+        if (sub >= -25) playNote(sub, Math.min(1, first.v * boost) * 0.5, 0, t, 900, 0.45);
       }
       // five and up earns the harp flourish
       if (n >= 5) {
@@ -289,21 +308,23 @@ export function createAudio() {
   }
 
   /**
-   * The rock (r20): the one deliberately unmusical sound in the game. A dead,
-   * heavy thud (the thump buffer pitched way down) and a low dissonant
-   * cluster — the current chord root smeared against its minor 2nd and
-   * tritone, dark and quick. No swish, no tick, no echo, no heat: the world
-   * does not celebrate a mistake, it just… clunks.
+   * The rock (r23): a piano MISTAKE, not a sound effect. "Like we were about
+   * to play the next note or chord but our finger hit the wrong key" — so it
+   * IS the game's piano, at normal brightness, playing the fat-finger flam
+   * every pianist knows: the wrong key (a minor 2nd above the note the fruit
+   * would have sung) lands first and hardest, the intended note stumbles in
+   * ~15 ms behind, softer. The dissonance penalizes by making the music less
+   * beautiful for a moment; nothing else is added — no cluster, no dead
+   * thud, just the faintest knuckle of contact under it.
    */
   function onRockHit(e) {
     if (!engine.ready || !api.enabled) return;
     const t = engine.now();
-    engine.playThump(thumpBuf, 0.55, t, 0.24);
-    let root;
-    try { root = harmony.noteFor('watermelon', 0) + 12; } catch (_) { root = -12; }
-    playNote(root, 0.5, 0, t, 900, 0.3);
-    playNote(root + 1, 0.42, -0.15, t + 0.015, 800, 0.3);
-    playNote(root + 6, 0.36, 0.15, t + 0.03, 800, 0.3);
+    let n;
+    try { n = harmony.noteFor('apple', 0); } catch (_) { n = 3; }
+    playNote(n + 1, 0.55, 0, t, brightOf(0.55), 0.3);
+    playNote(n, 0.35, 0.12, t + 0.015, brightOf(0.35), 0.3);
+    engine.playThump(thumpBuf, 0.7, t, 0.08);
   }
 
   function onSpawn(e) {

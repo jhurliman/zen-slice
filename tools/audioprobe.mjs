@@ -78,6 +78,33 @@ ok(SWISH_FOR_LEVEL.length === N_LEVELS, `SWISH_FOR_LEVEL has ${SWISH_FOR_LEVEL.l
           ok(gap >= (low ? 7 : 3), `L${level} ${chord.name}: voiced gap ${gap} (${low ? 'low' : 'mid'}) in [${v}]`);
         }
       }
+      // r23 voiceAround: the immediate first note is IMMOVABLE — the rest of
+      // the stroke voices around it. Laws: every returned voice keeps its
+      // noteFor pitch class (octave lifts only), and the full set INCLUDING
+      // the fixed note respects the same interval gaps as voiceChord.
+      for (const combo of [
+        SPECIES.map((id, i) => ({ id, climb: i })),
+        [{ id: 'watermelon', climb: 0 }, { id: 'orange', climb: 0 }, { id: 'orange', climb: 0 }],
+        [{ id: 'strawberry', climb: 0 }, { id: 'kiwi', climb: 1 }],
+      ]) {
+        const fixed = h.noteFor(combo[0].id, combo[0].climb);
+        const rest = combo.slice(1);
+        const out = h.voiceAround(fixed, rest);
+        ok(out.length === rest.length,
+          `L${level} ${chord.name}: voiceAround returned ${out.length} of ${rest.length}`);
+        for (let i = 0; i < out.length; i++) {
+          const base = h.noteFor(rest[i].id, rest[i].climb);
+          ok((((out[i] - base) % 12) + 12) % 12 === 0,
+            `L${level} ${chord.name}: voiceAround moved ${rest[i].id} off its pitch class (${base} → ${out[i]})`);
+        }
+        const all = [fixed, ...out].sort((a, b) => a - b);
+        for (let i = 1; i < all.length; i++) {
+          const gap = all[i] - all[i - 1];
+          const low = all[i] < E2 || all[i - 1] < E2;
+          ok(gap >= (low ? 7 : 3),
+            `L${level} ${chord.name}: voiceAround gap ${gap} (${low ? 'low' : 'mid'}) in [${all}] around fixed ${fixed}`);
+        }
+      }
       // the flourish/arp pool and pad voicing stay inside the kit's span
       for (const n of h.glissNotes()) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: gliss note ${n} out of range`);
       for (const n of h.padNotes(5)) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: pad note ${n} out of range`);
@@ -197,6 +224,7 @@ const chordProbe = await page.evaluate(async () => {
     slices,
     pendingAtSwipe: atSwipe.pending,
     swishesFired: atSwipe.swishes - swishesBefore,
+    voicesAtContact: atSwipe.voicesActive,
     pendingAfter: flushed ? 0 : ZS.audio.state().pending,
     voices: flushVoices,
     chord: ZS.audio.state().chord,
@@ -209,6 +237,10 @@ ok(chordProbe.pendingAtSwipe === chordProbe.slices,
   `slices=${chordProbe.slices} but pending=${chordProbe.pendingAtSwipe} — not gathered as one chord`);
 ok(chordProbe.swishesFired === 1,
   `one stroke through ${chordProbe.slices} fruit fired ${chordProbe.swishesFired} swishes — must be exactly 1 (r18)`);
+// r23: the first note sounds AT CONTACT — before the gather flushes, with
+// pending still open, at least one voice must already be live
+ok(chordProbe.voicesAtContact >= 1,
+  `no voice live at contact (voicesActive=${chordProbe.voicesAtContact}) — the first note must be immediate`);
 ok(chordProbe.pendingAfter === 0, `gather never flushed (pending=${chordProbe.pendingAfter})`);
 ok(chordProbe.voices >= chordProbe.slices, `chord flushed but only ${chordProbe.voices} voices active`);
 
