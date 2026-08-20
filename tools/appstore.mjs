@@ -22,8 +22,10 @@ const rawDir = join(root, 'art/appstore/raw');
 const outDir = join(root, 'art/appstore/out');
 mkdirSync(outDir, { recursive: true });
 
-// 6.9" iPhone portrait. If an iPad set is ever needed: 2064x2752, same layout.
-const W = 1320, H = 2868;
+// 6.5"/6.7" iPhone portrait — what this app record's screenshot slot accepts
+// (1242x2688 or 1284x2778; ASC rejected the newer 6.9" 1320x2868 here).
+// If an iPad set is ever needed: 2064x2752, same layout.
+const W = 1284, H = 2778;
 // caption band above, framed capture below
 const IMG_W = 1128, IMG_X = (W - IMG_W) / 2, IMG_Y = 460, IMG_BOTTOM = 96;
 const IMG_H_MAX = H - IMG_Y - IMG_BOTTOM;
