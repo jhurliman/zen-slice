@@ -208,21 +208,27 @@ export function createHud() {
     } catch (_) { /* */ }
     try { reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { /* */ }
     window.addEventListener('pointerdown', (ev) => {
+      // ══ r36: the title screen lets go on the first touch — checked BEFORE
+      // the settings early-return so "tap anywhere" means anywhere (codex:
+      // a tap landing on the idle gear used to open settings under the veil).
+      // The same tap is audio.js's unlock gesture, so the music begins as the
+      // name fades. The swipe hint was held silent underneath; it takes over.
+      // The level name announces itself only now — play is what starts the day.
+      if (titleEl) {
+        const t = titleEl; titleEl = null;
+        t.classList.add('out');
+        root.classList.remove('zs-title-up');
+        ctx.titleHold = false;
+        setTimeout(() => t.remove(), 1000);
+        if (hintEl) hintEl.classList.remove('hold');
+        ctx.bus.emit('level', { level: 0, name: 'Still Water' });
+        return;
+      }
       if (settingsEl && ev.target && settingsEl.contains(ev.target)) return;
       idleT = 0;
       if (panelOpen) togglePanel(false);
       else if (gearEl) gearEl.classList.remove('show');
       if (++swipeCount >= 3 && hintEl) hintEl.classList.add('gone');
-      // ══ r36: the title screen lets go on the first touch ═══════════════════
-      // The same tap is audio.js's unlock gesture, so the music begins as the
-      // name fades. The swipe hint was held silent underneath; it takes over.
-      if (titleEl) {
-        const t = titleEl; titleEl = null;
-        t.classList.add('out');
-        root.classList.remove('zs-title-up');
-        setTimeout(() => t.remove(), 1000);
-        if (hintEl) hintEl.classList.remove('hold');
-      }
     }, { passive: true });
 
     // ══ r36: THE TITLE SCREEN ════════════════════════════════════════════════
@@ -249,6 +255,7 @@ export function createHud() {
         + `<div class="zs-title-go">tap anywhere to begin</div>`;
       root.appendChild(titleEl);
       root.classList.add('zs-title-up');
+      c.titleHold = true;
       if (hintEl) hintEl.classList.add('hold');
     }
 
@@ -335,8 +342,9 @@ export function createHud() {
       debugEl.querySelector('#zs-dbg-next').addEventListener('pointerdown', () => jump(1));
     }
 
-    // first level name
-    setTimeout(() => c.bus.emit('level', { level: 0, name: 'Still Water' }), 700);
+    // first level name — deferred to title dismissal when the title is up
+    // (codex: the 700 ms timer used to fade "STILL WATER" through the veil)
+    setTimeout(() => { if (!titleEl) c.bus.emit('level', { level: 0, name: 'Still Water' }); }, 700);
   };
 
   function togglePanel(open) {
@@ -392,7 +400,7 @@ export function createHud() {
     // r21: the settings glyph earns its existence by absence — visible only
     // after the fingertip has been still for IDLE_SHOW_S
     if (gearEl) {
-      idleT += dt;
+      if (!titleEl) idleT += dt;
       const show = idleT >= IDLE_SHOW_S;
       if (show !== gearEl.classList.contains('show')) gearEl.classList.toggle('show', show);
       if (!show && panelOpen) togglePanel(false);
