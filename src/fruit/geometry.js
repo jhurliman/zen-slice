@@ -1417,7 +1417,7 @@ const SHAPE = {
     // apple the blossom-end serration plate-01 shows under its stalk, for +112
     // triangles: `limb pose=ship` hull_concave_frac_pct 41.80 -> 50.78,
     // protr_height_pct 8.15 -> 13.10, apple identity_recall unchanged at 1.000.
-    stem: { r: 0.145, len: 0.61, taper: 0.38, tip: 0.85 },   // r37: 0.92 -> 0.61, owner: "unrealistically tall" — still a 4.2:1 stalk, still the outline event
+    stem: { r: 0.145, len: 0.92, taper: 0.38, tip: 0.85 },
     crown: {
       cols: 45, woody: true,
       whorls: [
@@ -1835,13 +1835,10 @@ export const SHAPE_VARIANTS = {
       },
       apple: {
         lobeN: 5, lobeAmp: 0.075, lobePhase: 0.7, lobeYc: -0.10, lobeYw: 1.30, lobeTwist: 0, lobeBias: 0,
-        // a thinner, more graceful stalk — a real apple stalk is a wire, and
-        // this one is the species' best feature (r9 measured it as the largest
-        // single outline event in the table bar the pineapple crown). r37: len
-        // 1.02 -> 0.68, owner: "unrealistically tall" — ⚠ this OVERLAY masked
-        // the same trim in base SHAPE; the shipped variant is D, so this is
-        // the number that renders.
-        stem: { r: 0.122, len: 0.68, taper: 0.42, tip: 0.85 },
+        // a thinner, longer, more graceful stalk — a real apple stalk is a wire,
+        // and this one is the species' best feature (r9 measured it as the
+        // largest single outline event in the table bar the pineapple crown).
+        stem: { r: 0.122, len: 1.02, taper: 0.42, tip: 0.85 },   // r37f: owner round 2 — 80% of the 0.68 trim
         // the calyx as a dried rosette: half the length, 1.6x the footprint.
         crown: {
           cols: 45, woody: true,
@@ -1976,7 +1973,7 @@ export const SHAPE_VARIANTS = {
         // profile where it reads.
         taper: 0.210, taperK: 2.2,
         wellTop: 0.520, wellTopW: 0.42, wellBot: 0.300, wellBotW: 0.40,
-        stem: { r: 0.115, len: 1.05, taper: 0.45, tip: 0.85 },
+        stem: { r: 0.115, len: 0.56, taper: 0.45, tip: 0.85 },   // r37f: 1.05 -> 0.56, owner in two rounds ("unrealistically tall", then 80% of that) — D is the SHIPPED variant; edits to base SHAPE or C's apple do not render
         // the calyx survives ONLY as a low brown rosette, because species.js's
         // `wood` uv band needs geometry under it and because a real blossom end
         // does have five dried points. r23: at a=2.58 (32° off the bottom
