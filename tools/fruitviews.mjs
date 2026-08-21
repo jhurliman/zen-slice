@@ -324,11 +324,14 @@ if (!only && !failures) {
       .png().toFile(join(outDir, out));
     log(`composed ${out}`);
   };
-  await bounded('strips', 60000, async () => {
+  // codex r37: a compose failure/timeout must fail the RUN — a green exit
+  // with a stale or half-written README strip is mislabelled evidence.
+  const stripsOk = await bounded('strips', 60000, async () => {
     await composeStrip(ALL_SPECIES.map((s) => `${s}-threequarter`), 'strip-threequarter.png');
     await composeStrip(CUTTABLE.map((s) => `${s}-half`), 'strip-half.png');
     return true;
   });
+  if (!stripsOk) failures++;
 }
 
 state.complete = true;
