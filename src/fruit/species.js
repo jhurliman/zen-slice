@@ -3913,16 +3913,17 @@ def({
     };
     // r37 — THE CROWN CUT. A lengthwise slice runs through the crown, and the
     // cutter caps every blade's cross-section with this material, which used
-    // to paint it as yellow flesh ("the leaves have a yellow fleshy interior").
-    // A leaf is green inside and out, and dry. The gate is LOCAL height:
-    // measured on the detail-11 mesh, blade roots emerge at y 1.048 and the
-    // body dome tops out at 1.320, so the blend [0.98, 1.14] takes the blade
-    // interiors and the crown plug while costing only the top sliver of
-    // flesh — which on a real pineapple is exactly where the crown's base
-    // sits. `dry` feeds the factory's r37 hook: no foam, no juice pool, no
-    // wet gloss on a leaf (matte 0.82), and the sss transmission is gated
-    // below for the same reason.
-    const crownCut = () => ss(0.98, 1.14, positionGeometry.y);
+    // to paint it as yellow flesh ("the leaves have a yellow fleshy
+    // interior"). A leaf is green inside and out, and dry. The gate is the
+    // CUTTER'S OWN FLAG: a cap loop born from the skin's appendage uv band
+    // (uv.y > 1) gets its unused cap uv.x pushed up by 16 (species derive
+    // the cap angle from position, never from u), so a leaf cross-section is
+    // marked per LOOP — a frame that survives the half's post-cut recentring
+    // (a positionGeometry.y gate does not: measured, the half's geometry is
+    // re-origined per cut) and every re-cut. `dry` feeds the factory's r37
+    // hook: no foam, no juice pool, no wet gloss on a leaf (matte 0.82), and
+    // the sss transmission is gated below for the same reason.
+    const crownCut = () => step(8.0, uv().x);
     return fleshMaterial(this, {
       dry: () => crownCut(),
       albedo: (cc, u) => {

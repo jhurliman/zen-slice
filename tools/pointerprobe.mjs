@@ -49,6 +49,13 @@ page.on('pageerror', (e) => errs.push(String(e).slice(0, 200)));
 // precedent). NO ?capture: capture mode must not be a precondition of input.
 await page.goto(`http://localhost:${PORT}/?nosound=1&nophys=1`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.ZS, null, { timeout: 55000 });
+// r37: wait for the pipeline prewarm to settle before dragging. This probe
+// asserts that REAL pointer input reaches the blade in the steady state —
+// under SwiftShader a boot-time compile chunk costs ~100x its device price,
+// so racing the drag against boot compiles only measures the rasterizer.
+// ctx.prewarmed is false while the prewarm runs, true when done, undefined
+// when it never runs (?capture) — wait only while it is exactly false.
+await page.waitForFunction(() => window.ZS.ctx.prewarmed !== false, null, { timeout: 60000 }).catch(() => {});
 
 // stage: count bus traffic and hang a fat fruit at center — audioprobe's
 // exact staging (slow upward toss, brief settle), because a PARKED fruit
@@ -91,11 +98,49 @@ const aim = await page.evaluate(() => {
 // SwiftShader, and blade.js computes speedNdc from wall time: 24 steps made
 // an honest-to-goodness SLOW drag (measured 0.37 ndc/s, under slicer.js's
 // 0.55 gate — every geometry guard passed). Six fat segments read ~1.5+.
-await page.mouse.move(Math.max(10, aim.px - 140), aim.py);
-await page.mouse.down();
-await page.mouse.move(Math.min(420, aim.px + 140), aim.py, { steps: 6 });
-await page.mouse.up();
-await page.waitForTimeout(400);
+// r37: sweep back and forth ACROSS the fruit rather than one left-to-right
+// pass. The blade flushes a stroke segment per rendered frame, and under
+// SwiftShader (~1 s/frame) a single 90 ms drag quantises into one sliver
+// segment that can end short of the fruit (measured: the fruit sat at
+// t = 3.0 along the flushed segment — outside the 0.75 margin). Three
+// crossings with real pauses guarantee every flush window's segment spans
+// the fruit, whatever the frame cadence. On device every segment is tiny
+// and continuous, so this changes nothing about what is asserted.
+// r37: the gesture RETRIES. Headless CDP input delivery is lossy under a
+// SwiftShader-loaded main thread — bad runs measurably deliver ONE move
+// event of twelve, so the flushed segment ends short of the fruit. That is
+// the harness environment dropping events, not the game (blade listens to
+// pointermove + rawupdate; on device both stream at display rate). A dead
+// input module — the r38f regression this probe exists to catch — fails
+// ALL attempts deterministically; delivery luck should not gate `npm run
+// ios`. Each attempt sweeps ACROSS the fruit three times (a single-pass
+// drag can quantise into one sliver segment), then waits for the DEFERRED
+// cut drain (slicer r19: one cut per rendered frame — seconds here).
+const L = Math.max(10, aim.px - 140), Rr = Math.min(420, aim.px + 140);
+let attempts = 0;
+for (attempts = 1; attempts <= 4; attempts++) {
+  await page.mouse.move(L, aim.py);
+  await page.mouse.down();
+  for (let pass = 0; pass < 3; pass++) {
+    await page.mouse.move(pass % 2 ? L : Rr, aim.py, { steps: 4 });
+    await page.waitForTimeout(140);
+  }
+  await page.mouse.up();
+  const hit = await page.waitForFunction(() => window.__slices > 0, null, { timeout: 12000 })
+    .then(() => true).catch(() => false);
+  if (hit) break;
+  // re-stage: the parked fruit may have been shoved; pin a fresh one
+  await page.evaluate(() => {
+    const ZS = window.ZS;
+    clearInterval(window.__pin);
+    ZS.clear();
+    const f = ZS.spawn('watermelon');
+    f.pos.set(0, 0.2, 0); f.vel.set(0, 0, 0);
+    window.__pin = setInterval(() => { const g = ZS.ctx.fruits.live[0]; if (g && g.generation === 0) { g.pos.set(0, 0.2, 0); g.vel.set(0, 0, 0); } }, 25);
+  });
+  await page.waitForTimeout(120);
+}
+await page.waitForTimeout(150);
 await page.evaluate(() => clearInterval(window.__pin));
 
 const out = await page.evaluate(() => ({
@@ -113,7 +158,7 @@ ok(out.swipes > 0, `real PointerEvents produced ${out.swipes} 'swipe' bus events
 ok(out.slices > 0, `a real drag across a parked watermelon produced ${out.slices} slices`);
 ok(errs.length === 0, `page errors: ${errs.join(' | ')}`);
 
-const report = { failures, pass: failures.length === 0, ...out, pageErrors: errs.slice(0, 6) };
+const report = { failures, pass: failures.length === 0, attempts, ...out, pageErrors: errs.slice(0, 6) };
 console.log(JSON.stringify(report, null, 2));
 const jf = arg('json', null);
 if (jf) writeFileSync(jf, JSON.stringify(report, null, 2));

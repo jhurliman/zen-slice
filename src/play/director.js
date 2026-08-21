@@ -144,9 +144,19 @@ export function createDirector({ seed = 20260806 } = {}) {
   // failure must never take the boot down.
   api.prewarmPipelines = async () => {
     if (!ctx?.renderer?.compileAsync || !ctx.scene) return;
-    const warm = [], junk = [];
-    try {
-      for (const sp of SPECIES_LIST) {
+    // INCREMENTAL, one species per chunk with real-time yields between: a
+    // monolithic compile pass can starve the pointer pipeline long enough
+    // that a drag landing during boot produces no swipe (pointerprobe caught
+    // it under SwiftShader, where each compile chunk costs 100x its device
+    // price). ctx.prewarmed publishes the steady state for harnesses; on
+    // device the chunks are milliseconds and the yields dominate, so input
+    // stays live throughout. compileAsync caches per pipeline, so each pass
+    // only pays its own species' programs.
+    ctx.prewarmed = false;
+    for (const sp of SPECIES_LIST) {
+      await new Promise((r) => setTimeout(r, 150));
+      const warm = [], junk = [];
+      try {
         const geom = geomFor(sp, ctx.quality.fruitSegments);
         const mats = matsFor(sp);
         const whole = new THREE.Mesh(geom, mats);
@@ -164,14 +174,15 @@ export function createDirector({ seed = 20260806 } = {}) {
           }
           if (res && res.neg) junk.push(res.neg);
         }
+        for (const m of warm) ctx.scene.add(m);
+        await ctx.renderer.compileAsync(ctx.scene, ctx.camera);
+      } catch (_) { /* best-effort */ }
+      finally {
+        for (const m of warm) ctx.scene.remove(m);
+        for (const j of junk) j.dispose?.();
       }
-      for (const m of warm) ctx.scene.add(m);
-      await ctx.renderer.compileAsync(ctx.scene, ctx.camera);
-    } catch (_) { /* best-effort */ }
-    finally {
-      for (const m of warm) ctx.scene.remove(m);
-      for (const j of junk) j.dispose?.();
     }
+    ctx.prewarmed = true;
   };
 
   // r37: a governor tier change alters fruitSegments — without this, the next
