@@ -2356,6 +2356,7 @@ function wmLayers(cc) {
 
 def({
   id: 'watermelon', label: 'Watermelon',
+  rind: 0.085,   // cut-edge peel thickness, world units (slicer + prewarm read this)
   radius: 1.55, mass: 3.2, juiciness: 1.0, sss: 0.30, pitch: -12,
   // fleshHex was '#e33455' — linear R 0.73, where real cut pulp measures linear
   // R 0.35-0.45. Down a stop, per the r2 materials verdict.
@@ -3649,6 +3650,7 @@ function apLayers(cc) {
 
 def({
   id: 'apple', label: 'Green Apple',
+  rind: 0.036,   // r37: an apple's skin is paper-thin — 0.05 read as citrus peel on the cut face
   radius: 0.92, mass: 1.0, juiciness: 0.6, sss: 0.22, pitch: 4,
   rindHex: '#7ca430', fleshHex: '#cecab1', juiceHex: '#f6e7a4',
   shape: { squash: 0.93, lumps: 0.02, freq: 2.6, waist: 0.13 },
@@ -3757,6 +3759,7 @@ function stLayers(cc) {
 
 def({
   id: 'strawberry', label: 'Strawberry',
+  rind: 0.036,   // r37: a strawberry barely has a skin at all
   radius: 0.62, mass: 0.35, juiciness: 0.8, sss: 0.40, pitch: 12,
   rindHex: '#a22e33', fleshHex: '#db817e', juiceHex: '#ff2a44',
   shape: { squash: 1.12, lumps: 0.03, freq: 5.0, taper: 0.42 },
@@ -3860,6 +3863,7 @@ function paLayers(cc) {
 
 def({
   id: 'pineapple', label: 'Pineapple',
+  rind: 0.075,
   radius: 1.35, mass: 2.6, juiciness: 0.85, sss: 0.26, pitch: -5,
   rindHex: '#9a7e32', fleshHex: '#d6b348', juiceHex: '#ffcc3d',
   shape: { squash: 1.35, lumps: 0.045, freq: 6.5 },

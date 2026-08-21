@@ -222,7 +222,7 @@ export function createSlicer() {
     const pOnPlane = _p.copy(stroke.plane.n).multiplyScalar(stroke.plane.d).applyMatrix4(_m);
     const localPlane = { n: nLocal.clone(), d: nLocal.dot(pOnPlane) };
 
-    const rind = f.species.id === 'watermelon' ? 0.085 : f.species.id === 'pineapple' ? 0.075 : 0.05;
+    const rind = f.species.rind ?? 0.05;   // r37: per-species, authored in species.js
     // r19: opt-in stage timing. The cut runs in a POINTER HANDLER, outside the
     // animation frame, so none of it appears in a per-module frame profiler —
     // and it is the most expensive thing in the game. Off unless armed.

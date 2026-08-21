@@ -1417,7 +1417,7 @@ const SHAPE = {
     // apple the blossom-end serration plate-01 shows under its stalk, for +112
     // triangles: `limb pose=ship` hull_concave_frac_pct 41.80 -> 50.78,
     // protr_height_pct 8.15 -> 13.10, apple identity_recall unchanged at 1.000.
-    stem: { r: 0.145, len: 0.92, taper: 0.38, tip: 0.85 },
+    stem: { r: 0.145, len: 0.61, taper: 0.38, tip: 0.85 },   // r37: 0.92 -> 0.61, owner: "unrealistically tall" — still a 4.2:1 stalk, still the outline event
     crown: {
       cols: 45, woody: true,
       whorls: [

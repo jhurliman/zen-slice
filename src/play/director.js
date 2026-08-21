@@ -164,7 +164,7 @@ export function createDirector({ seed = 20260806 } = {}) {
         whole.frustumCulled = false;   // compileAsync CULLS its render list
         warm.push(whole);
         if (!sp.noCut) {
-          const rind = sp.id === 'watermelon' ? 0.085 : sp.id === 'pineapple' ? 0.075 : 0.05;
+          const rind = sp.rind ?? 0.05;
           const res = cutGeometry(geom, { n: new THREE.Vector3(1, 0, 0), d: 0 }, rind);
           if (res && res.pos) {
             const half = new THREE.Mesh(res.pos, mats);
