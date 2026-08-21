@@ -3695,14 +3695,7 @@ def({
       const band = ss(0.13, 0.20, cc.rad).mul(ss(0.28, 0.36, cc.rad).oneMinus());
       return blob(c.d, 0.16, 0.30).mul(step(0.25, c.id)).mul(band).mul(cellFade(p)).toVar();
     };
-    // r37g — THE STEM CUT (same mechanism as the pineapple crown cut): a
-    // lengthwise slice runs through the stalk, and the cutter already flags
-    // those cap sectors (profile stems live in the wood uv band 1.75-1.95,
-    // far above the 1.02 provenance threshold). Consume the flag: a cut twig
-    // is pale dry wood, not green flesh.
-    const stemCut = () => step(8.0, uv().x);
     return fleshMaterial(this, {
-      dry: () => stemCut(),
       albedo: (cc, u) => {
         const { ang, rad, q } = cc;
         const gr = fbm2(q.mul(34.0), 3, u.detail).toVar();
@@ -3738,22 +3731,16 @@ def({
         alb.mulAssign(ss(0.800, 0.888, rad).mul(ss(0.888, 0.945, rad).oneMinus())
           .mul(0.40).oneMinus());
         alb.assign(mix(alb, vec3(0.1100, 0.2024, 0.0154).mul(kr), L.skin));
-        // the stalk's interior: pale dry wood with a hint of ring grain
-        const wood = vec3(0.0620, 0.0400, 0.0175)
-          .mul(fbm2(q.mul(22.0), 2, u.detail).mul(0.35).add(0.82)).toVar();
-        alb.assign(mix(alb, wood, stemCut()));
         return alb;
       },
       relief: (cc, u) => {
         const L = apLayers(cc);
         return fbm2(cc.q.mul(34.0), 3, u.detail).mul(0.6)
           .add(ringN(cc.ang, 16.0, cc.rad.mul(3.0).add(5.0)).mul(0.35))
-          .add(L.core.mul(0.5)).add(pips(cc).mul(1.0))
-          .mul(stemCut().mul(0.8).oneMinus());
+          .add(L.core.mul(0.5)).add(pips(cc).mul(1.0));
       },
       rough: (cc, u) => mix(u.rough, float(0.55), apLayers(cc).skin),
-      sssMask: (cc) => apLayers(cc).skin.oneMinus().mul(pips(cc).oneMinus())
-        .mul(stemCut().oneMinus()),
+      sssMask: (cc) => apLayers(cc).skin.oneMinus().mul(pips(cc).oneMinus()),
     }, { rough: 0.34, wet: 0.85, bump: 0.0196, floor: [0.1000, 0.0940, 0.0600] });
   },
 });
@@ -3817,14 +3804,7 @@ def({
   },
 
   makeFleshMaterial() {
-    // r37g — the calyx cut, same mechanism as the pineapple crown / apple
-    // stem: sepal cross-sections arrive flagged by the cutter (the leaf uv
-    // band sits above 1.02) and paint fresh calyx green, dry — a picked
-    // strawberry's calyx is green root to tip (the r24 leafFresh law), so no
-    // brown root here.
-    const calyxCut = () => step(8.0, uv().x);
     return fleshMaterial(this, {
-      dry: () => calyxCut(),
       albedo: (cc, u) => {
         const { ang, rad, q } = cc;
         const fib = ringN(ang, 20.0, rad.mul(3.4).add(4.0)).mul(ss(0.03, 0.28, rad))
@@ -3856,20 +3836,16 @@ def({
         const wl = ss(0.830, 0.890, rad).mul(ss(0.895, 0.940, rad).oneMinus());
         alb.assign(mix(alb, alb.mul(1.15).add(vec3(0.0242, 0.0044, 0.0048).mul(kr)), wl.mul(0.7)));
         alb.assign(mix(alb, vec3(0.1980, 0.0119, 0.0128).mul(kr), L.skin));
-        const sepal = vec3(0.0950, 0.1560, 0.0330)
-          .mul(fbm2(q.mul(18.0), 2, u.detail).mul(0.28).add(0.86)).toVar();
-        alb.assign(mix(alb, sepal, calyxCut()));
         return alb;
       },
       relief: (cc, u) => {
         const L = stLayers(cc);
         return ringN(cc.ang, 20.0, cc.rad.mul(3.4).add(4.0)).mul(0.7)
           .add(fbm2(cc.q.mul(30.0), 2, u.detail).mul(0.4))
-          .sub(L.hollow.mul(1.0))
-          .mul(calyxCut().mul(0.85).oneMinus());
+          .sub(L.hollow.mul(1.0));
       },
       rough: (cc, u) => mix(u.rough, float(0.50), stLayers(cc).hollow),
-      sssMask: (cc) => stLayers(cc).skin.oneMinus().mul(calyxCut().oneMinus()),
+      sssMask: (cc) => stLayers(cc).skin.oneMinus(),
     }, { rough: 0.28, wet: 1.0, bump: 0.0170, floor: [0.1600, 0.0240, 0.0200] });
   },
 });
