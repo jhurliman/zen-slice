@@ -292,6 +292,14 @@ export async function boot(canvas) {
   for (const m of modules) safe(m, 'init', ctx);
   for (const m of modules) safe(m, 'quality', ctx.quality);
 
+  // r37: compile every fruit pipeline while the title screen holds the sky.
+  // Materials exist from director.init's cache warm, but a pipeline compiles
+  // on first DRAW — so a level introducing a species dropped frames on its
+  // first toss, and the first cut of each species compiled the cap pipeline
+  // mid-swipe. Fire-and-forget; skipped under ?capture (probes drive the sim
+  // dark and pay their own compile cost when they actually draw).
+  if (!flags.capture) Promise.resolve().then(() => director.prewarmPipelines?.());
+
   // ── slow motion ────────────────────────────────────────────────────────────
   let slowUntil = 0, slowTarget = 1;
   bus.on('slowmo', (e) => {

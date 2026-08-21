@@ -308,7 +308,9 @@ const rockProbe = await page.evaluate(async () => {
   ZS.step(1 / 120, 6, false);
   ZS.resume();
   offs.forEach((f) => f());
-  const dmg = r.mesh.material[0]?._zsDamage ? r.mesh.material[0]._zsDamage.value : -1;
+  // r37: damage lives on mesh.userData (one shared rock material, one GPU
+  // program — the per-instance uniform compiled a fresh program per toss)
+  const dmg = typeof r.mesh.userData.zsDamage === 'number' ? r.mesh.userData.zsDamage : -1;
   return {
     slices, juices, hits, penalties,
     score: ZS.score.score, combo: ZS.score.combo, damage: dmg, dead: r.dead,
@@ -322,7 +324,7 @@ ok(rockProbe.penalties === 1, `rock fired ${rockProbe.penalties} penalties, expe
 // r36: the rock resets the STREAK — the whole score, not r20's −25 sting
 ok(rockProbe.score === 0, `score after rock: ${rockProbe.score}, expected 0 (r36: the streak resets)`);
 ok(rockProbe.combo === 0, `combo after rock: ${rockProbe.combo}, expected 0`);
-ok(rockProbe.damage === 1, `rock damage uniform is ${rockProbe.damage}, expected 1`);
+ok(rockProbe.damage === 1, `rock damage is ${rockProbe.damage}, expected 1`);
 ok(rockProbe.dead === false, 'the rock was removed/cut by the stroke');
 ok(rockProbe.errors.length === 0, `audio errors after rockhit: ${JSON.stringify(rockProbe.errors)}`);
 

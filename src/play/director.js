@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { GRAVITY, STAGE, BUDGET, MAX_GENERATION, nextId, makeRng, rr, clamp } from '../core/contract.js';
 import { SPECIES_LIST, SPECIES } from '../fruit/species.js';
 import { makeFruitGeometry } from '../fruit/geometry.js';
+import { cutGeometry } from '../slice/cutter.js';
 import { createPhysics } from './physics.js';
 
 /**
@@ -102,7 +103,13 @@ export function createDirector({ seed = 20260806 } = {}) {
     return geoCache.get(k);
   };
   const matsFor = (sp) => {
-    if (!matCache.has(sp.id)) matCache.set(sp.id, [sp.makeSkinMaterial(), sp.makeFleshMaterial()]);
+    if (!matCache.has(sp.id)) {
+      // r37: the rock shares ONE cached material too — its damage is per-mesh
+      // userData now, so the per-spawn material instance (and the GPU program
+      // link it cost on every toss) is gone. Its cap slot reuses the skin.
+      if (sp.noCut) { const m = sp.makeSkinMaterial(); matCache.set(sp.id, [m, m]); }
+      else matCache.set(sp.id, [sp.makeSkinMaterial(), sp.makeFleshMaterial()]);
+    }
     return matCache.get(sp.id);
   };
 
@@ -118,9 +125,70 @@ export function createDirector({ seed = 20260806 } = {}) {
     // r20: a struck rock takes a visible crack — the registry owns the mesh,
     // so the damage bump lives here, not in the slicer
     c.bus.on('rockhit', (e) => {
-      const m = e.rock?.mesh?.material?.[0];
-      if (m && m._zsDamage) m._zsDamage.value = Math.min(3, m._zsDamage.value + 1);
+      const mesh = e.rock?.mesh;
+      if (mesh) mesh.userData.zsDamage = Math.min(3, (mesh.userData.zsDamage || 0) + 1);
     });
+  };
+
+  // ══ r37: THE PIPELINE PREWARM ═══════════════════════════════════════════════
+  // The init warm above builds geometries and MATERIALS — but a pipeline
+  // compiles on first DRAW, so every level that introduced a species still
+  // dropped frames on its first toss, and the first CUT of each species
+  // compiled the cap/flesh pipeline mid-swipe (the player's "periodic here
+  // and there" drops). This draws nothing: one whole mesh and one cut half
+  // per species (plus a rock) are parked far outside the frustum INSIDE the
+  // real scene — pipeline variants depend on the scene's lights and
+  // environment, so compiling against a bare throwaway scene would compile
+  // the wrong programs — and renderer.compileAsync builds every pipeline
+  // while the title screen holds the sky. Best-effort by design: a compile
+  // failure must never take the boot down.
+  api.prewarmPipelines = async () => {
+    if (!ctx?.renderer?.compileAsync || !ctx.scene) return;
+    const warm = [], junk = [];
+    try {
+      for (const sp of SPECIES_LIST) {
+        const geom = geomFor(sp, ctx.quality.fruitSegments);
+        const mats = matsFor(sp);
+        const whole = new THREE.Mesh(geom, mats);
+        whole.position.set(0, -500, 0);
+        whole.frustumCulled = false;   // compileAsync CULLS its render list
+        warm.push(whole);
+        if (!sp.noCut) {
+          const rind = sp.id === 'watermelon' ? 0.085 : sp.id === 'pineapple' ? 0.075 : 0.05;
+          const res = cutGeometry(geom, { n: new THREE.Vector3(1, 0, 0), d: 0 }, rind);
+          if (res && res.pos) {
+            const half = new THREE.Mesh(res.pos, mats);
+            half.position.set(0, -500, 0);
+            half.frustumCulled = false;
+            warm.push(half); junk.push(res.pos);
+          }
+          if (res && res.neg) junk.push(res.neg);
+        }
+      }
+      for (const m of warm) ctx.scene.add(m);
+      await ctx.renderer.compileAsync(ctx.scene, ctx.camera);
+    } catch (_) { /* best-effort */ }
+    finally {
+      for (const m of warm) ctx.scene.remove(m);
+      for (const j of junk) j.dispose?.();
+    }
+  };
+
+  // r37: a governor tier change alters fruitSegments — without this, the next
+  // spawn of EVERY species built its new-detail geometry synchronously mid-
+  // play, exactly when the governor was already fighting load. Rebuild the
+  // cache off the frame, one species per tick (geomFor is cache-checked, so
+  // an unchanged detail is a no-op sweep).
+  api.quality = (q) => {
+    if (!ctx) return;
+    let i = 0;
+    const one = () => {
+      if (i >= SPECIES_LIST.length || !ctx) return;
+      geomFor(SPECIES_LIST[i], q.fruitSegments);
+      i++;
+      setTimeout(one, 80);
+    };
+    setTimeout(one, 0);
   };
 
   // ── ROUND 10 (perf). Everything that enters the world goes through add(), so
@@ -159,12 +227,8 @@ export function createDirector({ seed = 20260806 } = {}) {
     physics.removeBody(f);
     ctx.scene.remove(f.mesh);
     if (f.generation > 0) f.mesh.geometry.dispose(); // halves own their geometry
-    // r20: rocks own their material instance (per-body damage uniform), so it
-    // dies with the body — Deep Calm is endless, and undisposed per-spawn
-    // materials would accumulate renderer-side forever. Fruit keep using the
-    // shared cache, which is never disposed. Both rock slots are the same
-    // instance, so dispose once.
-    if (f.species?.noCut) f.mesh.material?.[0]?.dispose?.();
+    // r37: rocks share the cached material now (damage is per-mesh userData),
+    // so nothing per-spawn is left to dispose here.
     f.dead = true;
   };
 
@@ -176,10 +240,8 @@ export function createDirector({ seed = 20260806 } = {}) {
     // uniform values are per-mesh) instead of the shared cache. The skin
     // fills BOTH group slots: a rock is never cut, so its cap group is empty
     // and a second material would be dead weight built per spawn.
-    let mats;
-    if (sp.noCut) { const m = sp.makeSkinMaterial(); mats = [m, m]; }
-    else mats = matsFor(sp);
-    const mesh = new THREE.Mesh(geom, mats);
+    const mesh = new THREE.Mesh(geom, matsFor(sp));
+    if (sp.noCut) mesh.userData.zsDamage = 0;
 
     // r32: `aim` (optional) is the CONSTELLATION override — a coordinated
     // toss hands each fruit its exact x/z/apex so a whole fan hangs at the

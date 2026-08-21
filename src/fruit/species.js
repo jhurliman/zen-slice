@@ -346,7 +346,7 @@
 
 import * as THREE from 'three';
 import {
-  Fn, uniform, float, vec2, vec3,
+  Fn, uniform, userData, float, vec2, vec3,
   positionGeometry, normalGeometry, normalView, normalViewGeometry, normalWorldGeometry,
   positionView, positionViewDirection, uv,
   mix, smoothstep, step, saturate, abs, asin, sin, cos, atan, floor, fract, dot, cross,
@@ -1806,7 +1806,11 @@ function fleshMaterial(sp, body, o = {}) {
     const cc = capCoords();
     const alb = body.albedo(cc, u).toVar();
     const w = wetField(cc, u, freq);
-    const f = w.bubble.mul(u.foam).toVar();
+    // r37: `body.dry` (optional) marks cap regions that are NOT wet flesh —
+    // the pineapple's crown-leaf cross-sections. 1 = dry: no foam, no juice
+    // pool, matte roughness. The albedo hook paints the region itself.
+    const dryM = body.dry ? body.dry(cc, u).toVar() : float(0).toVar();
+    const f = w.bubble.mul(u.foam).mul(dryM.oneMinus()).toVar();
     // Sub-millimetre foam scatters rather than transmits, so it reads WHITE
     // (the plate law). Pull the albedo toward achromatic, don't tint it.
     //
@@ -1850,7 +1854,7 @@ function fleshMaterial(sp, body, o = {}) {
     const foamed = mix(alb, alb.mul(open.mul(0.45).add(1.0)), f.mul(0.22)).toVar();
     // pooled juice darkens and saturates slightly, like a wet stone
     const wetAlb = mix(foamed, foamed.mul(vec3(0.90, 0.80, 0.80)),
-      w.pool.mul(0.22).mul(u.wet)).toVar();
+      w.pool.mul(0.22).mul(u.wet).mul(dryM.oneMinus())).toVar();
     // CONTRACT v5 section 6, enforced. Nothing leaves this material over the
     // key-facing ceiling, whatever the body builder asked for.
     return capBudget(wetAlb, capK);
@@ -1924,8 +1928,9 @@ function fleshMaterial(sp, body, o = {}) {
     // 0.21..0.70, i.e. +0.021..+0.070 of roughness on a 0.170 pulp film. In a
     // 2x hero frame scale 2 resolves, `micro` falls toward zero on its own, and
     // the beads come back as real domes — one expression, both distances.
+    const dryM = body.dry ? body.dry(cc, u) : float(0);
     const wetR = u.wetRough.mul(dry.mul(2.941).clamp(0.70, 2.20)).toVar();
-    return mix(dry, wetR, w.wet)
+    return mix(mix(dry, wetR, w.wet), float(0.82), dryM)
       .sub(w.bubble.mul(u.foam).mul(0.022))
       .add(w.micro.mul(u.foam).mul(0.10))
       // ROUND 8: the floor moves 0.150 -> 0.190. Measured, not guessed: a
@@ -1955,7 +1960,9 @@ function fleshMaterial(sp, body, o = {}) {
     const cc = capCoords();
     const w = wetField(cc, u, freq);
     const band = ss(0.760, 0.840, cc.rad).mul(0.70).oneMinus().toVar();
-    const h = body.relief(cc, u).mul(band).mul(0.60).add(w.h.mul(u.foam)).toVar();
+    const dryM = body.dry ? body.dry(cc, u) : float(0);
+    const h = body.relief(cc, u).mul(band).mul(0.60)
+      .add(w.h.mul(u.foam).mul(dryM.oneMinus())).toVar();
     return capShade(normalView, positionView, h.mul(u.bump),
       cc.rad, collarTilt(cc.rad, cc.fray).mul(u.shell));
   })();
@@ -3904,7 +3911,20 @@ def({
       const band = ss(0.22, 0.34, cc.rad).mul(ss(0.78, 0.90, cc.rad).oneMinus());
       return blob(c.d, 0.20, 0.40).mul(step(0.30, c.id)).mul(band).mul(cellFade(p)).toVar();
     };
+    // r37 — THE CROWN CUT. A lengthwise slice runs through the crown, and the
+    // cutter caps every blade's cross-section with this material, which used
+    // to paint it as yellow flesh ("the leaves have a yellow fleshy interior").
+    // A leaf is green inside and out, and dry. The gate is LOCAL height:
+    // measured on the detail-11 mesh, blade roots emerge at y 1.048 and the
+    // body dome tops out at 1.320, so the blend [0.98, 1.14] takes the blade
+    // interiors and the crown plug while costing only the top sliver of
+    // flesh — which on a real pineapple is exactly where the crown's base
+    // sits. `dry` feeds the factory's r37 hook: no foam, no juice pool, no
+    // wet gloss on a leaf (matte 0.82), and the sss transmission is gated
+    // below for the same reason.
+    const crownCut = () => ss(0.98, 1.14, positionGeometry.y);
     return fleshMaterial(this, {
+      dry: () => crownCut(),
       albedo: (cc, u) => {
         const { ang, rad, q } = cc;
         const fib = ringN(ang, 18.0, rad.mul(2.6).add(2.0)).mul(ss(0.05, 0.30, rad))
@@ -3929,13 +3949,21 @@ def({
         alb.mulAssign(ss(0.790, 0.872, rad).mul(ss(0.872, 0.930, rad).oneMinus())
           .mul(0.44).oneMinus());
         alb.assign(mix(alb, vec3(0.1452, 0.0792, 0.0132).mul(kr), L.shell));
+        // leaf interior: the crown's own grey-green (the skin's bract tint,
+        // shaded a touch darker — an interior face sees less light), with a
+        // little fbm so a wide blade cross-section is not a flat decal
+        const leaf = vec3(0.1050, 0.1480, 0.0330)
+          .mul(fbm2(q.mul(16.0), 2, u.detail).mul(0.30).add(0.85)).toVar();
+        alb.assign(mix(alb, leaf, crownCut()));
         return alb;
       },
       relief: (cc, u) => {
         const L = paLayers(cc);
+        // leaves are smooth inside: fade the fibre rings out across the gate
         return ringN(cc.ang, 18.0, cc.rad.mul(2.6).add(2.0)).mul(0.85)
           .add(fbm2(cc.q.mul(28.0), 2, u.detail).mul(0.4))
-          .sub(pockets(cc).mul(0.8)).add(L.core.mul(0.45));
+          .sub(pockets(cc).mul(0.8)).add(L.core.mul(0.45))
+          .mul(crownCut().mul(0.85).oneMinus());
       },
       rough: (cc, u) => {
         const L = paLayers(cc);
@@ -3943,7 +3971,9 @@ def({
       },
       sssMask: (cc) => {
         const L = paLayers(cc);
-        return L.shell.oneMinus().mul(L.core.mul(0.7).oneMinus());
+        // a leaf does not glow with transmitted juice light
+        return L.shell.oneMinus().mul(L.core.mul(0.7).oneMinus())
+          .mul(crownCut().oneMinus());
       },
     }, { rough: 0.32, wet: 0.95, bump: 0.0298, floor: [0.1300, 0.0770, 0.0110] });
   },
@@ -3968,7 +3998,13 @@ def({
   shape: { squash: 0.9 },   // the real shape is geometry.js SHAPE.rock; squash feeds the material's normal warp
 
   makeSkinMaterial() {
-    const damage = uniform(0.0);
+    // r37: damage reads mesh.userData.zsDamage through a UserDataNode instead
+    // of a per-instance uniform. A fresh material per rock meant a fresh node
+    // graph, which meant a FRESH GPU PROGRAM LINKED ON EVERY ROCK SPAWN — a
+    // measured compile hitch riding up to 18% of tosses at night levels (the
+    // player's "periodic here and there" frame drops). One shared material,
+    // one program, per-object damage.
+    const damage = userData('zsDamage', 'float');
     const veinsOf = (P) => rdg2(vec2(P.x.mul(1.3).add(P.z), P.y.mul(1.4).sub(P.z)).mul(4.6), 2);
     const m = skinMaterial(this, {
       albedo: (f, u) => {
@@ -3997,7 +4033,6 @@ def({
         return g.mul(0.8).sub(ss(0.60, 0.90, veinsOf(P)).mul(damage.mul(1 / 3)).mul(0.9));
       },
     }, { bump: 0.0065, mat: { roughness: 0.96, specularIntensity: 0.25 } });
-    m._zsDamage = damage;
     return m;
   },
 
