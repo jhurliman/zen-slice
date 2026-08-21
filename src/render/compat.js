@@ -112,7 +112,7 @@ export function watchDeviceLost(device, onReallyLost) {
 /**
  * Pick the backend and report what we actually got, so the HUD/harness can say
  * so out loud rather than silently running the slow path.
- * @param {{isWebGPUBackend?:boolean}} backend
+ * @param {{isWebGPUBackend?:boolean, isWebGLBackend?:boolean}} backend
  */
 export function backendName(backend) {
   if (!backend) return 'unknown';

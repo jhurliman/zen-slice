@@ -103,6 +103,19 @@ forces the WebGL2 backend, which is what SwiftShader can run).
   JS/scene/heap leak (thermal throttling is the standing suspect).
 - **`tools/perfprofile.mjs`** — per-module, per-phase frame-cost attribution
   over `ZS.profile()`. Tail latency lives in p95/max per module, not the mean.
+- **`tools/pointerprobe.mjs`** (r38f) — the REAL-INPUT probe, and the reason
+  it exists is a scar: every other tool drives `ZS.swipe()` (bus emission),
+  so a blade whose `init()` threw — pointer listeners never attached — kept
+  every probe green while real fingers were dead, TWICE. This one dispatches
+  trusted PointerEvents via Playwright's mouse and asserts, in order:
+  `ZS.moduleErrors` empty (a module that `safe()` retired is how the bug
+  ships), pointer → 'swipe' bus traffic, and an actual slice of a staged
+  fruit. **It gates `npm run ios` — a build with dead input cannot reach the
+  device.** Sibling defenses added with it: hud.js paints a red fault badge
+  on the first `ctx.moduleErrors` entry in dev builds (no ?debug needed;
+  stripped from App Store builds), and main.js funnels window
+  'error'/'unhandledrejection' — the throws `safe()` never sees (DOM
+  handlers, timers) — into the same ledger.
 
 Launch-flag note: `--use-gl=angle --use-angle=swiftshader
 --enable-unsafe-swiftshader` is safe **with `?capture=1`** (WebGL2 path) and
@@ -129,26 +142,29 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
 
 ## 6. Open items
 
-1. **Cut spike** — `cutGeometry` allocates fresh BufferGeometry per half on
-   the main thread at the moment the player is looking. Steady-state JS is
-   p50 0.1 ms / p95 0.3 ms, so measure the spike, not the mean.
-2. **Bundle is ~4 MB** from inlined Rapier WASM; splitting is open.
-3. **Portrait framing** — fruit occupy ~18.5% of frame height vs the plates'
-   ~25%; portrait's contain-fit camera (z=22.02, 8.45 world units tall) is
-   the cause. Needs serialising: it moves every framing-sensitive constant.
-4. **Watermelon ground spot** should move to albedo in `species.js` (the
-   plane cut that used to make it went away with shape D).
-5. **Haptics on iOS web** — the label-click switch hack is instrumented but
-   WebKit swallows it in some contexts; the real fix is the native shell's
-   UIImpactFeedbackGenerator (`docs/NATIVE.md`). Awaiting device test.
-6. **Thermal governor** — if the device confirms the 15-min slowdown is
-   thermal (§4 soak), a stickier quality governor (downshift under sustained
-   misses, stay down) is the fix.
-
-## 7. ⚠ Security and access
-
-- Early in the project the user pasted a GitHub PAT and an SSH deploy key
-  into a chat transcript. Local copies were shredded; **he should revoke
-  both** if he has not.
-- Store any credential outside the repo so it can never enter a commit or a
-  bundle. If a push is refused, ask — do not improvise around access control.
+1. **Bundle is ~4 MB** — measured (r38, esbuild metafile): Rapier 2787 KB
+   (the wasm is base64-inlined by `rapier3d-compat`, ×1.33 over its 1.9 MB
+   binary), three.webgpu 1026 KB, game source 186 KB. The single-file
+   property is load-bearing for the PWA (open once, add to home screen, no
+   network ever), so splitting is only worth doing for the NATIVE shell,
+   where a sibling `rapier.wasm` in the app bundle is free: swap
+   `rapier3d-compat` for `@dimforge/rapier3d` (real .wasm fetch) behind the
+   build flag, keep -compat for the PWA build. ~1.9 MB smaller app + faster
+   parse; do it when app size starts to matter for review or download.
+3. **Flourish grid-timing** — the prerequisite SHIPPED (r38g): the `?debug`
+   strip now has 2/3/4/5 combo triggers — one tap stages an n-fruit
+   constellation and sweeps it through the real gather/voice/reward path.
+   Building them also flushed out a real slicer bug, fixed: a QUEUED cut's
+   plane was frozen in world space while the fruit flew on, so on a dropped
+   frame a stamped fruit could silently refuse to cut (cutGeometry returned
+   an empty half; the catch swallowed it — now reported: throws → the
+   moduleErrors ledger, grazes → `ctx.slicer.grazes`). The drain re-anchors
+   the plane to the fruit at its recorded strike offset. What remains is the
+   original idea: the FLOURISH grand run fires at gather-flush time, and the
+   owner suspects it would land better quantized to the music grid
+   (`conductor.timeToNext8` / the next bar) — iterate with the triggers.
+   Also r38g, the chord mix: accents/boosts trimmed (1.22→1.12, 1.35→1.22
+   caps, sub −2 dB, crown back to 0.46) and the sidechain deepened + given a
+   fast attack (duckBed 4th arg; triad 0.68, 4+ 0.42 @ 30 ms) — a full
+   flourish now peaks ~−11 dBFS post-ceiling instead of riding the −3
+   limiter into the tanh shoulder. Verdict pending the owner's ear.

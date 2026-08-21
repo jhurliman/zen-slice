@@ -25,6 +25,10 @@ export function createSlicer() {
   // r19: cuts deferred out of the pointer handler. See the block in onSwipe.
   const pending = [];
   let cutsThisTick = 0;
+  // r38g: cuts that produced an empty half (plane missed the mesh) — see the
+  // graze note in cut(). Diagnostic surface for probes, reset never.
+  api.grazes = 0;
+  api.queueDepth = () => pending.length;
 
   const _e = new THREE.Vector3();       // eye
   const _ra = new THREE.Vector3(), _rb = new THREE.Vector3();
@@ -58,6 +62,12 @@ export function createSlicer() {
     while (pending.length) {
       const job = pending.shift();
       if (!job.f || job.f.dead) continue;          // died in flight; nothing to cut
+      // re-anchor the frozen plane to the fruit's CURRENT position at the
+      // offset recorded when the blade actually struck it (see onSwipe)
+      if (job.off !== undefined) {
+        job.stroke.plane.d = job.stroke.plane.n.dot(job.f.pos) - job.off;
+        job.stroke.at.copy(job.f.pos).addScaledVector(job.stroke.plane.n, -job.off);
+      }
       cutsThisTick++;
       cut(job.f, job.stroke);
       break;
@@ -66,6 +76,10 @@ export function createSlicer() {
 
   api.init = (c) => {
     ctx = c;
+    // r38g: published for diagnostics (fluid.js precedent — ctx.fluid): the
+    // graze counter and queue depth are how a probe distinguishes "the blade
+    // missed" from "the cut silently failed"
+    c.slicer = api;
     c.renderer.domElement.addEventListener('pointerdown', () => { strokeId++; });
     c.bus.on('reset', () => { pending.length = 0; cutsThisTick = 0; });
     c.bus.on('swipe', onSwipe);
@@ -185,8 +199,19 @@ export function createSlicer() {
       // one per fixed step, i.e. 8.3 ms later each. `f.lastStroke` is already
       // set above, so a queued fruit cannot be re-cut by the same stroke, and
       // it keeps flying normally until its turn.
+      // r38g: a queued job records the hit's OFFSET (the plane-to-center
+      // distance at strike time), because the plane is a world-space frozen
+      // object and the fruit is not — by its drain turn (≥1 frame later, and
+      // a DROPPED frame is exactly when the queue is deep) the fruit can
+      // have flown past the plane entirely. cutGeometry then returned one
+      // empty half and the stamped fruit silently refused to cut: the combo
+      // triggers found 3 of 5 staged fruit doing this under a slow harness,
+      // and on device it is the occasional "swiped through it and it didn't
+      // cut" of a deep flourish on a janky frame. The drain re-anchors the
+      // plane to the fruit at the SAME offset — the cut the player earned,
+      // where the fruit is now.
       if (cutsThisTick === 0) { cutsThisTick++; cut(f, stroke); }
-      else pending.push({ f, stroke });
+      else pending.push({ f, stroke, off: d });
     }
   }
 
@@ -204,10 +229,21 @@ export function createSlicer() {
     const CP = ctx.__zsCutProf;
     const t0 = CP ? performance.now() : 0;
     let res;
+    // r38g: the catch is still a no-crash guard, but it REPORTS now — a
+    // swallowed cut failure is a fruit that silently refuses to cut (it
+    // spent its once-per-stroke stamp), which is invisible in exactly the
+    // way the r38f fault doctrine forbids. Throws go to the ledger (the HUD
+    // badge + probes watch it); grazes — a plane that misses the mesh, one
+    // empty half — are legitimate physics and just counted for probes.
     try { res = cutGeometry(f.mesh.geometry, localPlane, rind); }
-    catch (err) { return; }
+    catch (err) {
+      if (ctx.moduleErrors && ctx.moduleErrors.length < 40) {
+        ctx.moduleErrors.push({ module: 'slicer', phase: 'cut', error: String(err && err.stack ? err.stack : err).slice(0, 400) });
+      }
+      return;
+    }
     if (CP) CP.geom.push(performance.now() - t0);
-    if (!res || !res.pos || !res.neg) return;
+    if (!res || !res.pos || !res.neg) { api.grazes++; return; }
 
     const halves = [];
     // ══ r14: THE CUT WAS THROWING THE HALVES OFF SCREEN ══════════════════════

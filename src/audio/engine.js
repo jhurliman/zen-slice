@@ -27,13 +27,30 @@
 const FADE = 0.01; // voice-steal fade, seconds
 
 export function createEngine() {
+  // The whole engine surface is declared here, including members filled in
+  // later (the ensure() nodes, and every method below). JS tooling infers this
+  // object's type from the literal alone, so a member that first appears as
+  // `eng.foo = ...` reads as "may not exist on type" at every call site
+  // (ts 2568). Declaring it null costs nothing at runtime and keeps this
+  // literal an honest table of contents for the file.
   const eng = {
     ready: false,
     actx: null,
+    // master chain, built by ensure()
     dry: null, reverbIn: null, wet: null, master: null, comp: null,
-    padBus: null, padLp: null, padGain: null,
+    warmth: null, air: null, trim: null, rumble: null, limiter: null, clip: null,
+    padBus: null, padLp: null, padGain: null, padDuck: null,
     noise: null,          // shared 1 s white-noise buffer (shhk, risers, hammer)
     nodesCreated: 0,      // steady-state pool-integrity counter for the harness
+    // lifecycle
+    now: null, ensure: null, resume: null, suspend: null, dispose: null,
+    cycle: null, kick: null,
+    // voices
+    playPiano: null, playThump: null, playSwish: null,
+    voiceDebug: null, voicesActive: null, setPianoCap: null,
+    // mix
+    setMaster: null, setWetScale: null, setSpace: null, space: null,
+    duckBed: null, setVoicing: null, getVoicing: null, meter: null,
   };
 
   let pianoPool = [], shhkPool = [], thumpPool = [];
@@ -53,7 +70,9 @@ export function createEngine() {
 
   eng.ensure = () => {
     if (eng.actx) return true;
-    const AC = window.AudioContext || window.webkitAudioContext;
+    // bracket access on the prefixed constructor: it is not in lib.dom, and
+    // dot access reads to JS tooling as a misspelling of AudioContext
+    const AC = window.AudioContext || window['webkitAudioContext'];
     if (!AC) return false;
     // r22: latencyHint 'interactive' is the default on paper, but say it out
     // loud — the slice sound's whole job is immediacy. Legacy webkit
@@ -80,17 +99,47 @@ export function createEngine() {
     // trim: the ?tune master macro — separate from eng.master, which the mute
     // fader and visibilitychange own
     eng.trim = mk(actx.createGain()); eng.trim.gain.value = 1.0;
-    // r26, the one always-on mastering insert: a 28 Hz rumble highpass between
-    // master and the hardware. Nothing musical lives below it (the drone's A1
-    // bass is 55 Hz, the rock thump's tail ends at 45 Hz) but noise-derived
-    // buffers carry a little sub-30 energy, and on headphones that reads as
-    // pressure, not sound. Everything audible passes untouched.
+    // r26 mastering insert #1: a 28 Hz rumble highpass between master and the
+    // hardware. Nothing musical lives below it (the drone's A1 bass is 55 Hz,
+    // the rock thump's tail ends at 45 Hz) but noise-derived buffers carry a
+    // little sub-30 energy, and on headphones that reads as pressure, not
+    // sound. Everything audible passes untouched.
     eng.rumble = mk(actx.createBiquadFilter());
     eng.rumble.type = 'highpass'; eng.rumble.frequency.value = 28; eng.rumble.Q.value = 0.5;
+    // mastering insert #2, THE SAFETY LIMITER — the only brickwall before the
+    // DAC. The musical compressor (comp) sits BEFORE master and the pad/
+    // texture bed routes AROUND it by design (r17: a bed that pumps under
+    // piano hits reads as broken), so nothing bounded the SUM — at Golden
+    // Hour density the player heard the overflow as a "lofi digital chirp"
+    // (DAC clipping). No knee, 20:1, near-instant attack: it only ever
+    // touches the overs; at retail levels it passes bit-transparent.
+    eng.limiter = mk(actx.createDynamicsCompressor());
+    eng.limiter.threshold.value = -3; eng.limiter.knee.value = 0;
+    eng.limiter.ratio.value = 20; eng.limiter.attack.value = 0.001; eng.limiter.release.value = 0.12;
+    // mastering insert #3, THE TRANSIENT CEILING (r38b). The limiter alone
+    // still chirped on 4-fruit chords (2 of 3): DynamicsCompressor has NO
+    // LOOKAHEAD, so the first ~1 ms of a stacked transient — anchor accent +
+    // rolled chord + grand run over the full bed — rides through its attack
+    // and clips the DAC anyway. A WaveShaper is instantaneous: exactly linear
+    // below −6 dBFS, a tanh shoulder above (ceiling ~0.88 FS), so overs
+    // SATURATE smoothly instead of wrapping, and 4× oversampling keeps the
+    // shoulder's harmonics from aliasing — aliased clipping IS the "lofi
+    // digital chirp". Retail program lives under the knee; bit-transparent.
+    eng.clip = mk(actx.createWaveShaper());
+    {
+      const N = 4096, curve = new Float32Array(N), knee = 0.5;
+      for (let i = 0; i < N; i++) {
+        const x = (i / (N - 1)) * 2 - 1, a = Math.abs(x);
+        curve[i] = Math.sign(x) * (a <= knee ? a : knee + (1 - knee) * Math.tanh((a - knee) / (1 - knee)));
+      }
+      eng.clip.curve = curve; eng.clip.oversample = '4x';
+    }
     eng.comp.connect(eng.master);
     eng.master.connect(eng.warmth); eng.warmth.connect(eng.air);
     eng.air.connect(eng.trim); eng.trim.connect(eng.rumble);
-    eng.rumble.connect(actx.destination);
+    eng.rumble.connect(eng.limiter);
+    eng.limiter.connect(eng.clip);
+    eng.clip.connect(actx.destination);
 
     eng.dry = mk(actx.createGain()); eng.dry.gain.value = 1.0; eng.dry.connect(eng.comp);
     eng.reverbIn = mk(actx.createGain()); eng.reverbIn.gain.value = 1.0;
@@ -159,7 +208,12 @@ export function createEngine() {
       gain.connect(eng.dry); // low frequencies stay centered — they pan badly
       return { gain, src: null, until: 0 };
     };
-    pianoPool = []; for (let i = 0; i < 16; i++) pianoPool.push(mkPiano());
+    // r38h: 16 → 24 voices. A FLOURISH alone is ~18 pitched notes (anchor +
+    // strums + sub + a 12-note run) with seconds of ring each, over a bed of
+    // background bass/motif/echo voices from the same pool — 16 guaranteed
+    // steals in the run's second half. Idle voices are 4 silent nodes each;
+    // 8 more is noise in the node budget, silence in the mix.
+    pianoPool = []; for (let i = 0; i < 24; i++) pianoPool.push(mkPiano());
     shhkPool = []; for (let i = 0; i < 6; i++) shhkPool.push(mkSwish());
     // r20: the pool doubles — the contact tick and the wet thump both play
     // through it, per fruit, so a 3-fruit combo is six one-shots in one tick
@@ -179,10 +233,14 @@ export function createEngine() {
       if (!oldest || v.until < oldest.until) oldest = v;
     }
     const v = free || oldest;
-    if (!free && v.src) {
+    // r38h: the flag playPiano needs to actually HONOR this fade — see there
+    v.stolen = !free && !!v.src;
+    if (v.stolen) {
       // click-free steal: yank the envelope down, stop the old source
+      // (τ FADE*0.25: ≈98% faded by the stop — 0.35 left 5.7%, a tickable
+      // residual once playPiano stopped snapping over the top of it)
       v.gain.gain.cancelScheduledValues(when);
-      v.gain.gain.setTargetAtTime(0, when, FADE * 0.35);
+      v.gain.gain.setTargetAtTime(0, when, FADE * 0.25);
       try { v.src.stop(when + FADE); } catch (_) { /* already stopped */ }
     }
     return v;
@@ -195,13 +253,25 @@ export function createEngine() {
   eng.playPiano = (buffer, rate, when, gain, pan, brightHz, wet = 0.5) => {
     const actx = eng.actx;
     const v = acquire(pianoPool, pianoCap, when);
-    const t = Math.max(when, actx.currentTime);
+    // r38h THE STEAL CLICKED, AND THE GRAND RUN IS WHERE IT SHOWED. acquire()
+    // schedules a click-free fade on the stolen voice — and this function
+    // then cancelled it and setValueAtTime(0) over a note still ringing at
+    // full amplitude: an instantaneous truncation (click), with the old
+    // buffer's 10 ms remainder then amplitude-modulated by the new attack
+    // ramp (the chirp). A flourish is ~18 notes over the pool with seconds
+    // of ring each, so its second half steals in quick succession — "a
+    // quick succession of chirps", inconsistent because it depends on how
+    // many background voices happen to be ringing. A stolen voice now WAITS
+    // OUT the fade: the new note starts FADE (10 ms) late — inaudible at the
+    // run's 52 ms note spacing — on a gain that is actually silent, with the
+    // old source already stopped.
+    const t = Math.max(when, actx.currentTime) + (v.stolen ? FADE : 0);
     const src = actx.createBufferSource();
     src.buffer = buffer; src.playbackRate.value = rate;
     src.connect(v.lpf);
     v.lpf.frequency.setValueAtTime(brightHz, t);
     v.send.gain.setValueAtTime(wet, t);
-    v.gain.gain.cancelScheduledValues(t);
+    if (!v.stolen) v.gain.gain.cancelScheduledValues(t);   // never cancel the steal fade
     v.gain.gain.setValueAtTime(0, t);
     v.gain.gain.linearRampToValueAtTime(gain * noteScale, t + 0.004);
     v.pan.pan.setValueAtTime(pan, t);
@@ -306,12 +376,17 @@ export function createEngine() {
    * lands. Depth is linear gain (0.6 = about −4.4 dB), release is a time
    * constant so the bloom-back is long and soft.
    */
-  eng.duckBed = (depth = 0.6, hold = 0.4, release = 2.2) => {
+  eng.duckBed = (depth = 0.6, hold = 0.4, release = 2.2, attack = 0.08) => {
     if (!eng.ready) return;
     const t = eng.now();
     const g = eng.padDuck.gain;
     g.cancelScheduledValues(t);
-    g.setTargetAtTime(depth, t, 0.08);
+    // r38g: `attack` is a parameter now. The chord sidechain needs ~0.03 —
+    // flush() ducks ≤30 ms before the notes land, and at the old fixed 0.08
+    // the bed was still ~70% up when the transient stack hit, so the duck
+    // made room AFTER the peak it existed to make room for. The level-change
+    // hush keeps the soft default.
+    g.setTargetAtTime(depth, t, attack);
     g.setTargetAtTime(1.0, t + hold, release / 3);
   };
 
@@ -350,7 +425,8 @@ export function createEngine() {
       analyser = eng.actx.createAnalyser();
       analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0.5;
-      eng.rumble.connect(analyser);
+      // tapped POST-ceiling so the numbers stay "what the hardware receives"
+      eng.clip.connect(analyser);
       meterTime = new Float32Array(analyser.fftSize);
       meterFreq = new Float32Array(analyser.frequencyBinCount);
     }
@@ -390,6 +466,32 @@ export function createEngine() {
   eng.resume = () => { try { eng.actx?.resume?.()?.catch?.(() => { }); } catch (_) { /* */ } };
   eng.suspend = () => { try { eng.actx?.suspend?.()?.catch?.(() => { }); } catch (_) { /* */ } };
   eng.dispose = () => { try { eng.actx?.close?.(); } catch (_) { /* */ } };
+
+  /** The ZOMBIE cure (r36): a suspend→resume CYCLE. After a WKWebView
+   *  background/resume the context can claim 'running' with a frozen clock
+   *  and a dead render pipeline — resume() alone is a no-op on a context
+   *  that already says it is running, so the only lever WebKit gives us is
+   *  a full state round-trip, which rebuilds the pipeline. If the resume
+   *  half is rejected (no gesture), the context parks at 'suspended' —
+   *  a state the watchdog and the permanent tap listeners already revive. */
+  eng.cycle = () => {
+    try {
+      const a = eng.actx; if (!a) return;
+      const go = () => { try { a.resume?.()?.catch?.(() => { }); } catch (_) { /* */ } };
+      const p = a.suspend?.();
+      if (p && p.then) p.then(go, go); else go();
+    } catch (_) { /* */ }
+  };
+  /** One silent frame straight to the destination — wakes the render thread
+   *  after a cycle. Inaudible, O(1), source is one-shot garbage. */
+  eng.kick = () => {
+    try {
+      const a = eng.actx; if (!a) return;
+      const s = a.createBufferSource();
+      s.buffer = a.createBuffer(1, 1, a.sampleRate);
+      s.connect(a.destination); s.start(0);
+    } catch (_) { /* */ }
+  };
 
   return eng;
 }

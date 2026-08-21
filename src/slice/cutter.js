@@ -172,6 +172,7 @@ function clipVert(A, dA, B, dB) {
  * @param {number} rindThickness  world units of peel thickness at the cut edge
  */
 export function cutGeometry(geom, plane, rindThickness = 0.055) {
+  emitReset();   // r38: last cut's emit batches were copied out by buildGeometry
   const pos = geom.attributes.position.array;
   const nor = geom.attributes.normal.array;
   const uvs = geom.attributes.uv.array;
@@ -460,6 +461,38 @@ function capScratch(n) {
     NA: f(RINGS * m * 3), NB: f(RINGS * m * 3),
   };
   return SC;
+}
+
+// ── r38: grow-only arena for addCap's emit batches (HANDOFF open item 1) ────
+// capScratch made the RING work allocation-free, but the emit step still cut
+// six fresh Float32Arrays per cap — ~150 KB per cap, two caps per cut, at the
+// exact moment the player is watching the halves separate. They are
+// INTERMEDIATE: buildGeometry() copies them into the final attribute arrays
+// with .set() and drops them, so unlike those final arrays (which three.js
+// takes ownership of and which MUST stay fresh — a pooled array handed to a
+// live geometry would corrupt every earlier half) these can be carved out of
+// one reused backing buffer. Safe because wc/ws overwrite every float they
+// reserve — the counts are structural (fan N + 6 strips = 13N; chamfer 2N +
+// mergeStrip's exact N+L) — so no batch ever shows a previous cut's bytes.
+//
+// Bump-allocated, reset once per cutGeometry call: P and N and every loop's
+// cap coexist until buildGeometry drains them at the end of the SAME cut, so
+// per-cap reuse would clobber the positive half while building the negative
+// one. Growing mid-cut is safe — a subarray view keeps its retired
+// ArrayBuffer alive, so batches already reserved keep their bytes. The arena
+// converges to the worst cut seen (N is capped at 160, so ~1 MB absolute
+// worst) within a slice or two and then allocates nothing.
+let _emitBuf = new Float32Array(0);
+let _emitOff = 0;
+function emitReset() { _emitOff = 0; }
+function emitAlloc(len) {
+  if (_emitOff + len > _emitBuf.length) {
+    _emitBuf = new Float32Array(Math.max(len, _emitBuf.length * 2, 1 << 16));
+    _emitOff = 0;
+  }
+  const a = _emitBuf.subarray(_emitOff, _emitOff + len);
+  _emitOff += len;
+  return a;
 }
 
 /**
@@ -874,10 +907,12 @@ function addCap(side, R, sign) {
   // piecewise-linear in world DISTANCE from the boundary through the rind zone.
   const capTris = 13 * N;               // fan + 5 flesh/pith strips + the peel band
   const skinTris = 3 * N + R.L;         // chamfer strip + the merge to the seal
-  const cP = new Float32Array(capTris * 9), cN = new Float32Array(capTris * 9);
-  const cU = new Float32Array(capTris * 6);
-  const sP = new Float32Array(skinTris * 9), sN = new Float32Array(skinTris * 9);
-  const sU = new Float32Array(skinTris * 6);
+  // r38: carved from the emit arena (see emitAlloc) instead of six fresh
+  // Float32Arrays. Every float below is overwritten before the batch is read.
+  const cP = emitAlloc(capTris * 9), cN = emitAlloc(capTris * 9);
+  const cU = emitAlloc(capTris * 6);
+  const sP = emitAlloc(skinTris * 9), sN = emitAlloc(skinTris * 9);
+  const sU = emitAlloc(skinTris * 6);
   let ci = 0, si = 0;
 
   /** write ring m / index i (m < 0 = apex) into the cap buffer */

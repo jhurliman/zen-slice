@@ -1,0 +1,12 @@
+{
+  "comment": "App Store screenshot manifest, in display order. Per-device raw files: 'iphone' and 'ipad' (omit a key to skip that shot for that device). Edit captions freely and re-run: node tools/appstore.mjs",
+  "shots": [
+    { "iphone": "IMG_2860.PNG", "ipad": "IMG_0015.PNG", "headline": "Put on headphones", "sub": "this game is an instrument" },
+    { "iphone": "IMG_2842.PNG", "ipad": "IMG_0018.PNG", "headline": "The cut is the note", "sub": "every swipe plays the chord" },
+    { "iphone": "IMG_2843.PNG", "ipad": "IMG_0016.PNG", "headline": "Slice through the chord", "sub": "dyads and triads score bigger" },
+    { "iphone": "IMG_2852.PNG", "ipad": "IMG_0017.PNG", "headline": "Find your tempo", "sub": "the beat is inferred from your slicing" },
+    { "iphone": "IMG_2841.PNG", "ipad": "IMG_0019.PNG", "headline": "Juice, rendered live", "sub": "every fruit, drop and light is procedural" },
+    { "iphone": "IMG_2858.PNG", "ipad": "IMG_0020.PNG", "headline": "Paint with the blade", "sub": "120 fps on ProMotion" },
+    { "iphone": "IMG_2850.PNG", "headline": "A zen orchard", "sub": "generative piano, no two sessions alike" }
+  ]
+}

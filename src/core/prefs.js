@@ -13,7 +13,9 @@
  */
 
 const KEY = 'zs-prefs';
-const DEFAULTS = Object.freeze({ sound: true, haptics: true, bestScore: 0 });
+// `debug` gates the diagnostic strip (hud.js); unlike sound/haptics it
+// defaults OFF, and the toggle itself only exists when build.mjs allows it
+const DEFAULTS = Object.freeze({ sound: true, haptics: true, bestScore: 0, debug: false });
 
 export function loadPrefs() {
   let stored = null;

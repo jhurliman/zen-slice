@@ -76,11 +76,12 @@
  *          full chromium, no angle flags        boot 1.98 s, grab 3.1 s
  */
 import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync, existsSync, readdirSync } from 'fs';
+import { mkdirSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import http from 'http';
 import { readFileSync } from 'fs';
+import { resolveChrome } from './chromepath.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const argv = process.argv.slice(2);
@@ -209,33 +210,9 @@ server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const PORT = server.address().port;
 
-// H5. Resolve a FULL Chromium, never `chromium_headless_shell`. See the header.
-// The search is a glob rather than a fixed list because the playwright revision
-// changes under us: the old hard-coded /opt/pw-browsers pair silently fell
-// through to `undefined`, which hands the launch to playwright's default — and
-// playwright's default IS the headless shell.
-const chromeCandidates = () => {
-  const roots = [
-    '/opt/pw-browsers',
-    join(process.env.HOME || '/root', '.cache/ms-playwright'),
-  ];
-  const out = [];
-  for (const r of roots) {
-    let entries = [];
-    try { entries = readdirSync(r); } catch (e) { continue; }
-    // `chromium-1234` yes; `chromium_headless_shell-1234` NO. Newest revision first.
-    const dirs = entries.filter((d) => /^chromium-\d+$/.test(d))
-      .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]));
-    for (const d of dirs) {
-      for (const sub of ['chrome-linux64/chrome', 'chrome-linux/chrome']) {
-        const c = join(r, d, sub);
-        if (existsSync(c)) out.push(c);
-      }
-    }
-  }
-  return out;
-};
-const exe = chromeCandidates()[0];
+// H5. Resolve a FULL Chromium, never `chromium_headless_shell`. See the header
+// and chromepath.mjs (shared: revision globbing, mac .app bundle handling).
+const exe = resolveChrome();
 if (!exe) {
   const msg = 'no full Chromium found (playwright\'s default is chromium_headless_shell, '
     + 'which has no navigator.gpu). Run: npx playwright install chromium';

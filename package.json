@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "ios": "node build.mjs && node tools/pointerprobe.mjs && npx cap sync ios && git checkout -- ios/App/CapApp-SPM/Package.swift"
   },
   "keywords": [],
   "author": "",

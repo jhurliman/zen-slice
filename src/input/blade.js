@@ -10,9 +10,10 @@
  * swept STEEL BAND: asymmetric cross-section with the cutting edge ON the
  * pointer path and the flat trailing to one side; NORMAL blending over a
  * nearly-black steel base, so it DARKENS the fruit behind it; and exactly one
- * bloomable feature, a thin specular filament on the edge. (The alpha that
- * sentence used to quote, 0.58, was measured in round 8 to darken the streak by
- * 3% — see BODY_A. The principle was right and the number was not.)
+ * bloomable feature, a thin specular filament on the edge (r38c: RETIRED on
+ * device verdict — see FILAMENT_A below). (The alpha that sentence used to
+ * quote, 0.58, was measured in round 8 to darken the streak by 3% — see
+ * BODY_A. The principle was right and the number was not.)
  *
  * ── ROUND 7: the trail joins the lens ──────────────────────────────────────
  * It was the last hard-edged element in every frame. r3, r4, r5 and r6 all
@@ -240,6 +241,18 @@ const ARC_W = 11.83;
 // 0.62 stage.js spends on its streak (`fBCap`), deliberately the same number:
 // bokeh is short-side normalised, so this ceiling is portrait-safe too.
 const BCAP = 0.62;
+
+// r38d: THE TRAIL MESH IS RETIRED — owner's device verdict at the wrapper's
+// 60 Hz. Two escalating attempts first: the degenerate-tangent hold in
+// resample() (fixed one flicker mechanism, not enough), then FILAMENT_A = 0
+// (killed the white core — and the SAME glitched quads just showed as a
+// two-tone grey smear, because the geometry is the defect, not the paint).
+// "Hide the white trace entirely, it doesn't add a ton esp. when it looks
+// like buggy glitches." The stroke's visual is stage.js's streak alone now;
+// all input handling here (push/swipe events — the actual blade) is
+// untouched. Flip to true to audition the band again, e.g. if a
+// pointerrawupdate/120 Hz path ever makes the sample density honest.
+const TRAIL_VISIBLE = false;
 
 // ── the specular filament, in the units api.lens.line() actually wants ─────
 // r6's filament was exp(-d^2 * 0.549), i.e. a gaussian of sigma 1.35 px.
@@ -551,6 +564,19 @@ export function createBlade() {
     const fadeF = fade.pow(1.30);          // the smear lingers
     const fadeE = fade.pow(1.95);          // the specular dies faster
 
+    // (r38c tried retiring only the filament here — a FILAMENT_A = 0 gate on
+    // the edgeC/core terms — and the same glitched quads just showed as a
+    // two-tone grey smear: the geometry was the defect, and every coat of
+    // paint on it flickers the same way. r38d retired the whole MESH instead
+    // (TRAIL_VISIBLE above), so the material is back to its authored form.
+    // ⚠ r38e postmortem, why two device pushes shipped dead input: the
+    // FILAMENT_A cleanup deleted the const but left its two .mul() uses — a
+    // ReferenceError HERE, mid-init, which main.js's safe() swallowed into
+    // ZS.moduleErrors… and this module registers its pointer listeners AFTER
+    // the material. Every probe stayed green because they all drive ZS.swipe
+    // (the bus), not PointerEvents. tools/pointerprobe.mjs now exists to
+    // catch exactly this class: real trusted pointer input, asserted end to
+    // end, plus a moduleErrors check.)
     mat.colorNode = flatC.mul(fadeF).add(edgeC.mul(fadeE)).mul(U.intensity);
     mat.opacityNode = float(BODY_A).mul(fadeF).mul(outer).mul(inner)
       .add(core.mul(0.95).mul(fadeE).mul(oCore).mul(iCore))
@@ -560,6 +586,7 @@ export function createBlade() {
     mesh.name = 'bladeTrail';
     mesh.frustumCulled = false;
     mesh.renderOrder = 999;
+    mesh.visible = TRAIL_VISIBLE;
     ctx.scene.add(mesh);
 
     // ── input ──────────────────────────────────────────────────────────────
@@ -712,6 +739,14 @@ export function createBlade() {
     // deterministic step) and it is one comparison to close.
     if (pts.length && pts[pts.length - 1].t > now + TRAIL_LIFE) pts.length = 0;
     while (pts.length && now - pts[0].t > TRAIL_LIFE) pts.shift();
+    // r38e: trail hidden — skip the resample/glint/geometry rebuild (the mesh
+    // is invisible, the work would be pure heat) but ONLY after the pruning
+    // above, and never by clearing `pts`: push() derives every 'swipe' bus
+    // segment — the actual blade the slicer consumes — from the PREVIOUS
+    // sample in `pts`. r38d's first cut of this early-out zeroed `pts` each
+    // frame, so no pointer sample ever had a predecessor and slicing died
+    // entirely. The trail buffer is input state first, render state second.
+    if (!TRAIL_VISIBLE) { geo.setDrawRange(0, 0); return; }
     if (pts.length < 2) { geo.setDrawRange(0, 0); return; }
 
     const m = resample(now);
@@ -776,15 +811,39 @@ export function createBlade() {
     const recede = RECEDE * clamp((arcW * arcW) / (ARC_W * ARC_W), 0, 1);
 
     let v = 0;
+    // Last trustworthy perpendicular, for the degenerate-station guard below.
+    // (0,0) collapses a station to a zero-area sliver — exactly what the old
+    // `|| 1` path did for an EXACTLY zero tangent — until a real one seeds it.
+    let pnx = 0, pny = 0;
     for (let i = 0; i < m; i++) {
       const ip = i > 0 ? i - 1 : 0, ix = i + 1 < m ? i + 1 : m - 1;
       let dx = (sX[ix] - sX[ip]) * aspect, dy = sY[ix] - sY[ip];
-      const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+      const L = Math.hypot(dx, dy);
       // rotate the tangent -90 deg in aspect-corrected space, then back to ndc.
       // Continuous in direction (no popping) and puts the spine "below" the
       // path for a left-to-right cut, like a blade held from beneath. (nx,ny)
       // scaled by an ndc-y length is a constant-PIXEL offset on both axes.
-      const nx = dy / aspect, ny = -dx;
+      //
+      // ⚠ THE 60 Hz GUARD. WebKit has no pointerrawupdate, so real samples
+      // arrive on pointermove at DISPLAY rate — 120 Hz in the Safari PWA, 60
+      // in the native WKWebView wrapper (WebKit caps rAF there). Half the
+      // samples is twice the gap per segment, and Catmull-Rom overshoot at a
+      // direction change scales with that gap, so wherever a stroke
+      // decelerates or folds back, a station's two NEIGHBOURS can land almost
+      // on top of each other. `|| 1` only caught an EXACT zero: a 1e-6-length
+      // tangent was normalised anyway, and a full-width quad — carrying the
+      // near-white filament on its spine — swung to whatever direction the
+      // residue pointed, re-rolled every frame as the resample slid. That is
+      // the flickering white trace, and it was always here; 60 Hz doubled its
+      // size and its dwell time. Below the shortest spacing the resampler can
+      // legitimately produce (MIN_STEP, portrait aspect-corrected, sub = 4,
+      // central diff spanning 2 sub-steps: ~3.5e-4) the tangent is fold
+      // residue, not signal — hold the last trustworthy perpendicular, which
+      // is what the station physically IS: the band passing through a cusp at
+      // its incoming orientation.
+      let nx, ny;
+      if (L > MIN_STEP * 0.1) { nx = (dy / L) / aspect; ny = -(dx / L); pnx = nx; pny = ny; }
+      else { nx = pnx; ny = pny; }
 
       const u = i / (m - 1);
       // a real blade tapers to a point at the tip; the tail is motion smear
@@ -882,7 +941,7 @@ export function createBlade() {
   api.quality = (q) => {
     tier = q?.tier ?? TIER.HIGH;
     if (U) U.detail.value = tier <= TIER.MED ? 0 : 1;
-    if (mesh) mesh.visible = true;
+    if (mesh) mesh.visible = TRAIL_VISIBLE;
   };
 
   api.dispose = () => {

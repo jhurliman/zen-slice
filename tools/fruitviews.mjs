@@ -28,6 +28,7 @@
  */
 import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { resolveChrome } from './chromepath.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { execFileSync } from 'child_process';
@@ -139,24 +140,7 @@ await new Promise((r) => server.listen(0, r));
 const PORT = server.address().port;
 
 // ── resolve a FULL Chromium, never chromium_headless_shell (shoot.mjs H5) ────
-const chromeCandidates = () => {
-  const roots = ['/opt/pw-browsers', join(process.env.HOME || '/root', '.cache/ms-playwright')];
-  const out = [];
-  for (const r of roots) {
-    let entries = [];
-    try { entries = readdirSync(r); } catch (e) { continue; }
-    const dirs = entries.filter((d) => /^chromium-\d+$/.test(d))
-      .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]));
-    for (const d of dirs) {
-      for (const sub of ['chrome-linux64/chrome', 'chrome-linux/chrome']) {
-        const c = join(r, d, sub);
-        if (existsSync(c)) out.push(c);
-      }
-    }
-  }
-  return out;
-};
-const exe = chromeCandidates()[0];
+const exe = resolveChrome();
 if (!exe) {
   console.error('fruitviews.mjs: no full Chromium found. Run: npx playwright install chromium');
   process.exit(1);

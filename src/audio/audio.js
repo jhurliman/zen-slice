@@ -73,11 +73,13 @@ export function createAudio() {
   const HUM_Q_MAX = 8;
   let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9, lastHum = -1e9;
   let lastWatchdog = 0, swishCount = 0;
+  // r36: zombie-context detection — see the watchdog in api.frame().
+  let lastCT = -1, frozenSecs = 0, recoveries = 0;
   // r21: the settings mute. Everything keeps RUNNING (engine, conductor,
   // scheduler) — mute is just the master fader at 0, so unmute is instant.
   let soundOn = loadPrefs().sound !== false;
   const masterLevel = () => (soundOn ? 0.85 : 0);
-  let caps = { background: true, arps: true, voices: 16, wet: 1.0 };
+  let caps = { background: true, arps: true, voices: 22, wet: 1.0 };   // r38h: see engine pool
 
   const nosound = (() => {
     try {
@@ -150,6 +152,18 @@ export function createAudio() {
     ['pointerdown', 'touchstart', 'keydown'].forEach((ev) =>
       window.addEventListener(ev, unlock, { passive: true }));
 
+    // r36: shared return-to-foreground path — resume, unmute, and arm the
+    // zombie watchdog to check FAST (~0.5 s instead of up to 3): baseline
+    // the clock now, count this as the first frozen second, and let the
+    // next watchdog tick decide. A healthy context advances its clock and
+    // resets the count; a zombie gets cycled half a second after return.
+    const wake = () => {
+      engine.resume();
+      engine.setMaster(masterLevel(), 0.4);
+      lastCT = engine.actx ? engine.actx.currentTime : -1;
+      frozenSecs = 1; lastWatchdog = 0.5;
+    };
+
     document.addEventListener('visibilitychange', guard(() => {
       if (!started) return;
       if (document.hidden) {
@@ -158,11 +172,19 @@ export function createAudio() {
         // "audio is gone when I come back" bug: the resume was rejected and
         // nothing retried. Let the OS own the context; we own the fader.
         engine.setMaster(0, 0.05);
-      } else {
-        engine.resume();
-        engine.setMaster(masterLevel(), 0.4);
-      }
+      } else wake();
     }));
+
+    // r36: in the Capacitor shell, the App plugin's appStateChange is the
+    // shell's own foreground truth — belt-and-braces beside visibilitychange
+    // (WebKit has a history of dropping one or the other after edge cases
+    // like Siri or a call). Reads the injected global like haptics.js does:
+    // zero wrapper bytes and a guaranteed no-op on the web.
+    try {
+      window.Capacitor?.Plugins?.App?.addListener?.('appStateChange', guard((s) => {
+        if (started && s?.isActive && !document.hidden) wake();
+      }));
+    } catch (_) { /* */ }
 
     c.bus.on('pref', guard((e) => {
       if (e.key !== 'sound') return;
@@ -278,7 +300,13 @@ export function createAudio() {
     // cuts, so the downbeat of the reward moment landed at single-note
     // weight and triads read flatter than they scored ("big game moments
     // should be sonic exclamation points"). Modest and size-scaled.
-    const accent = n >= 3 ? Math.min(1.22, 1 + 0.08 * (n - 2)) : 1;
+    // r38g: accent 1.22 → 1.12 cap. The r34 exclamation point plus the r18
+    // boost plus the run stacked a 4-fruit moment into the safety ceiling —
+    // "chords don't FULLY clip now, but they get pretty close and still make
+    // an ugly sound" (tanh saturation instead of DAC wrap — better, still
+    // wrong). The oomph moves to CONTRAST: the notes come down a few dB and
+    // the bed ducks deeper and FASTER under them (see duckBed's new attack).
+    const accent = n >= 3 ? Math.min(1.12, 1 + 0.05 * (n - 2)) : 1;
     const av = Math.min(1, first.v * accent);
     playNote(semis[0], av, panOf(first.x), t, brightOf(av), wetOf(first.y));
     if (echoes.has(0)) conductor.echo(semis[0], first.v, panOf(first.x));
@@ -293,7 +321,8 @@ export function createAudio() {
       else order.sort((a, b) => pending[a].x - pending[b].x);
       // r18: chords land FULLER than single notes — a combo is the game's
       // reward moment and the player asked for "a touch more oomph"
-      const boost = Math.min(1.35, 1.1 + 0.07 * n);
+      // (r38g: 1.35 → 1.22 cap — see the accent note; room, not force)
+      const boost = Math.min(1.22, 1.06 + 0.05 * n);
       for (let k = 0; k < order.length; k++) {
         const i = order[k];
         const p = pending[i];
@@ -309,12 +338,16 @@ export function createAudio() {
       // which is an off-chord semitone at the exact reward moment.
       if (n >= 3) {
         const sub = semis[byPitch[byPitch.length - 1]] - 12;
-        // r34: the foundation grows a step with the stroke (0.5 / 0.55 / 0.6)
-        const subG = 0.5 + 0.05 * Math.min(2, n - 3);
+        // r34: the foundation grows a step with the stroke; r38g trims it
+        // (0.5/0.55/0.6 → 0.42/0.46/0.5) — the sub-octave is the single
+        // biggest energy block in the stack and the least missed 2 dB
+        const subG = 0.42 + 0.04 * Math.min(2, n - 3);
         if (sub >= -25) playNote(sub, Math.min(1, first.v * boost) * subG, 0, t, 900, 0.45);
         // r34: the mix breathes for a TRIAD too — a light one-beat dip (the
         // 4+ duck below is the deep one). Oomph by making room, not loudness.
-        if (n === 3) engine.duckBed(0.78, 0.3, 1.4);
+        // r38g: deeper (0.78 → 0.68) and fast-attack, so the room exists
+        // BEFORE the chord, not just under its tail
+        if (n === 3) engine.duckBed(0.68, 0.3, 1.4, 0.03);
       }
       // r26: FOUR and up earns the grand run — the player: a 4+ harmony "is
       // quite rare… it should be rewarded with a more impactful musical
@@ -325,15 +358,19 @@ export function createAudio() {
       if (n >= 4) {
         // r27 sidechain breathing: the bed makes room for the reward moment,
         // then swells back while the run rings — authored, not pumping
-        // (r34: a touch deeper, ~+0.7 dB more room for the exclamation point)
-        engine.duckBed(0.55, 0.5, 2.4);
+        // (r34: a touch deeper; r38g: deeper still, 0.55 → 0.42 ≈ −7.5 dB,
+        // fast-attack, and held a hair longer — the loudness that came out of
+        // the notes goes back in as contrast)
+        engine.duckBed(0.42, 0.55, 2.4, 0.03);
         const run = harmony.runNotes(n >= 5 ? 3 : 2);
         const t0 = t + 0.10 + (order.length + 1) * STRUM;
         const last = run.length - 1;
         for (let k = 0; k < run.length; k++) {
           const u = last > 0 ? k / last : 1;
-          // r34: the crown of the run rings a little prouder (0.46 → 0.52)
-          const gv = (k === last ? 0.52 : 0.20 + 0.14 * u);
+          // r34 rang the crown prouder (0.52); r38g returns it to r26's 0.46
+          // and eases the ramp — twelve notes over a ducked-to-0.42 bed read
+          // bigger than they did over a full one at any gain
+          const gv = (k === last ? 0.46 : 0.18 + 0.12 * u);
           playNote(run[k], gv, (u - 0.5) * 0.9, t0 + k * 0.052,
             3000 + 2600 * u, 0.8);
         }
@@ -421,7 +458,28 @@ export function createAudio() {
       lastWatchdog += dt;
       if (lastWatchdog > 1) {
         lastWatchdog = 0;
-        if (!document.hidden && engine.actx && engine.actx.state !== 'running') engine.resume();
+        if (!document.hidden && engine.actx) {
+          const st = engine.actx.state, ct = engine.actx.currentTime;
+          if (st !== 'running') { engine.resume(); frozenSecs = 0; }
+          else if (ct === lastCT) {
+            // r36 ZOMBIE: the context CLAIMS 'running' but its clock is
+            // frozen and it renders silence — the WKWebView (and old mobile
+            // Safari) background/resume failure this watchdog could never
+            // see, because every retry path here trusts `state`. Two
+            // consecutive frozen checks while visible = declared dead;
+            // cycle rebuilds the pipeline, the kick wakes the render
+            // thread. Worst case the cycle's resume needs a gesture and
+            // the context parks at 'suspended' — a state the branch above
+            // and the permanent tap listeners already revive. Silent-
+            // while-'running' is the one state nothing retried; not anymore.
+            frozenSecs += 1;
+            if (frozenSecs >= 2) {
+              frozenSecs = 0; recoveries += 1;
+              engine.cycle(); engine.kick();
+            }
+          } else frozenSecs = 0;
+          lastCT = ct;
+        }
       }
       conductor.frame(dt);
       // r27: publish the live beat for the beat-synced combo window —
@@ -470,8 +528,10 @@ export function createAudio() {
     caps = q.tier <= 0
       ? { background: false, arps: false, voices: 8, wet: 0.5 }
       : q.tier === 1
-        ? { background: true, arps: false, voices: 12, wet: 0.8 }
-        : { background: true, arps: true, voices: 16, wet: 1.0 };
+        ? { background: true, arps: false, voices: 14, wet: 0.8 }
+        // r38h: 16 → 22 — a flourish is ~18 pitched notes; at 16 the run's
+        // second half was guaranteed voice-stealing (the chirps)
+        : { background: true, arps: true, voices: 22, wet: 1.0 };
     if (!started) return;
     conductor.setCaps(caps);
     engine.setPianoCap(caps.voices);
@@ -483,6 +543,10 @@ export function createAudio() {
     started, pianoReady: !!pianoKit,
     muted: !soundOn,
     actxState: engine.actx ? engine.actx.state : 'none',
+    // r36: times the zombie watchdog declared the context dead and cycled
+    // it. Nonzero on device = the WKWebView background/resume bug fired
+    // and was caught; visible on the ?debug strip as `rec N`.
+    recoveries,
     // hardware truth for the latency conversation: seconds from "we scheduled
     // it" to "the speaker moves". Read these off the device via ?debug.
     baseLatency: engine.actx?.baseLatency ?? null,

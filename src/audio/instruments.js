@@ -463,6 +463,317 @@ export function playSigh(engine, semis) {
   o.start(t); o.stop(t + 2.2);
 }
 
+/**
+ * ── PER-LEVEL TEXTURES — the air in the room ────────────────────────────────
+ * The day already changes its notes (palettes, motifs, basses), its cut sound
+ * (SWISH_FOR_LEVEL) and its reverb room (engine.SPACES) per level — but the
+ * continuous bed timbre was identical from dawn to the coda. This bank is the
+ * missing axis: one always-running, whisper-quiet atmosphere per level, fully
+ * procedural (the no-assets rule), crossfaded when a level's palette LANDS
+ * (conductor.onBar) so the new air arrives out of the r27 hush together with
+ * the tonic bloom. Still Water stays null: silence IS its texture, and it
+ * makes First Light's first breath of air mean something.
+ *
+ * Three generator kinds; levels get parameter RECIPES, not code:
+ *   · air     — engine.noise looped through a slowly wandering bandpass with
+ *               a slow amplitude breathe. Dawn air, open daylight, night dark.
+ *   · shimmer — two sine partials (chord root + fifth, high register) with
+ *               independent slow swells and a whisper of detune drift,
+ *               re-pitched via retune() on every chord change. Heat-haze.
+ *   · grains  — sparse Poisson-timed DIEGETIC events: dewdrops (sine pings
+ *               on the chord's color tone), rain drips (pitch-rising bloops
+ *               with distance-as-depth), ember crackle, crickets. Weather,
+ *               never rhythm — the random-on-the-grid slot already belongs
+ *               to the sparkle arps, so grains are deliberately NOT
+ *               grid-locked.
+ *
+ * Routing: air + shimmer feed padBus, so the idle breathing filter closes
+ * over them and the level-change duck hushes them for free. Grains enter at
+ * padDuck (post the breathing lowpass): a 4 kHz cricket or a 3 kHz rain tick
+ * would simply vanish under padLp's calm-play cutoff — they keep the duck and
+ * the room send, and presence (the conductor's bloom-driven floor) is what
+ * settles them when the world goes still.
+ *
+ * Loudness discipline: everything here sits UNDER the drone (its partials run
+ * ~0.01–0.02). If you can point at the texture, it is too loud.
+ */
+export const TEXTURES = [
+  /* 0 Still Water — silence is the texture */
+  null,
+  /* 1 First Light — the first breath: low slow dawn air */
+  { air: { f: 300, q: 1.1, g: 0.018, breathe: 0.5, trem: 0.045, wander: 60 } },
+  /* 2 Morning Dew — that air, plus sine-ping dewdrops on the chord's color */
+  {
+    air: { f: 430, q: 1.2, g: 0.016, breathe: 0.45, trem: 0.06, wander: 80 },
+    grains: { kind: 'dew', rate: 0.25, g: 0.045 },
+  },
+  /* 3 Orchard Rain — the GRAINS carry this level; the air is just damp
+   * stillness under them. First-ear pass: breathe 0.4 read as ocean SWELLS
+   * ("waves crashing on the beach") and drowned the rain — depth 0.2 is
+   * humidity, not surf, and the bed drops ~5 dB out of the drops' way.
+   * Second ear pass: 5/s ticks read as "finger taps" — rate 1.1 makes each
+   * drop an EVENT (the drop itself is rebuilt as a bloop, see spawnGrain). */
+  {
+    air: { f: 480, q: 0.9, g: 0.009, breathe: 0.2, trem: 0.05, wander: 70 },
+    grains: { kind: 'rain', rate: 1.1, g: 0.12 },
+  },
+  /* 4 Noon Bloom — bright open air, full sun, no weather (first-ear pass:
+   * "a touch loud, could sit deeper in the mix" — 0.017 → 0.011) */
+  { air: { f: 950, q: 0.8, g: 0.011, breathe: 0.35, trem: 0.04, wander: 160 } },
+  /* 5 Summer Weight — heat HAZE: warm still air + detuned shimmer. The
+   * first-ear version was a 5.2 Hz tremolo on a high band — "some wild
+   * shaker! way too much" — exactly the r23 grain-train lesson relearned on
+   * a new layer. Heavy summer heat doesn't pulse; it shimmers. */
+  {
+    air: { f: 900, q: 0.8, g: 0.01, breathe: 0.3, trem: 0.05, wander: 110 },
+    shimmer: { g: 0.007, det: 6 },
+  },
+  /* 6 Golden Hour — warm low-mid air + the beating shimmer partials */
+  {
+    air: { f: 640, q: 0.9, g: 0.018, breathe: 0.4, trem: 0.05, wander: 90 },
+    shimmer: { g: 0.01, det: 5 },
+  },
+  /* 7 Dusk Ember — darkening air; ultra-sparse low crackle */
+  {
+    air: { f: 400, q: 1.0, g: 0.017, breathe: 0.5, trem: 0.045, wander: 60 },
+    grains: { kind: 'ember', rate: 0.55, g: 0.04 },
+  },
+  /* 8 Night Jasmine — dark narrow air + rare crickets across the dark */
+  {
+    air: { f: 270, q: 1.3, g: 0.018, breathe: 0.55, trem: 0.035, wander: 45 },
+    grains: { kind: 'cricket', rate: 0.14, g: 0.05 },
+  },
+  /* 9 Deep Calm — the widest, softest air + shimmer; the day, gentled */
+  {
+    air: { f: 500, q: 0.65, g: 0.019, breathe: 0.5, trem: 0.03, wander: 70 },
+    shimmer: { g: 0.008, det: 3 },
+  },
+];
+
+/** Nearest realization of pitch class `pc` to `center` (semitones from A3).
+ *  Oscillator-only pitches — no kit-span clamp needed here. */
+const placeNear = (pc, center) => pc + 12 * Math.round((center - pc) / 12);
+
+export function makeTexture(engine, harmony) {
+  const actx = engine.actx;
+
+  // presence trunk for the filtered layers (air + shimmer) → padBus
+  const out = actx.createGain(); out.gain.value = 0;
+  out.connect(engine.padBus);
+  // grains bypass padLp (see header): into padDuck, so duck + room still apply
+  const grainOut = actx.createGain(); grainOut.gain.value = 0;
+  grainOut.connect(engine.padDuck);
+  // r38b: a presence-scaled DIRECT room trunk for grains that want more
+  // reverb than padSend's fixed 0.8 — distance-as-depth for the rain drips
+  const grainWet = actx.createGain(); grainWet.gain.value = 0;
+  grainWet.connect(engine.reverbIn);
+
+  // ── air: looping noise → wandering bandpass → breathing gain ──────────────
+  const airSrc = actx.createBufferSource(); airSrc.buffer = engine.noise; airSrc.loop = true;
+  const airBp = actx.createBiquadFilter(); airBp.type = 'bandpass';
+  airBp.frequency.value = 400; airBp.Q.value = 1.0;
+  const airG = actx.createGain(); airG.gain.value = 0;
+  airSrc.connect(airBp); airBp.connect(airG); airG.connect(out);
+  airSrc.start();
+  const wanderLfo = actx.createOscillator(); wanderLfo.frequency.value = 0.031;
+  const wanderG = actx.createGain(); wanderG.gain.value = 0;
+  wanderLfo.connect(wanderG); wanderG.connect(airBp.frequency); wanderLfo.start();
+  const breatheLfo = actx.createOscillator(); breatheLfo.frequency.value = 0.05;
+  const breatheG = actx.createGain(); breatheG.gain.value = 0;
+  breatheLfo.connect(breatheG); breatheG.connect(airG.gain); breatheLfo.start();
+
+  // ── shimmer: two partials (root, fifth high), each a crossfaded osc pair
+  // (the drone's r17 no-glide trick) with a slow swell and detune drift ─────
+  const partials = [24, 31].map((center, i) => {
+    const swell = actx.createGain(); swell.gain.value = 1;
+    swell.connect(out);
+    const lfo = actx.createOscillator(); lfo.frequency.value = 0.041 + i * 0.018;
+    const lfg = actx.createGain(); lfg.gain.value = 0.35;
+    lfo.connect(lfg); lfg.connect(swell.gain); lfo.start();
+    const drift = actx.createOscillator(); drift.frequency.value = 0.05 + i * 0.023;
+    const driftG = actx.createGain(); driftG.gain.value = 0;   // cents, set per recipe
+    drift.connect(driftG); drift.start();
+    const pair = [0, 1].map(() => {
+      const o = actx.createOscillator(); o.type = 'sine'; o.frequency.value = 880;
+      const g = actx.createGain(); g.gain.value = 0;
+      o.connect(g); g.connect(swell);
+      driftG.connect(o.detune);
+      o.start();
+      return { o, g };
+    });
+    return { center, pair, driftG, active: 0, semis: -1e9, level: 0 };
+  });
+
+  let recipe = null;          // TEXTURES[level] (or null)
+  let grainRecipe = null;
+  let nextGrain = 1e9;        // engine-clock time of the next grain
+
+  // ── the diegetic grains ────────────────────────────────────────────────────
+  function spawnGrain(r, when) {
+    const vel = 0.7 + Math.random() * 0.3;
+    if (r.kind === 'dew') {
+      // a dewdrop: one high sine ping on the chord's color tone, tiny
+      // downward settle — pitched at spawn time so it can never go stale
+      const f = semisToFreq(harmony.noteFor('strawberry', 0));
+      const o = actx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(f * 1.02, when);
+      o.frequency.exponentialRampToValueAtTime(f, when + 0.05);
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(r.g * vel, when + 0.004);
+      g.gain.setTargetAtTime(0, when + 0.01, 0.16);
+      const pan = actx.createStereoPanner(); pan.pan.value = (Math.random() * 2 - 1) * 0.5;
+      o.connect(g); g.connect(pan); pan.connect(grainOut);
+      o.start(when); o.stop(when + 0.9);
+    } else if (r.kind === 'rain') {
+      // r38b: a DRIP, not a finger tap. The resonant-tick version was pure
+      // transient and the player heard percussion ("finger taps"). A water
+      // drop's identity is the BLOOP — classic drop synthesis: a small sine
+      // whose pitch RISES as the cavity closes — landed on a chord tone so
+      // the orchard drips in key. And DEPTH: each drop falls at a random
+      // distance — far ones quieter, duller, panned wider and mostly room
+      // (the grainWet trunk); near ones bright and dry, with a whisper of
+      // splash noise. Rain becomes a place, not a pattern.
+      const dist = Math.random();                    // 0 near … 1 far
+      const amp = r.g * vel * (1 - 0.72 * dist);
+      const chord = harmony.chord();
+      const pc = chord.tones[(Math.random() * chord.tones.length) | 0];
+      const f = semisToFreq(placeNear(pc, 12 + ((Math.random() * 8) | 0)));
+      const pan = actx.createStereoPanner();
+      pan.pan.value = (Math.random() * 2 - 1) * (0.3 + 0.5 * dist);
+      const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
+      lp.frequency.value = 4600 - 3200 * dist;       // far = duller
+      lp.connect(pan); pan.connect(grainOut);
+      const wetG = actx.createGain(); wetG.gain.value = 0.3 + 1.1 * dist;
+      pan.connect(wetG); wetG.connect(grainWet);
+      const o = actx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(f * 0.8, when);
+      o.frequency.exponentialRampToValueAtTime(f, when + 0.035 + 0.05 * Math.random());
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(amp, when + 0.007);
+      g.gain.setTargetAtTime(0, when + 0.015, 0.055 + 0.05 * (1 - dist));
+      o.connect(g); g.connect(lp);
+      o.start(when); o.stop(when + 0.6);
+      if (dist < 0.4) {
+        // the splash whisper, near drops only: 20 ms of high air beside the bloop
+        const src = actx.createBufferSource(); src.buffer = engine.noise;
+        const bp = actx.createBiquadFilter(); bp.type = 'bandpass';
+        bp.frequency.value = 3200 + Math.random() * 1500; bp.Q.value = 2.5;
+        const ng = actx.createGain();
+        ng.gain.setValueAtTime(0, when);
+        ng.gain.linearRampToValueAtTime(amp * 0.25, when + 0.003);
+        ng.gain.exponentialRampToValueAtTime(0.0001, when + 0.02);
+        src.connect(bp); bp.connect(ng); ng.connect(lp);
+        src.start(when, Math.random() * 0.9, 0.03);
+      }
+    } else if (r.kind === 'ember') {
+      // an ember pop: short low-mid crackle, sometimes a settling second
+      const src = actx.createBufferSource(); src.buffer = engine.noise;
+      const bp = actx.createBiquadFilter(); bp.type = 'bandpass';
+      bp.frequency.value = 400 + Math.random() * 500; bp.Q.value = 3;
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(r.g * vel, when + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + 0.03);
+      const pan = actx.createStereoPanner(); pan.pan.value = (Math.random() * 2 - 1) * 0.4;
+      src.connect(bp); bp.connect(g); g.connect(pan); pan.connect(grainOut);
+      src.start(when, Math.random() * 0.9, 0.04);
+      if (Math.random() < 0.3) spawnGrain({ ...r, g: r.g * 0.5 }, when + 0.04 + Math.random() * 0.05);
+    } else if (r.kind === 'cricket') {
+      // a cricket chirp: 3–4 pulses of a ~4 kHz sine — unpitched on purpose,
+      // this high it is diegesis, not harmony
+      const o = actx.createOscillator(); o.type = 'sine';
+      o.frequency.value = 3700 + Math.random() * 600;
+      const g = actx.createGain(); g.gain.value = 0;
+      const pan = actx.createStereoPanner(); pan.pan.value = (Math.random() * 2 - 1) * 0.7;
+      o.connect(g); g.connect(pan); pan.connect(grainOut);
+      const pulses = 3 + ((Math.random() * 2) | 0);
+      let t = when;
+      for (let k = 0; k < pulses; k++) {
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(r.g * vel, t + 0.012);
+        g.gain.linearRampToValueAtTime(0, t + 0.03);
+        t += 0.055;
+      }
+      o.start(when); o.stop(t + 0.05);
+    }
+  }
+
+  return {
+    /** Crossfade to level `l`'s recipe over `fade` seconds. Called by the
+     *  conductor when a palette LANDS, never when the level is merely set. */
+    setLevel(l, fade = 5) {
+      recipe = TEXTURES[Math.max(0, Math.min(TEXTURES.length - 1, l | 0))] || null;
+      const t = engine.now();
+      const k = Math.max(0.3, fade * 0.4);
+      const a = recipe && recipe.air;
+      if (a) {
+        airBp.frequency.setTargetAtTime(a.f, t, k);
+        airBp.Q.setTargetAtTime(a.q, t, k);
+        airG.gain.setTargetAtTime(a.g, t, k);
+        // breathe depth rides the base so the sum can never swing negative
+        breatheG.gain.setTargetAtTime(a.g * a.breathe, t, k);
+        breatheLfo.frequency.setTargetAtTime(a.trem, t, k);
+        wanderG.gain.setTargetAtTime(a.wander, t, k);
+      } else {
+        airG.gain.setTargetAtTime(0, t, k);
+        breatheG.gain.setTargetAtTime(0, t, k);
+      }
+      const sh = recipe && recipe.shimmer;
+      for (const p of partials) {
+        p.level = sh ? sh.g : 0;
+        p.driftG.gain.setTargetAtTime(sh ? sh.det : 0, t, k);
+      }
+      this.retune(fade);
+      grainRecipe = (recipe && recipe.grains) || null;
+    },
+
+    /** Re-aim the shimmer partials at the current chord (root + fifth). */
+    retune(fade = 1.5) {
+      const chord = harmony.chord();
+      const t = engine.now();
+      const k = Math.max(0.3, fade * 0.4);
+      const pcs = [chord.tones[0], (chord.tones[0] + 7) % 12];
+      for (let i = 0; i < partials.length; i++) {
+        const p = partials[i];
+        const semis = placeNear(pcs[i], p.center);
+        if (semis === p.semis) {
+          // pitch unchanged — just track the level on the sounding osc
+          p.pair[p.active].g.gain.setTargetAtTime(p.level, t, k);
+          continue;
+        }
+        const from = p.pair[p.active], to = p.pair[1 - p.active];
+        p.active = 1 - p.active; p.semis = semis;
+        to.o.frequency.setValueAtTime(semisToFreq(semis), t);
+        to.g.gain.setTargetAtTime(p.level, t, k);
+        from.g.gain.setTargetAtTime(0, t, k);
+      }
+    },
+
+    /** Bloom-driven presence (conductor.frame): floor + growth, 0 when the
+     *  background cap is off. One value scales air, shimmer AND grains. */
+    setPresence(p) {
+      const t = engine.now();
+      out.gain.setTargetAtTime(p, t, 0.6);
+      grainOut.gain.setTargetAtTime(p, t, 0.6);
+      grainWet.gain.setTargetAtTime(p, t, 0.6);
+    },
+
+    /** Emit Poisson-timed grains inside [now, until) — called every frame
+     *  with the conductor's own look-ahead horizon, actx clock throughout. */
+    schedule(now, until) {
+      if (!grainRecipe) { nextGrain = until + 0.05; return; }
+      // a long suspend leaves the cursor in the past; jump, don't catch up
+      if (nextGrain < now - 0.5) nextGrain = now + 0.1 + Math.random() * 0.4;
+      while (nextGrain < until) {
+        spawnGrain(grainRecipe, Math.max(nextGrain, now));
+        nextGrain += -Math.log(1 - Math.random()) / grainRecipe.rate;
+      }
+    },
+  };
+}
+
 /** Arrival/return bloom: tonic in octaves with a slow swell, mostly reverb.
  *  Marks a level's palette landing, and the first slice after long silence. */
 export function playBloom(engine, semis, when = 0) {

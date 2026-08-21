@@ -35,9 +35,14 @@ swish/thump ───┤                                                  ├─
 pad bank ──────┴─ padBus → padLp → padGain → padDuck ─────────────┘     │
                                                                         ▼
                               warmth low-shelf (240 Hz) → air high-shelf (7.5 kHz)
-                                → trim → 28 Hz rumble highpass → destination
+                                → trim → 28 Hz rumble highpass
+                                → safety limiter (−3 dB, 20:1) → tanh ceiling → destination
                               (compressor −17.6 dB / 3.3:1 on the percussive bus;
-                               the sustained bed bypasses it so it never pumps)
+                               the sustained bed bypasses it so it never pumps —
+                               which is WHY the last two stages exist: nothing else
+                               bounds the summed signal before the DAC. The limiter
+                               has no lookahead, so a 4×-oversampled WaveShaper
+                               saturates the first-millisecond transients it misses)
 ```
 
 Reverb is a **pair of crossfaded convolvers** with procedurally rendered
@@ -122,6 +127,21 @@ the rock's knuckle.
 
 A slice is exactly two sounds: **air at contact, the note on the grid.**
 
+**The textures** (`TEXTURES` + `makeTexture`) are each level's atmosphere —
+the air in the room, whisper-quiet under the drone. Three generator kinds,
+driven by per-level parameter recipes: **air** (looping noise through a
+slowly wandering, breathing bandpass), **shimmer** (two high sine partials on
+the chord's root + fifth, re-pitched every chord change), and **grains** —
+sparse Poisson-timed *diegetic* events (dewdrops on the chord's color tone,
+rain ticks, ember crackle, crickets), deliberately never grid-locked: weather,
+not rhythm. Still Water's texture is null — silence is its identity, and it
+makes First Light's first breath of air mean something. The recipe crossfades
+when a level's palette *lands* (out of the pre-landing hush, with the tonic
+bloom); presence rides bloom over a small always-on floor, so the level keeps
+its identity in idle and grows with play. Air + shimmer route through the pad
+bus (the breathing filter and duck apply); grains enter post-filter so a
+4 kHz cricket survives the calm-play lowpass.
+
 ## Reward moments
 
 | stroke size | callout | sound |
@@ -141,7 +161,7 @@ first and loudest, the intended note stumbling in 15 ms behind.
 
 The per-level arrays are INDEX-MATCHED to `director.js`'s `LEVELS` (the
 10-level arc): `PALETTES`, `BARS_PER_CHORD` (harmony.js); `MOTIFS`, `BASSES`,
-`PAD_COUNT` (conductor.js); `SWISH_FOR_LEVEL` (instruments.js);
+`PAD_COUNT` (conductor.js); `SWISH_FOR_LEVEL`, `TEXTURES` (instruments.js);
 `SPACE_FOR_LEVEL` (audio.js). A level added to one table must be added to
 all — `tools/audioprobe.mjs` asserts the lengths agree.
 
