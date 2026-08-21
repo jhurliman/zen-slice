@@ -1,0 +1,111 @@
+# Push the web demo to itch.io on every merge to main, via butler.
+#
+# Same single-file build as pages.yml (see the notes there), but the package
+# is ONLY the game: no site/ pages, no press kit — the itch embed serves
+# index.html and nothing else needs to exist.
+#
+# ⚠ THIS WORKFLOW IS INERT UNTIL TWO THINGS ARE CONFIGURED in the repo
+# settings — it skips (does not fail) while they're missing, so merging this
+# file before the itch project exists is safe:
+#
+#   1. Repository VARIABLE `ITCH_TARGET` — the butler target, e.g.
+#      `someuser/chord-cut:html`. The `:html` channel suffix is what tells
+#      itch this is a browser-playable build. (A variable, not a secret,
+#      because job-level `if:` can read `vars` but not `secrets`.)
+#   2. Repository SECRET `BUTLER_API_KEY` — from itch.io → Settings → API
+#      keys. butler reads this env var directly; there is no login step.
+#
+# The itch project page itself must be created by hand once (butler can push
+# builds, not create projects).
+name: itch
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Builds from consecutive merges queue rather than cancel: butler pushes are
+# diffs against the previous build, so order matters more than latency.
+concurrency:
+  group: itch
+  cancel-in-progress: false
+
+jobs:
+  push-demo:
+    # Inert until the repo variable exists — see the header comment.
+    if: ${{ vars.ITCH_TARGET != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: install
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: build the game
+        run: node build.mjs
+        env:
+          # The itch build is the DEMO, same as Pages.
+          DEMO: '1'
+          # Unlike pages.yml, the store link is baked in unconditionally: the
+          # itch page stays Draft/Restricted until release day, so nobody can
+          # reach the veil's CTA while the link still 404s. When the page goes
+          # public the link is already correct — nothing to flip here.
+          APPSTORE_URL: 'https://apps.apple.com/us/app/chord-cut/id6803614537'
+          APPSTORE_ID: '6803614537'
+
+      # Identical guard to pages.yml, for the identical reason: esbuild can
+      # exit 0 having produced a bundle missing three.js, and a 40 KB
+      # index.html would push perfectly happily and boot to nothing.
+      - name: refuse to publish a broken bundle
+        run: |
+          set -euo pipefail
+          test -f dist/index.html || { echo "::error::dist/index.html was not produced"; exit 1; }
+          bytes=$(stat -c%s dist/index.html)
+          echo "dist/index.html is $((bytes / 1024)) KB"
+          if [ "$bytes" -lt 1000000 ]; then
+            echo "::error::dist/index.html is only $((bytes / 1024)) KB; the real bundle is ~3900 KB."
+            echo "::error::That means the three.js/Rapier bundle did not make it in. Refusing to deploy."
+            exit 1
+          fi
+          grep -q 'ZenSlice.boot' dist/index.html \
+            || { echo "::error::bootstrap missing from dist/index.html"; exit 1; }
+          grep -q 'WebGPURenderer' dist/index.html \
+            || { echo "::error::three's WebGPU build is not in the bundle"; exit 1; }
+
+      # Pinned butler rather than LATEST: this job runs unattended on every
+      # merge, and an unpinned binary download is not a dependency we audit.
+      # 15.21.0 is the current stable and has been for years.
+      - name: install butler
+        run: |
+          set -euo pipefail
+          curl -fsSL -o butler.zip \
+            https://broth.itch.zone/butler/linux-amd64/15.21.0/archive/default
+          unzip -o butler.zip butler
+          chmod +x butler
+          ./butler -V
+
+      - name: push to itch
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCH_TARGET: ${{ vars.ITCH_TARGET }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "::error::ITCH_TARGET is set but the BUTLER_API_KEY secret is missing."
+            echo "::error::Add it in repo settings (itch.io → Settings → API keys) or unset ITCH_TARGET."
+            exit 1
+          fi
+          mkdir itch-pkg
+          cp dist/index.html itch-pkg/
+          ./butler push itch-pkg "$ITCH_TARGET" \
+            --userversion "$(git -C . log -1 --format=%cd --date=format:%Y%m%d)-${GITHUB_SHA::7}"
