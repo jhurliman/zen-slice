@@ -8,7 +8,9 @@ composed for. The web build is the first three levels of the game's
 ten-level day arc; the full journey ships as a paid iOS app — buying it is
 how you support this work.
 
-![Chord Cut](shots/title-portrait.png)
+![A watermelon splitting along a golden blade trail, juice mid-flight, DYAD +66](docs/readme-hero.jpg)
+
+*One swipe: the melon splits, the juice flies, and a dyad sounds on the beat.*
 
 A zen fruit-slicing game where **the cut is the note**: every swipe paints onto
 a generative music system — piano voiced from a per-level chord palette,
