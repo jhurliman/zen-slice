@@ -5,31 +5,31 @@
     {
       "name": "watermelon-side",
       "luma": 8.926,
-      "ms": 3220,
+      "ms": 3332,
       "ok": true
     },
     {
       "name": "watermelon-top",
       "luma": 7.865,
-      "ms": 1097,
+      "ms": 1156,
       "ok": true
     },
     {
       "name": "watermelon-threequarter",
       "luma": 8.16,
-      "ms": 1049,
+      "ms": 1039,
       "ok": true
     },
     {
       "name": "watermelon-half",
       "luma": 10.625,
-      "ms": 34435,
+      "ms": 34889,
       "ok": true
     },
     {
       "name": "orange-side",
       "luma": 7.578,
-      "ms": 1694,
+      "ms": 1677,
       "ok": true
     },
     {
@@ -41,127 +41,127 @@
     {
       "name": "orange-threequarter",
       "luma": 7.689,
-      "ms": 981,
+      "ms": 965,
       "ok": true
     },
     {
       "name": "orange-half",
       "luma": 8.993,
-      "ms": 33218,
+      "ms": 33001,
       "ok": true
     },
     {
       "name": "kiwi-side",
       "luma": 4.943,
-      "ms": 1687,
+      "ms": 1404,
       "ok": true
     },
     {
       "name": "kiwi-top",
       "luma": 4.397,
-      "ms": 992,
+      "ms": 981,
       "ok": true
     },
     {
       "name": "kiwi-threequarter",
       "luma": 4.604,
-      "ms": 994,
+      "ms": 918,
       "ok": true
     },
     {
       "name": "kiwi-half",
       "luma": 6.32,
-      "ms": 33192,
+      "ms": 34053,
       "ok": true
     },
     {
       "name": "apple-side",
       "luma": 6.77,
-      "ms": 1492,
+      "ms": 1531,
       "ok": true
     },
     {
       "name": "apple-top",
       "luma": 8.208,
-      "ms": 1050,
+      "ms": 938,
       "ok": true
     },
     {
       "name": "apple-threequarter",
       "luma": 7.73,
-      "ms": 1002,
+      "ms": 1021,
       "ok": true
     },
     {
       "name": "apple-half",
       "luma": 7.874,
-      "ms": 32599,
+      "ms": 34145,
       "ok": true
     },
     {
       "name": "strawberry-side",
       "luma": 3.899,
-      "ms": 1472,
+      "ms": 1466,
       "ok": true
     },
     {
       "name": "strawberry-top",
       "luma": 3.846,
-      "ms": 936,
+      "ms": 977,
       "ok": true
     },
     {
       "name": "strawberry-threequarter",
       "luma": 3.947,
-      "ms": 940,
+      "ms": 998,
       "ok": true
     },
     {
       "name": "strawberry-half",
       "luma": 4.678,
-      "ms": 31456,
+      "ms": 33132,
       "ok": true
     },
     {
       "name": "pineapple-side",
       "luma": 11.588,
-      "ms": 1605,
+      "ms": 1835,
       "ok": true
     },
     {
       "name": "pineapple-top",
       "luma": 8.844,
-      "ms": 1013,
+      "ms": 1037,
       "ok": true
     },
     {
       "name": "pineapple-threequarter",
       "luma": 8.094,
-      "ms": 1060,
+      "ms": 1049,
       "ok": true
     },
     {
       "name": "pineapple-half",
       "luma": 14.925,
-      "ms": 35843,
+      "ms": 34449,
       "ok": true
     },
     {
       "name": "rock-side",
       "luma": 4.255,
-      "ms": 1391,
+      "ms": 1319,
       "ok": true
     },
     {
       "name": "rock-top",
       "luma": 4.149,
-      "ms": 905,
+      "ms": 881,
       "ok": true
     },
     {
       "name": "rock-threequarter",
       "luma": 4.262,
-      "ms": 903,
+      "ms": 930,
       "ok": true
     }
   ],

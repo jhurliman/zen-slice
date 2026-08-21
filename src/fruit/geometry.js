@@ -1835,10 +1835,13 @@ export const SHAPE_VARIANTS = {
       },
       apple: {
         lobeN: 5, lobeAmp: 0.075, lobePhase: 0.7, lobeYc: -0.10, lobeYw: 1.30, lobeTwist: 0, lobeBias: 0,
-        // a thinner, longer, more graceful stalk — a real apple stalk is a wire,
-        // and this one is the species' best feature (r9 measured it as the
-        // largest single outline event in the table bar the pineapple crown).
-        stem: { r: 0.122, len: 1.02, taper: 0.42, tip: 0.85 },
+        // a thinner, more graceful stalk — a real apple stalk is a wire, and
+        // this one is the species' best feature (r9 measured it as the largest
+        // single outline event in the table bar the pineapple crown). r37: len
+        // 1.02 -> 0.68, owner: "unrealistically tall" — ⚠ this OVERLAY masked
+        // the same trim in base SHAPE; the shipped variant is D, so this is
+        // the number that renders.
+        stem: { r: 0.122, len: 0.68, taper: 0.42, tip: 0.85 },
         // the calyx as a dried rosette: half the length, 1.6x the footprint.
         crown: {
           cols: 45, woody: true,
