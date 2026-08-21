@@ -86,6 +86,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   let titleWait = 0.5, titleSide = 1;   // r36: the marquee melon's cadence
   let t = 0;
   let levelT = 0;   // sim seconds in the current level (the r18 time gate)
+  let demoEnded = false;   // the demo veil fires once (web demo build only)
   // running triangle total of the live population, maintained incrementally by
   // add()/remove() so the budget check is two comparisons and not an O(n) sum
   // every fixed step (R4: zero steady-state allocation, and no per-step scan we
@@ -527,6 +528,17 @@ export function createDirector({ seed = 20260806 } = {}) {
     // player mid-stillness; the slice that finally satisfies both is the one
     // that turns the page.
     if (api.sliced >= L.need && levelT >= L.dur && api.level < LEVELS.length - 1) {
+      // ══ THE DEMO GATE (web build only) ═══════════════════════════════
+      // The published Pages build is the first three levels; the page that
+      // would turn to level 3 announces the full game instead. 'demoend'
+      // fires ONCE — hud.js owns the veil — and the gate blocks only the
+      // page-turn, never the slicing: level 2 keeps playing underneath
+      // forever, in the coda's spirit. Compiled out of the App Store build
+      // (__ZS_DEMO__ is an esbuild define; false makes this dead code).
+      if (typeof __ZS_DEMO__ !== 'undefined' && __ZS_DEMO__ && api.level >= 2) {
+        if (!demoEnded) { demoEnded = true; ctx.bus.emit('demoend', {}); }
+        return;
+      }
       api.level++; api.sliced = 0; levelT = 0;
       ctx.bus.emit('level', { level: api.level, name: LEVELS[api.level].name });
     }
@@ -541,6 +553,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   };
 
   api.reset = () => {
+    demoEnded = false;
     titleWait = 0.5; titleSide = 1;
     for (let i = api.live.length - 1; i >= 0; i--) api.remove(api.live[i]);
     api.level = 0; api.sliced = 0; levelT = 0; nextSpawn = 0.8; liveTris = 0; lastFan = -1e9;

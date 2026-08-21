@@ -304,6 +304,31 @@ export function createHud() {
       });
     }
 
+    // ══ THE DEMO VEIL (web demo build only) ═════════════════════════════
+    // director.js emits 'demoend' once, at the page-turn the demo withholds.
+    // Same voice as the title: a veil, not a wall — the world keeps playing
+    // and "keep slicing" lifts it. The CTA link needs pointer-events while
+    // the veil itself takes none, so the blade keeps working underneath.
+    c.bus.on('demoend', () => {
+      const url = (typeof __ZS_APPSTORE_URL__ !== 'undefined' && __ZS_APPSTORE_URL__) || '';
+      const el = document.createElement('div');
+      el.className = 'zs-title zs-demo';
+      el.innerHTML =
+        `<div class="zs-title-word">The orchard continues</div>`
+        + `<div class="zs-title-sub"><span>you have played three levels of ten — the rest of the day,`
+        + ` game center streaks and haptics live in the iOS app</span></div>`
+        + (url
+          ? `<a class="zs-demo-cta" href="${url}" rel="noopener">get chord cut on the app store</a>`
+          : `<div class="zs-demo-cta zs-demo-soon">coming soon to the app store</div>`)
+        + `<div class="zs-title-go zs-demo-stay">keep slicing</div>`;
+      document.body.appendChild(el);
+      el.querySelector('.zs-demo-stay').addEventListener('pointerdown', (ev) => {
+        ev.stopPropagation();
+        el.classList.add('out');
+        setTimeout(() => el.remove(), 1000);
+      });
+    });
+
     // ══ r21: THE PERSONAL-BEST WHISPER ═══════════════════════════════════════
     // Once per session, the moment the stored best is passed: thin text under
     // the score, in and out like the level name. A trophy case would be noise.

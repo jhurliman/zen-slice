@@ -1,5 +1,11 @@
 # Chord Cut — handoff
 
+> **Note for public readers:** this is the project's living internal
+> engineering log — design decisions, dead ends, and per-round reasoning,
+> written for whoever works on the code next (human or agent). It is candid
+> by design and published as-is; treat it as a lab notebook, not
+> documentation. Start with [README.md](README.md) for the overview.
+
 *(Product renamed from Zen Slice, r26. The repo, code identifiers — `ZenSlice.boot`, `zs-` prefixes, `window.ZS` — and harness names deliberately keep the old name: the rename is docs and user-facing surfaces only.)*
 
 Read this before touching anything. The **readable architecture docs** live in

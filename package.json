@@ -1,14 +1,14 @@
 {
-  "name": "juice",
+  "name": "chord-cut",
   "version": "1.0.0",
-  "description": "",
+  "description": "A zen fruit-slicing game where the cut is the note. WebGPU, one HTML file, everything procedural.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "John Hurliman",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "@capacitor-community/keep-awake": "^8.0.1",
     "@capacitor/app": "^8.1.1",
