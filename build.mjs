@@ -41,6 +41,18 @@ mkdirSync(join(root, 'dist'), { recursive: true });
 const THREE_WEBGPU = require.resolve('three/webgpu');
 const THREE_TSL = require.resolve('three/tsl');
 
+// ── the DEMO build (what GitHub Pages publishes) ─────────────────────────
+// DEMO=1 gates the web build to the first three levels of the day arc; the
+// page-turn to level 3 becomes the full-game veil (director.js + hud.js).
+// The App Store build never sets it, so esbuild compiles the gate out
+// entirely — the shipped app is provably ungated. A plain `node build.mjs`
+// also produces the ungated game: that is intended (see README §License).
+// APPSTORE_URL lights up the veil's CTA link; APPSTORE_ID additionally turns
+// on Safari's Smart App Banner. Both stay empty until the app is live.
+const DEMO = process.env.DEMO === '1';
+const APPSTORE_URL = process.env.APPSTORE_URL || '';
+const APPSTORE_ID = process.env.APPSTORE_ID || '';
+
 /** Exact-match redirect of the bare specifier only. */
 const threeWebGPUPlugin = {
   name: 'three-webgpu',
@@ -68,6 +80,10 @@ const res = await build({
   // so no debug chrome can ship to review.
   define: { __ZS_DEBUG_UI__: process.env.APPSTORE === '1' ? 'false' : 'true' },
   minify: process.env.DEV !== '1',
+  define: {
+    __ZS_DEMO__: DEMO ? 'true' : 'false',
+    __ZS_APPSTORE_URL__: JSON.stringify(APPSTORE_URL),
+  },
   sourcemap: false,
   write: false,
   legalComments: 'none',
@@ -90,7 +106,7 @@ const html = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#000000">${APPSTORE_ID ? `\n<meta name="apple-itunes-app" content="app-id=${APPSTORE_ID}">` : ''}
 <style>${css}</style>
 </head>
 <body>

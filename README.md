@@ -1,10 +1,14 @@
 # Chord Cut
 
-### ▶ [Play it](https://jhurliman.github.io/zen-slice/)
+### ▶ [Play the demo](https://jhurliman.github.io/zen-slice/) · 🍉 Coming soon to the App Store · ⚖️ GPLv3
 
 **On a phone: open that link in Safari, then Share → Add to Home Screen.** It
 launches full-screen with no browser chrome, which is what the framing is
-composed for.
+composed for. The web build is the first three levels of the game's
+ten-level day arc; the full journey ships as a paid iOS app — buying it is
+how you support this work.
+
+![Chord Cut](shots/title-portrait.png)
 
 A zen fruit-slicing game where **the cut is the note**: every swipe paints onto
 a generative music system — piano voiced from a per-level chord palette,
@@ -78,8 +82,13 @@ src/ui/tuner.js           dev-only ?tune voicing panel
 
 ```sh
 npm install
-node build.mjs        # → dist/index.html (one file, ~4 MB)
+node build.mjs        # → dist/index.html (one file, ~4 MB, full game)
+DEMO=1 node build.mjs # → the demo-gated build GitHub Pages publishes
 ```
+
+Yes: a plain `node build.mjs` gives you the complete, ungated game — that is
+intended, not an oversight. If you enjoy it, the paid iOS app is the way to
+say so.
 
 Published from `main` by
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) on every push.
@@ -120,3 +129,25 @@ audio-touching change ships.
 
 `window.ZS` exposes the harness API (`step`, `swipe`, `setTier`, `audio.state()`,
 `profile`, …) — every probe drives the game through it.
+
+## License
+
+Chord Cut is free software: the code in this repository is licensed under the
+**[GNU GPLv3](LICENSE)**. You can read it, build it, modify it, and
+redistribute your modifications under the same license.
+
+Two carve-outs to know about:
+
+- **The name and the artwork are not part of the grant.** "Chord Cut", the
+  app icon, and the App Store artwork identify [the author's](https://github.com/jhurliman)
+  distribution. Ship a modified build under your own name and icon.
+- **The App Store build.** The author, as copyright holder, distributes the
+  iOS app under separate terms (the GPL binds licensees, not the owner).
+  External contributions are accepted under the grant described in
+  [CONTRIBUTING.md](CONTRIBUTING.md), which keeps that possible.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) — short version: issues and focused
+PRs welcome, audio changes must pass `audioprobe` three times running, and
+contributions need a one-line license grant so App Store builds stay legal.
