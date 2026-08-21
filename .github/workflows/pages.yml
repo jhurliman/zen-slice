@@ -85,7 +85,7 @@ jobs:
       # The App Store listing requires a privacy policy URL; it lives at
       # /privacy.html next to the game (App Store Connect points here).
       - name: static pages
-        run: cp site/*.html dist/
+        run: cp -R site/. dist/
 
       # Pages runs Jekyll unless told not to, and Jekyll drops files and
       # directories beginning with `_`. Nothing here starts with `_` today; this
