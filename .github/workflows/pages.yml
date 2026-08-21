@@ -54,10 +54,11 @@ jobs:
           # full-game veil. See build.mjs — a local `node build.mjs` still
           # produces the complete game.
           DEMO: '1'
-          # Set both when the app is live on the App Store; the veil's CTA
-          # link and Safari's Smart App Banner light up:
-          # APPSTORE_URL: 'https://apps.apple.com/app/idXXXXXXXXXX'
-          # APPSTORE_ID: 'XXXXXXXXXX'
+          # Uncomment the moment the app is LIVE on the App Store (a link to
+          # an unreleased app 404s; until then the veil says "coming soon"):
+          # the veil's CTA link and Safari's Smart App Banner both light up.
+          # APPSTORE_URL: 'https://apps.apple.com/us/app/chord-cut/id6803614537'
+          # APPSTORE_ID: '6803614537'
 
       # ── the same discipline the screenshot harness uses ────────────────────
       # `tools/shoot.mjs` refuses to write a black frame because a black frame
