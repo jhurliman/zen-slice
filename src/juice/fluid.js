@@ -3025,7 +3025,9 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // so RULE 1 holds: a fast flick emits none of them.
       if (rng() < 0.16 * filmness && szW > small * 0.9) {
         const rad = sz * rr(0.55, 0.95);
-        ligament(_o, _v, simT + del, kS,
+        // r41: kF, not kS — r40 raised kS into a launch coefficient, and a
+        // scrap flying under it stalled against the rest of the spray.
+        ligament(_o, _v, simT + del, kF,
           rad * rr(1.6, 4.6), rad, rr(0.105, 0.275), cls(szW * 1.15));
       } else {
         // doublets only where they can be resolved — below `small` a drop is

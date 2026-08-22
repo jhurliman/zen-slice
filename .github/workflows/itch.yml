@@ -84,12 +84,19 @@ jobs:
 
       # Pinned butler rather than LATEST: this job runs unattended on every
       # merge, and an unpinned binary download is not a dependency we audit.
-      # 15.21.0 is the current stable and has been for years.
+      # 15.21.0 is the current stable and has been for years. The pinned URL
+      # stops version drift but does not authenticate the bytes — the CDN
+      # object is mutable — so the digest is pinned too: this binary receives
+      # BUTLER_API_KEY, and a swapped download must fail here, before it runs.
+      # (Hash of the archive as audited 2026-08-22; broth publishes no plain
+      # digest, so bumping the version means re-hashing the new zip yourself.)
       - name: install butler
         run: |
           set -euo pipefail
           curl -fsSL -o butler.zip \
             https://broth.itch.zone/butler/linux-amd64/15.21.0/archive/default
+          echo "b640fceade5cafc7601b0ee57ba13c85913917eb5440375f7a605126f9ca2e1c  butler.zip" \
+            | sha256sum -c -
           unzip -o butler.zip butler
           chmod +x butler
           ./butler -V
