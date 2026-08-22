@@ -81,7 +81,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import http from 'http';
 import { readFileSync } from 'fs';
-import { resolveChrome } from './chromepath.mjs';
+import { resolveChrome, renderArgs } from './chromepath.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const argv = process.argv.slice(2);
@@ -228,17 +228,12 @@ state.seed = SEED;
 
 browser = await chromium.launch({
   executablePath: exe,
-  args: [
-    // ⚠ `--use-gl=angle` and `--use-angle=swiftshader` are NOT here, and must
-    // not be re-added. In Chromium 151 they kill the renderer process on the
-    // first requestAdapter(); the symptom is a boot that never completes and no
-    // error on any channel. `--enable-unsafe-swiftshader` stays: it is what
-    // permits the software WebGL2 path this harness actually captures through.
-    '--enable-unsafe-swiftshader',
-    '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader', '--enable-features=Vulkan',
-    '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required',
-    '--no-sandbox', '--disable-dev-shm-usage',
-  ],
+  // renderArgs: SwiftShader on the GPU-less CI box, hardware GL on a dev Mac
+  // (H5 note preserved inside: --use-gl=angle/--use-angle=swiftshader must
+  // never ride along with the WebGPU flags — Chromium 151 kills the renderer
+  // on the first requestAdapter with no error on any channel).
+  args: [...renderArgs(), '--autoplay-policy=no-user-gesture-required',
+    '--no-sandbox', '--disable-dev-shm-usage'],
 });
 
 const page = await browser.newPage({

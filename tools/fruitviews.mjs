@@ -28,7 +28,7 @@
  */
 import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, statSync } from 'fs';
-import { resolveChrome } from './chromepath.mjs';
+import { resolveChrome, renderArgs } from './chromepath.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { execFileSync } from 'child_process';
@@ -152,14 +152,9 @@ log(`chromium: ${exe}`);
 
 browser = await chromium.launch({
   executablePath: exe,
-  args: [
-    // ⚠ no --use-gl=angle / --use-angle=swiftshader — they crash the WebGPU
-    // adapter (renderer dies on first requestAdapter, run looks like a hang).
-    '--enable-unsafe-swiftshader',
-    '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader', '--enable-features=Vulkan',
-    '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required',
-    '--no-sandbox', '--disable-dev-shm-usage',
-  ],
+  // renderArgs: SwiftShader on the GPU-less CI box, hardware GL on a dev Mac.
+  args: [...renderArgs(), '--autoplay-policy=no-user-gesture-required',
+    '--no-sandbox', '--disable-dev-shm-usage'],
 });
 
 // Square frame: the camera CONTAIN-fits half-extent 3.9, so a centred fruit
