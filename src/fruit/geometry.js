@@ -1838,7 +1838,7 @@ export const SHAPE_VARIANTS = {
         // a thinner, longer, more graceful stalk — a real apple stalk is a wire,
         // and this one is the species' best feature (r9 measured it as the
         // largest single outline event in the table bar the pineapple crown).
-        stem: { r: 0.122, len: 1.02, taper: 0.42, tip: 0.85 },
+        stem: { r: 0.122, len: 1.02, taper: 0.42, tip: 0.85 },   // r37f: owner round 2 — 80% of the 0.68 trim
         // the calyx as a dried rosette: half the length, 1.6x the footprint.
         crown: {
           cols: 45, woody: true,
@@ -1973,7 +1973,7 @@ export const SHAPE_VARIANTS = {
         // profile where it reads.
         taper: 0.210, taperK: 2.2,
         wellTop: 0.520, wellTopW: 0.42, wellBot: 0.300, wellBotW: 0.40,
-        stem: { r: 0.115, len: 1.05, taper: 0.45, tip: 0.85 },
+        stem: { r: 0.115, len: 0.56, taper: 0.45, tip: 0.85 },   // r37f: 1.05 -> 0.56, owner in two rounds ("unrealistically tall", then 80% of that) — D is the SHIPPED variant; edits to base SHAPE or C's apple do not render
         // the calyx survives ONLY as a low brown rosette, because species.js's
         // `wood` uv band needs geometry under it and because a real blossom end
         // does have five dried points. r23: at a=2.58 (32° off the bottom

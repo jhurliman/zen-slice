@@ -140,6 +140,10 @@ export function createAudio() {
     // renders at the exact moment the live context starts starved the media
     // thread on the phone — measured as "15+ seconds before any audio". The
     // pluck fallback covers the gap; the kit lands quietly a few seconds in.
+    // r37: pre-build the reverb IRs once the room is quiet — 3.5 s after
+    // unlock (the piano render owns 1.5 s+), so a later level landing never
+    // pays synchronous IR math on its first frame (engine.warmSpaces).
+    setTimeout(() => engine.warmSpaces?.(), 3500);
     setTimeout(() => {
       renderPianoKit().then((kit) => { pianoKit = kit; }).catch(fail);
     }, 1500);

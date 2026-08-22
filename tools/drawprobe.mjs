@@ -17,7 +17,7 @@
  */
 import { chromium } from 'playwright';
 import { readFileSync } from 'fs';
-import { resolveChrome } from './chromepath.mjs';
+import { resolveChrome, renderArgs } from './chromepath.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import http from 'http';
@@ -41,9 +41,7 @@ if (!exe) {
 }
 const browser = await chromium.launch({
   executablePath: exe,
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
-    '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader', '--enable-features=Vulkan',
-    '--ignore-gpu-blocklist', '--no-sandbox', '--disable-dev-shm-usage'],
+  args: [...renderArgs(), '--no-sandbox', '--disable-dev-shm-usage'],
 });
 const page = await browser.newPage({ viewport: { width: 640, height: 360 }, deviceScaleFactor: 1 });
 const errors = [];

@@ -17,7 +17,7 @@
 import { chromium } from 'playwright';
 import http from 'http';
 import { readFileSync } from 'fs';
-import { resolveChrome } from './chromepath.mjs';
+import { resolveChrome, renderArgs } from './chromepath.mjs';
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i < 0 ? d : process.argv[i + 1]; };
 const TIER = Number(arg('tier', 2));
 const FRAMES = Number(arg('frames', 900));
@@ -30,9 +30,8 @@ const buf = readFileSync('dist/index.html');
 const server = http.createServer((q, r) => { r.writeHead(200, { 'content-type': 'text/html' }); r.end(buf); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const PORT = server.address().port;
-const b = await chromium.launch({ executablePath: EXE, args: [
-  '--enable-unsafe-swiftshader', '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader',
-  '--enable-features=Vulkan', '--ignore-gpu-blocklist', '--no-sandbox', '--disable-dev-shm-usage'] });
+const b = await chromium.launch({ executablePath: EXE,
+  args: [...renderArgs(), '--no-sandbox', '--disable-dev-shm-usage'] });
 const p = await b.newPage({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 1 });
 await p.addInitScript((s) => { let x = s >>> 0; Math.random = () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; }; }, 1);
 await p.goto(`http://127.0.0.1:${PORT}/?capture=1`, { waitUntil: 'commit' });

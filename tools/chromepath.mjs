@@ -54,3 +54,17 @@ export const chromeCandidates = () => {
 /** First candidate or null. Callers must fail LOUDLY on null — passing
  *  undefined to chromium.launch() silently selects the headless shell. */
 export const resolveChrome = () => chromeCandidates()[0] ?? null;
+
+/** GL/WebGPU flags for probes that RENDER. The CI box has no GPU, so Linux
+ *  forces SwiftShader (and determinism there is protected by the virtual
+ *  clock + seeded RNG, not by the rasterizer). A dev Mac has real silicon:
+ *  SwiftShader turns render-heavy probes (drawprobe's ~1100 rendered steps)
+ *  into minutes for no benefit — draw-call and triangle counts are pinned by
+ *  the seeded scene either way. So darwin gets hardware GL (ANGLE Metal).
+ *  ⚠ keep --use-gl=angle/--use-angle=swiftshader OFF any launch that also
+ *  enables WebGPU — that pair crashes the WebGPU adapter (shoot.mjs H5). */
+export const renderArgs = () => process.platform === 'darwin'
+  ? ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist']
+  : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+    '--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader',
+    '--enable-features=Vulkan', '--ignore-gpu-blocklist'];

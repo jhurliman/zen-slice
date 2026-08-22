@@ -18,6 +18,16 @@ quantized to a beat inferred from your own slicing tempo. Ships as **one
 self-contained HTML file** — no network at runtime, no downloaded assets.
 Every fruit, material, fluid, light and sound is procedural.
 
+## The fruit
+
+No textures, no models: every species below is a meridian profile swept into
+graded rings, shaded by TSL materials, and cut with real geometry. Rendered by
+`node tools/fruitviews.mjs` in game lighting.
+
+![All seven species at three-quarter view](shots/fruit/strip-threequarter.png)
+
+![Each fruit sliced lengthwise, cut face to camera](shots/fruit/strip-half.png)
+
 > **It has to be served over https.** `navigator.gpu` is undefined over plain
 > `http://` from anything but `localhost`, and this is a `WebGPURenderer`-only
 > build with no WebGL2 fallback — so opening `dist/index.html` from a laptop's
