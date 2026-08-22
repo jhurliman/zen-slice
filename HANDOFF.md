@@ -84,6 +84,14 @@ retreats to z=22.02 and the visible world is 8.45 units tall against landscape's
 consequences: one swipe sweeps 2.17x more playfield in portrait, and portrait fruit occupy ~18.5% of frame
 height against the reference plates' ~25% — a known framing gap, open.
 
+⚠ **`main.js` governor vsync estimation ignores synthetic dt** (r41): the first frame after
+boot/`resume()` (and any non-positive rAF delta) supplies `SIM_DT` = 1/120 s, not a real vsync
+interval — feeding it to the rolling-min panel estimator taught 120 Hz on a 60 Hz display, and
+every honest 16.7 ms frame then counted as a missed vsync for the ~10 s the ×1.0005/frame decay
+needs, enough to shed render scale and a tier at launch. `tick()` takes a `syntheticDt` flag and
+such frames skip `governor()` entirely (Codex P1 on PR #28, thread r3835470296; A/B: `ZS.gov().hz`
+read 120 at boot pre-fix, 60 post-fix).
+
 ---
 
 ## 4. The harness

@@ -382,7 +382,11 @@ export async function boot(canvas) {
   // r39b: `ms` times only JS (encode+submit), so a GPU-bound frame looks
   // cheap while rAF crawls. dt carries the GPU back-pressure: estimate the
   // panel period as a rolling min of dt (decays upward so a glitch can't
-  // poison it) and count dt > 1.5 vsyncs as a missed frame.
+  // poison it) and count dt > 1.5 vsyncs as a missed frame. Frames whose dt
+  // was synthesized (first frame after boot/resume, negative rAF delta) never
+  // reach the governor: their SIM_DT (1/120 s) is not a vsync interval, and
+  // the min would learn 120 Hz on a 60 Hz panel — every honest 16.7 ms frame
+  // then reads as missed for the ~10 s the decay needs to walk back.
   let vsyncS = 1 / 60, emaDt = 1 / 60;
   function applyTier(t) {
     ctx.quality = { ...PROFILES[t] };
@@ -431,11 +435,11 @@ export async function boot(canvas) {
   let useVirtual = false;
 
   /** One complete tick. `dt` in seconds. Shared by the rAF loop and the harness. */
-  function tick(dt, wallStart, doRender = true) {
+  function tick(dt, wallStart, doRender = true, syntheticDt = false) {
     // rAF timestamps and performance.now() can disagree on the first frame (and
     // a backgrounded tab can hand us a huge or negative delta). A negative dt
     // silently poisons the accumulator forever, so clamp hard.
-    if (!(dt > 0)) dt = SIM_DT;
+    if (!(dt > 0)) { dt = SIM_DT; syntheticDt = true; }
     if (dt > 0.1) dt = 0.1;
     const nowS = nowSec();
 
@@ -465,7 +469,7 @@ export async function boot(canvas) {
       // steady-state is how a spike disappears into a good-looking mean.
       if (ctx.__zsCutThisFrame) { prof.cutFrames.push(ms); ctx.__zsCutThisFrame = false; }
     }
-    if (!useVirtual) governor(ms, dt); else emaMs += (ms - emaMs) * 0.05;
+    if (!useVirtual && !syntheticDt) governor(ms, dt); else emaMs += (ms - emaMs) * 0.05;
     fpsAcc += dt; fpsN++;
     if (fpsAcc > 0.5) { stats.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
     stats.ms = emaMs; stats.tier = ctx.quality.tier; stats.scale = renderScale;
@@ -477,10 +481,11 @@ export async function boot(canvas) {
   function frame(now) {
     if (!running) return;
     requestAnimationFrame(frame);
-    const dt = firstFrame ? SIM_DT : (now - last) / 1000;
+    const synth = firstFrame;
+    const dt = synth ? SIM_DT : (now - last) / 1000;
     firstFrame = false;
     last = now;
-    tick(dt, performance.now());
+    tick(dt, performance.now(), true, synth);
   }
   requestAnimationFrame(frame);
 
