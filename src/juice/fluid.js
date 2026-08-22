@@ -1844,8 +1844,8 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
   // r40 runtime tuning (ZS.juice in the console). k values bake per droplet
   // at emit time, so they apply from the NEXT burst; resp/turbAmp are live.
   const TUNE = {
-    oomph: 1.2, sheetOomph: 1.1,   // launch-speed multipliers (droplets / film fan)
-    oomphVel: 0.4,                 // slope on swipe speed: v0 *= oomph*(1 + oomphVel*fast)
+    oomph: 1.1, sheetOomph: 1.0,   // launch-speed multipliers (droplets / film fan)
+    oomphVel: 0.3,                 // slope on swipe speed: v0 *= oomph*(1 + oomphVel*fast)
     kfBead: 0.30, kfSpray: 0.30,
     ligLo: 3.0, ligHi: 4.0, mistLo: 3.0, mistHi: 5.0,
   };
