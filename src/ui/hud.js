@@ -580,7 +580,8 @@ export function createHud() {
           // draft made "governor happy" indistinguishable from "governor
           // not wired", which cost a review round. ×1 IS information.
           const sc = g ? ` ×${g.scale}${g.sceil < 1 ? `≤${g.sceil}` : ''}` : '';
-          const gv = g ? ` · T${g.tier}≤${g.ceil}${sc} ${g.ms}ms` : '';
+          // r39b: low ms + low fps = GPU-bound (the case the JS EMA misses)
+          const gv = g ? ` · T${g.tier}≤${g.ceil}${sc} ${g.ms}ms ${g.fps}/${g.hz}fps` : '';
           const txt = st
             ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${rec}${hap}${mix}${gv}`
             : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}${hap}${gv}`;

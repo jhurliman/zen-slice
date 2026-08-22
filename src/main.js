@@ -379,6 +379,11 @@ export async function boot(canvas) {
   let emaMs = 8, sinceChange = 0, framesOver = 0, framesUnder = 0;
   let govT = 0, tierCeil = TIER.ULTRA, lastUpAt = -1e9;
   let scaleCeil = 1, lastScaleUpAt = -1e9;
+  // r39b: `ms` times only JS (encode+submit), so a GPU-bound frame looks
+  // cheap while rAF crawls. dt carries the GPU back-pressure: estimate the
+  // panel period as a rolling min of dt (decays upward so a glitch can't
+  // poison it) and count dt > 1.5 vsyncs as a missed frame.
+  let vsyncS = 1 / 60, emaDt = 1 / 60;
   function applyTier(t) {
     ctx.quality = { ...PROFILES[t] };
     for (const m of modules) safe(m, 'quality', ctx.quality);
@@ -387,10 +392,13 @@ export async function boot(canvas) {
   }
   function governor(ms, dt) {
     govT += dt;
+    vsyncS = Math.min(vsyncS * 1.0005, Math.max(dt, 1 / 240));
+    emaDt += (dt - emaDt) * 0.05;
+    const missedVsync = dt > vsyncS * 1.5;
     emaMs += (ms - emaMs) * 0.05;
     sinceChange += dt;
     const budget = 1000 / 60 * 0.92;   // never dip under 60
-    if (emaMs > budget) { framesOver++; framesUnder = 0; } else { framesUnder++; framesOver = 0; }
+    if (emaMs > budget || missedVsync) { framesOver++; framesUnder = 0; } else { framesUnder++; framesOver = 0; }
     const scaleTop = Math.min(1, scaleCeil);
     if (sinceChange > 1.0 && framesOver > 20 && renderScale > SCALE_MIN + 1e-6) {
       // inner loop, down: shed pixels before touching features
@@ -505,12 +513,12 @@ export async function boot(canvas) {
     /** r39: manual render-scale override for testing, same spirit as setTier —
      *  applies immediately, and the governor may adjust it afterwards. */
     setScale: applyScale,
-    /** governor triage (the ?debug strip): live tier, the thermal ratchet's
-     *  session ceiling, the frame-cost EMA the decisions are made on, and
-     *  (r39) the live render scale + its own session ceiling */
+    /** governor triage (the ?debug strip): live tier, ratchet ceilings,
+     *  frame-cost EMA, render scale, and (r39b) delivered fps + panel rate. */
     gov: () => ({
       tier: ctx.quality.tier, ceil: tierCeil, ms: +emaMs.toFixed(2),
       scale: +renderScale.toFixed(2), sceil: +Math.min(1, scaleCeil).toFixed(2),
+      fps: Math.round(1 / Math.max(emaDt, 1e-4)), hz: Math.round(1 / vsyncS),
     }),
     /** Probe hook: fluid's per-frame GPU kernel off/on (see fluid.setCompute).
      *  Fast-forward harnesses dispatch it per step — minutes of wall under a
