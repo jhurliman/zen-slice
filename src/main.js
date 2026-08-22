@@ -524,6 +524,8 @@ export async function boot(canvas) {
      *  Fast-forward harnesses dispatch it per step — minutes of wall under a
      *  software rasterizer. Gameplay sim is identical without it. */
     setFluidCompute: (on) => fluid.setCompute?.(on),
+    /** r40: juice flight/wind tuning — ZS.juice() reads, ZS.juice({…}) writes. */
+    juice: (o) => fluid.tune?.(o),
     pause: () => { running = false; },
     resume: () => { running = true; useVirtual = false; Clock.virtual = false; firstFrame = true; requestAnimationFrame(frame); },
     /** Deterministic single-step. Detaches from wall clock entirely so that a
