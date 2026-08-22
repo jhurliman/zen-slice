@@ -308,10 +308,32 @@ export async function boot(canvas) {
     slowTarget = Math.min(slowTarget === 1 ? 9 : slowTarget, e.scale);
   });
 
+  // ── r39: GOVERNED RENDER SCALE ─────────────────────────────────────────────
+  // The tier table's `dpr` is a CAP — `min(devicePixelRatio, tier.dpr)` — so
+  // it can only trim high-DPR phones. On a devicePixelRatio-1 desktop monitor
+  // every tier resolves to NATIVE resolution and the governor has no pixel
+  // lever at all: it can shed bloom and fruit segments while the per-pixel
+  // fluid sim — the dominant cost — stays untouchable. (Found via the itch.io
+  // embed: a fixed-size iframe reports ITS dimensions as innerWidth/Height,
+  // and the game obediently rendered ~2× the visible pixels.) `renderScale`
+  // is the missing lever: a continuous multiplier on the tier-capped dpr,
+  // governed in the frame loop below. At 1 (the default and the ceiling) the
+  // pipeline is byte-identical to pre-r39 — a fast GPU that never misses
+  // budget renders native, 8K included; the only ceiling anyone gets is
+  // their own hardware's measured ability to hold frame rate.
+  const SCALE_MIN = 0.5, SCALE_STEP = 0.85;
+  let renderScale = 1;
+  /** Clamp + apply: resize() re-derives the effective dpr and tells every
+   *  module. No 'quality' bus event — the tier profile did not change. */
+  function applyScale(s) {
+    renderScale = Math.min(1, Math.max(SCALE_MIN, s));
+    resize();
+  }
+
   // ── resize ─────────────────────────────────────────────────────────────────
   function resize() {
     const w = window.innerWidth, h = window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, ctx.quality.dpr);
+    const dpr = Math.min(window.devicePixelRatio || 1, ctx.quality.dpr) * renderScale;
     ctx.aspect = w / h;
     camera.aspect = ctx.aspect;
     // fit the stage box regardless of orientation
@@ -341,8 +363,27 @@ export async function boot(canvas) {
   //    a thermal mistake: a session-long tier CEILING ratchets down to where
   //    we retreated. The governor stops re-testing a level the device has
   //    already failed — sustained load drops, the SoC gets to actually cool.
+  // r39: the governor is now TWO nested loops. renderScale is the fine inner
+  // loop — pixels are the cheapest thing to shed (the fluid sim is per-pixel)
+  // and a 15% linear step is the least visible change we can make, so it
+  // moves first and moves fast. Tiers are the coarse outer loop and only move
+  // when the inner loop is saturated: tier-down requires scale already at its
+  // floor, tier-up requires scale already restored. The two share the
+  // framesOver/framesUnder detectors; the inner loop's earlier trigger
+  // (20 vs 45 over, 360 vs 1800 under) plus the resets on every change make
+  // the branches naturally sequential — no extra state machine.
+  // The thermal-ratchet doctrine applies to scale too: a scale-down within
+  // 60 s of a scale-up means that scale-up was a thermal mistake, and a
+  // session ceiling (scaleCeil) ratchets down so the governor stops
+  // re-testing a resolution the device already failed at.
   let emaMs = 8, sinceChange = 0, framesOver = 0, framesUnder = 0;
   let govT = 0, tierCeil = TIER.ULTRA, lastUpAt = -1e9;
+  let scaleCeil = 1, lastScaleUpAt = -1e9;
+  // r39b: `ms` times only JS (encode+submit), so a GPU-bound frame looks
+  // cheap while rAF crawls. dt carries the GPU back-pressure: estimate the
+  // panel period as a rolling min of dt (decays upward so a glitch can't
+  // poison it) and count dt > 1.5 vsyncs as a missed frame.
+  let vsyncS = 1 / 60, emaDt = 1 / 60;
   function applyTier(t) {
     ctx.quality = { ...PROFILES[t] };
     for (const m of modules) safe(m, 'quality', ctx.quality);
@@ -351,15 +392,32 @@ export async function boot(canvas) {
   }
   function governor(ms, dt) {
     govT += dt;
+    vsyncS = Math.min(vsyncS * 1.0005, Math.max(dt, 1 / 240));
+    emaDt += (dt - emaDt) * 0.05;
+    const missedVsync = dt > vsyncS * 1.5;
     emaMs += (ms - emaMs) * 0.05;
     sinceChange += dt;
     const budget = 1000 / 60 * 0.92;   // never dip under 60
-    if (emaMs > budget) { framesOver++; framesUnder = 0; } else { framesUnder++; framesOver = 0; }
-    if (sinceChange > 1.5 && framesOver > 45 && ctx.quality.tier > TIER.LOW) {
+    if (emaMs > budget || missedVsync) { framesOver++; framesUnder = 0; } else { framesUnder++; framesOver = 0; }
+    const scaleTop = Math.min(1, scaleCeil);
+    if (sinceChange > 1.0 && framesOver > 20 && renderScale > SCALE_MIN + 1e-6) {
+      // inner loop, down: shed pixels before touching features
+      if (govT - lastScaleUpAt < 60) scaleCeil = Math.max(SCALE_MIN, renderScale * SCALE_STEP);
+      applyScale(renderScale * SCALE_STEP);
+      sinceChange = 0; framesOver = 0; emaMs = budget * 0.8;
+    } else if (sinceChange > 1.5 && framesOver > 45 && ctx.quality.tier > TIER.LOW) {
+      // outer loop, down: scale is at its floor and it's still not enough
       if (govT - lastUpAt < 90) tierCeil = Math.max(TIER.LOW, ctx.quality.tier - 1);
       applyTier(ctx.quality.tier - 1); sinceChange = 0; framesOver = 0; emaMs = budget * 0.8;
+    } else if (sinceChange > 6 && framesUnder > 360 && emaMs < budget * 0.7
+      && renderScale < scaleTop - 1e-6) {
+      // inner loop, up: restore resolution before features come back
+      lastScaleUpAt = govT;
+      applyScale(Math.min(scaleTop, renderScale / SCALE_STEP));
+      sinceChange = 0; framesUnder = 0;
     } else if (sinceChange > 30 && framesUnder > 1800 && emaMs < 1000 / 120 * 0.7
-      && ctx.quality.tier < Math.min(TIER.ULTRA, tierCeil)) {
+      && ctx.quality.tier < Math.min(TIER.ULTRA, tierCeil)
+      && renderScale >= scaleTop - 1e-6) {
       lastUpAt = govT;
       applyTier(ctx.quality.tier + 1); sinceChange = 0; framesUnder = 0;
     }
@@ -410,7 +468,7 @@ export async function boot(canvas) {
     if (!useVirtual) governor(ms, dt); else emaMs += (ms - emaMs) * 0.05;
     fpsAcc += dt; fpsN++;
     if (fpsAcc > 0.5) { stats.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
-    stats.ms = emaMs; stats.tier = ctx.quality.tier;
+    stats.ms = emaMs; stats.tier = ctx.quality.tier; stats.scale = renderScale;
     stats.fruit = director.live?.length ?? 0; stats.frames++;
     stats.acc = acc; stats.steps = steps; stats.simdt = SIM_DT;
   }
@@ -452,9 +510,16 @@ export async function boot(canvas) {
     /** Snapshot WITHOUT resetting — reading a profiler must never disturb it. */
     profileRead: () => __profSnapshot(),
     setTier: applyTier,
-    /** governor triage (the ?debug strip): live tier, the thermal ratchet's
-     *  session ceiling, and the frame-cost EMA the decisions are made on */
-    gov: () => ({ tier: ctx.quality.tier, ceil: tierCeil, ms: +emaMs.toFixed(2) }),
+    /** r39: manual render-scale override for testing, same spirit as setTier —
+     *  applies immediately, and the governor may adjust it afterwards. */
+    setScale: applyScale,
+    /** governor triage (the ?debug strip): live tier, ratchet ceilings,
+     *  frame-cost EMA, render scale, and (r39b) delivered fps + panel rate. */
+    gov: () => ({
+      tier: ctx.quality.tier, ceil: tierCeil, ms: +emaMs.toFixed(2),
+      scale: +renderScale.toFixed(2), sceil: +Math.min(1, scaleCeil).toFixed(2),
+      fps: Math.round(1 / Math.max(emaDt, 1e-4)), hz: Math.round(1 / vsyncS),
+    }),
     /** Probe hook: fluid's per-frame GPU kernel off/on (see fluid.setCompute).
      *  Fast-forward harnesses dispatch it per step — minutes of wall under a
      *  software rasterizer. Gameplay sim is identical without it. */

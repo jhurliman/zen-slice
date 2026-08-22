@@ -575,7 +575,13 @@ export function createHud() {
           // On device, `T1≤1` after 15 min = the ratchet held; `T2≤3` cycling
           // = the chip recovered honestly.
           const g = window.ZS?.gov?.();
-          const gv = g ? ` · T${g.tier}≤${g.ceil} ${g.ms}ms` : '';
+          // r39: ×S is the governor's render scale (with its own ratchet
+          // ceiling when one is set). Always shown — the silent-at-native
+          // draft made "governor happy" indistinguishable from "governor
+          // not wired", which cost a review round. ×1 IS information.
+          const sc = g ? ` ×${g.scale}${g.sceil < 1 ? `≤${g.sceil}` : ''}` : '';
+          // r39b: low ms + low fps = GPU-bound (the case the JS EMA misses)
+          const gv = g ? ` · T${g.tier}≤${g.ceil}${sc} ${g.ms}ms ${g.fps}/${g.hz}fps` : '';
           const txt = st
             ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${rec}${hap}${mix}${gv}`
             : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}${hap}${gv}`;
