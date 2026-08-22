@@ -576,10 +576,10 @@ export function createHud() {
           // = the chip recovered honestly.
           const g = window.ZS?.gov?.();
           // r39: ×S is the governor's render scale (with its own ratchet
-          // ceiling when one is set). Silent at native — a strip that always
-          // says ×1 teaches the eye to skip the slot that matters.
-          const sc = g && (g.scale < 1 || g.sceil < 1)
-            ? ` ×${g.scale}${g.sceil < 1 ? `≤${g.sceil}` : ''}` : '';
+          // ceiling when one is set). Always shown — the silent-at-native
+          // draft made "governor happy" indistinguishable from "governor
+          // not wired", which cost a review round. ×1 IS information.
+          const sc = g ? ` ×${g.scale}${g.sceil < 1 ? `≤${g.sceil}` : ''}` : '';
           const gv = g ? ` · T${g.tier}≤${g.ceil}${sc} ${g.ms}ms` : '';
           const txt = st
             ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${rec}${hap}${mix}${gv}`
