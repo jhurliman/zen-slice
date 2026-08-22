@@ -12,7 +12,7 @@ how you support this work.
 
 *One swipe: the melon splits, the juice flies, and a dyad sounds on the beat.*
 
-A zen fruit-slicing game where **the cut is the note**: every swipe paints onto
+A zen fruit-slicing game — **a meditation on fruit**: every swipe paints onto
 a generative music system — piano voiced from a per-level chord palette,
 quantized to a beat inferred from your own slicing tempo. Ships as **one
 self-contained HTML file** — no network at runtime, no downloaded assets.
