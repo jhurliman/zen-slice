@@ -399,7 +399,12 @@ import { GRAVITY, clamp as cl, makeRng } from '../core/contract.js';
 // exitTime/filmAt solvers) — they must never disagree or derived lifetimes
 // detach from the rendered paths. Every lifetime adapts automatically:
 // lifeOf() re-solves the exit instant under whatever gravity this is.
-const FLUID_G = GRAVITY * 2.6;
+// r40: 2.6× retuned-and-confirmed under the decoupled launch/flight drags —
+// heavy G is right once droplets actually launch. ?g= overrides for tuning.
+const FLUID_G = GRAVITY * (() => {
+  try { const v = parseFloat(new URLSearchParams(location.search).get('g')); return v > 0 ? v : 2.6; }
+  catch (_) { return 2.6; }
+})();
 
 // ── r8: A CROSS-FILE CONTRACT THAT EXISTED ONLY IN THIS COMMENT ─────────────
 // The line here used to read "Must match render/stage.js: key = (7.5, 8.2,
@@ -553,7 +558,8 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     friction: uniform(0.42),
     // turbulence / wake (compute)
     turbMix: uniform(0),                             // 0 until compute has run
-    turbAmp: uniform(46.0),
+    turbAmp: uniform(40.0),
+    respLo: uniform(2.2), respHi: uniform(7.5),      // r40: wind window, tunable
     turbScale: uniform(0.85),
     turbDamp: uniform(7.0),
     turbFlow: uniform(0),
@@ -748,16 +754,12 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         F.addAssign(cross(U.wakeAxis, rel).mul(wFall.mul(U.wakeAmp)));
 
         // air responsiveness, read off the drag coefficient (see the note above)
-        // r11: the window is 2.5..20 no more. Every drag constant in this file
-      // fell 3-20x this round (see the kB block in api.burst), so the OLD
-      // window mapped the entire population onto resp ~ 0 and silently
-      // switched the turbulence off — a 1-line regression that would have cost
-      // the aerosol its billow while every other number looked fine. The
-      // window is re-derived from the new spread it has to separate:
-      //   rim 1.1-4.2 | ligament 1.8-4.2 | spray 1.6-6.2 | mist 2.6-6.4
-      // so 0.9..6.5 keeps the same ordering (fat beads ballistic, fine grains
-      // dragged bodily by the air) across the range that now exists.
-      const resp = smoothstep(0.9, 6.5, v.w).mul(U.turbAmp);
+      // r40: window re-derived (again — same trap r11 documents) for the
+      // decoupled flight drags: rim kF 0.5-1.8 | spray kF 1.2-4.7 |
+      // ligament 4.5-10.5 | mist 4.25-10. Beads fly fully ballistic, spray
+      // barely feels the air, mist still billows — that ordering is the class
+      // identity, only the middle was over-coupled ("lost in the wind").
+      const resp = smoothstep(U.respLo, U.respHi, v.w).mul(U.turbAmp);
         W.addAssign(F.mul(resp).sub(W.mul(U.turbDamp)).mul(U.dt));
         D.addAssign(W.mul(U.dt));
 
@@ -1839,6 +1841,15 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     R: 1, seed: 0, spd: 60, crown: 1.0, lean: 0.4, k: 40,
   };
 
+  // r40 runtime tuning (ZS.juice in the console). k values bake per droplet
+  // at emit time, so they apply from the NEXT burst; resp/turbAmp are live.
+  const TUNE = {
+    oomph: 1.2, sheetOomph: 1.1,   // launch-speed multipliers (droplets / film fan)
+    oomphVel: 0.4,                 // slope on swipe speed: v0 *= oomph*(1 + oomphVel*fast)
+    kfBead: 0.30, kfSpray: 0.30,
+    ligLo: 3.0, ligHi: 4.0, mistLo: 3.0, mistHi: 5.0,
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  ROUND 11 — BALLISTIC EXIT, AND WHY THIS IS THE ONLY HONEST WAY TO SET A
   //  LIFETIME
@@ -1967,6 +1978,21 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       TBL[o + 3] = dx / dl; TBL[o + 4] = dy / dl; TBL[o + 5] = dz / dl;
       TBL[o + 6] = Math.max(w, 0.02);
     }
+    // r40: cumulative weight, so emission COUNT follows the wedge too
+    let acc = 0;
+    for (let i = 0; i < NA; i++) { acc += TBL[i * 7 + 6]; CDF[i] = acc; }
+  }
+
+  // r40: the wedge weighted only SPEED; angles were drawn uniformly, so the
+  // upstream side got equal droplet counts, just slower — a dense backward
+  // puff no reach weighting could hide (high-speed reference: forward cone,
+  // a few entry-side stragglers). Draw angles ∝ weight instead.
+  const CDF = new Float64Array(NA);
+  function sampleAI(u) {
+    const t = u * CDF[NA - 1];
+    let lo = 0, hi = NA - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (CDF[mid] < t) lo = mid + 1; else hi = mid; }
+    return lo;
   }
 
   /** Where the film is, and which way it is going, at (table angle, v, t). */
@@ -2316,6 +2342,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     const V_CRIT = CROSS_NDC * halfW;
     const we = (S / V_CRIT) * (S / V_CRIT);
     const fast = we / (1 + we);
+    const oomphV = TUNE.oomph * (1 + TUNE.oomphVel * fast);   // r40: force follows the swipe
     const filmness = cl(heavy * Math.pow(1 - fast, 1.6), 0, 1);
     // bounded: at 1.35 a fast flick is ~1300 grains, which is a legible haze at
     // 640x360 without fusing into one blob
@@ -2387,7 +2414,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // so the film's authored size and every downstream measurement of its
     // extent are unchanged; only the approach is.
     B.k = 30;
-    B.spd = reach * B.k;
+    B.spd = reach * B.k * TUNE.sheetOomph;
     // crown is the ejection cone's half-angle off the cut normal. r2 had it at
     // 0.70..1.15 rad, i.e. 40-66 degrees — that is ejection nearly IN the cut
     // plane, which is why the critic found all 12 angular sectors populated.
@@ -2714,14 +2741,14 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // states. Still gated on `filmness`, so a fast flick emits none (RULE 1).
     const nStr = Math.round(q.strands * amtK * filmness * bk);
     for (let i = 0; i < nStr; i++) {
-      const ai = (rng() * NA) | 0, vv = rr(0.62, 1.0), del = rr(0.002, 0.030);
+      const ai = sampleAI(rng()), vv = rr(0.62, 1.0), del = rr(0.002, 0.030);
       filmAt(ai, vv, del, _o, _v);
-      const kS = rr(1.8, 4.2);
+      const kS = rr(TUNE.ligLo, TUNE.ligHi);
       // /2.80 exactly cancels the new beadReach factor: a ligament is the stage
       // BETWEEN the film and the beads and belongs near the cut, so its reach
       // is arithmetically unchanged from r10 while its drag falls with
       // everything else's. Only how fast it gets there has moved.
-      _v.multiplyScalar(beadReach * kS * TBL[ai * 7 + 6] * rr(0.0714, 0.1964)).add(B.inh);
+      _v.multiplyScalar(beadReach * kS * oomphV * TBL[ai * 7 + 6] * rr(0.0714, 0.1964)).add(B.inh);
       const rad = rr(0.026, 0.070) * szScale;
       // x2.6, the same sqrt(7) gravity-scaling argument as the sheet. A thread
       // that necks off in 55-150 ms at timeScale 1 is 7-18 frames; the
@@ -2742,7 +2769,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // the tail must stay under the 0.43 s gap between harness cuts (RULE 3).
     const nRim = Math.round(q.rim * amtK * (0.05 + 0.88 * filmness) * bk);
     for (let i = 0; i < nRim; i++) {
-      const ai = (rng() * NA) | 0, vv = rr(0.74, 1.0), del = rr(0.002, 0.020);
+      const ai = sampleAI(rng()), vv = rr(0.74, 1.0), del = rr(0.002, 0.020);
       filmAt(ai, vv, del, _o, _v);
       // r14: 0.08..0.28 left the rim beads essentially on the raw crown ring,
       // which is the "confetti in all directions" the player named. 0.34..0.76
@@ -2802,8 +2829,12 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // (b) how long a bead KEEPS its launch velocity — lower drag means a
       // longer, flatter arc before gravity takes it, which is the same
       // direction as r14 note 3. Spread, reach and count are all untouched.
-      const kB = rr(0.708 + 0.458 * filmness, 1.583 + 0.833 * filmness);
-      _v.multiplyScalar(beadReach * kB * TBL[ai * 7 + 6] * rr(0.14, 1.30)).add(B.inh);
+      // r40: launch and flight decoupled — kB now only sets v0 (punch); the
+      // bead FLIES under kF ≈ a real drop's drag (τ ~0.7s), so the arc it
+      // starts is the arc it completes instead of stalling into a drift.
+      const kB = rr(1.77 + 1.145 * filmness, 3.958 + 2.083 * filmness);
+      const kF = kB * TUNE.kfBead;
+      _v.multiplyScalar(beadReach * kB * oomphV * TBL[ai * 7 + 6] * rr(0.14, 1.30)).add(B.inh);
       _j.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(beadReach * kB * 0.13);
       _v.add(_j);
       const u = rng();
@@ -2871,8 +2902,8 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // r11: the life is DERIVED from this bead's own ballistics, not drawn.
       // See the block above `exitTime`. Floor 0.40 s (a bead born outside the
       // frame still needs to exist for a frame or two), ceiling 2.30 s.
-      const L = lifeOf(_o, _v, kB, 0.40, 4.60, 0.30);
-      emit4(drops, _o, _v, simT + del, kB,
+      const L = lifeOf(_o, _v, kF, 0.40, 4.60, 0.30);
+      emit4(drops, _o, _v, simT + del, kF,
         // r6 (C) authored this as `0.070 + 0.300*rng()*rng()` — median 0.126 s,
         // max 0.370 s — with the explicit constraint "still clear of the 0.43 s
         // inter-cut gap that RULE 3 protects". r11 RETIRES RULE 3 as a lifetime
@@ -2909,14 +2940,15 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     // here by construction.
     const nSpr = Math.round(q.spray * amtK * (0.40 - 0.31 * fast) * (0.35 + 0.65 * heavy) * bk);
     for (let i = 0; i < nSpr; i++) {
-      const ai = (rng() * NA) | 0, vv = rr(0.05, 0.72), del = rr(0.0, 0.008);
+      const ai = sampleAI(rng()), vv = rr(0.05, 0.72), del = rr(0.0, 0.008);
       filmAt(ai, vv, del, _o, _v);
       aimWedge(_v, 0.52 + 0.36 * fast);   // r14: the directed class, see rim
       // r11: same argument as kB above, one class finer, so the drag is a
       // little higher. Terminal fall 3.9-8.8 units/s for a cleave.
-      const kS = rr(1.60 + 1.20 * filmness, 3.60 + 2.60 * filmness);
+      const kS = rr(4.0 + 3.0 * filmness, 9.0 + 6.5 * filmness);
+      const kF = kS * TUNE.kfSpray;   // r40: same decoupling as the rim beads
       const u = rng();
-      _v.multiplyScalar(beadReach * kS * TBL[ai * 7 + 6] * (0.10 + 2.30 * u * u)).add(B.inh);
+      _v.multiplyScalar(beadReach * kS * oomphV * TBL[ai * 7 + 6] * (0.10 + 2.30 * u * u)).add(B.inh);
       _j.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(beadReach * kS * 0.17);
       _v.add(_j);
       const w = rng();
@@ -3006,8 +3038,8 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         // between the two landscape values and is the same everywhere.
         const dbl = sz > 2.0 * wpx && rng() < dblSpray;
         shape(dbl ? 0.30 : 0, rr(0.12, 0.46), rr(0.24, 0.68), rr(0.20, 1.40));
-        const L = lifeOf(_o, _v, kS, 0.34, 4.00, 0.28);
-        emit4(drops, _o, _v, simT + del, kS,
+        const L = lifeOf(_o, _v, kF, 0.34, 4.00, 0.28);
+        emit4(drops, _o, _v, simT + del, kF,
           dbl ? sz * DBL_AREA : sz, L.life, rng(), cls(szW),
           rr(3.5, 15.0), rr(0.05, 0.90), rr(0.004, 0.018), L.fade,
           AR, AG, AB);
@@ -3026,7 +3058,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     const nMist = Math.round(q.mist * amtK * mistness * bk);
     for (let i = 0; i < nMist; i++) {
       const wake = rng() < 0.26;
-      const ai = (rng() * NA) | 0;
+      const ai = sampleAI(rng());
       // ══ r11: THE WORST OFFENDER, AND THE ONE THE FAST FLICK LIVES ON ═════
       // kM 34..62 is a terminal fall speed of 0.23-0.41 units/s. A grain
       // emitted at the cut needed FOURTEEN SECONDS to sink out of a landscape
@@ -3054,14 +3086,14 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       // now RAINS OUT of the frame instead of drifting down. The launch
       // speed this class loses to the lower k (v0 = reach*k) is bought back
       // at `mistReach` below.
-      const kM = rr(1.7, 4.0);
+      const kM = rr(TUNE.mistLo, TUNE.mistHi);
       if (wake) {
         const back = rr(0.15, 1.6) * R;
         _o.copy(B.O).addScaledVector(B.D, -back)
           .addScaledVector(B.T, rr(-0.85, 0.85) * R)
           .addScaledVector(B.B, rr(-0.85, 0.85) * R)
           .addScaledVector(B.N, rr(-0.22, 0.22) * R);
-        _v.copy(B.D).multiplyScalar(-rr(0.10, 0.55) * mistReach * kM)
+        _v.copy(B.D).multiplyScalar(-rr(0.10, 0.55) * mistReach * kM * oomphV)
           .addScaledVector(B.N, rr(-0.30, 0.30) * mistReach * kM * 0.25)
           .add(B.inh);
       } else {
@@ -3071,7 +3103,7 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
         // it is by far the most numerous. It gets pulled onto the axis hardest.
         aimWedge(_v, 0.58 + 0.34 * fast);
         const u = rng();
-        _v.multiplyScalar(mistReach * kM * TBL[ai * 7 + 6] * (0.28 + 1.25 * u * u)).add(B.inh);
+        _v.multiplyScalar(mistReach * kM * oomphV * TBL[ai * 7 + 6] * (0.28 + 1.25 * u * u)).add(B.inh);
       }
       _j.set(rr(-1, 1), rr(-1, 1), rr(-1, 1)).multiplyScalar(mistReach * kM * 0.06);
       _v.add(_j);
@@ -3298,6 +3330,16 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
    *  reimplementing the shader's curl noise is to switch the wind off and let
    *  the two run on collision alone. Restore with `api.quality(ctx.quality)`. */
   api.debugSetTurb = (v) => { U.turbAmp.value = v; };
+  /** r40: ZS.juice({ kfSpray: 0.2, respLo: 3, turbAmp: 30 }); no args = read. */
+  api.tune = (o = null) => {
+    if (o) {
+      Object.assign(TUNE, o);
+      if ('respLo' in o) U.respLo.value = o.respLo;
+      if ('respHi' in o) U.respHi.value = o.respHi;
+      if ('turbAmp' in o) U.turbAmp.value = o.turbAmp;
+    }
+    return { ...TUNE, respLo: U.respLo.value, respHi: U.respHi.value, turbAmp: U.turbAmp.value };
+  };
 
   api.debugSpheres = () => uBodies.array.filter((e) => e.w > 0)
     .map((e) => ({ x: e.x, y: e.y, z: e.z, r: e.w }));
