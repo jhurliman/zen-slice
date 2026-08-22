@@ -12,7 +12,7 @@
  */
 import { chromium } from 'playwright';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
-import { resolveChrome } from './chromepath.mjs';
+import { resolveChrome, renderArgs } from './chromepath.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import http from 'http';
@@ -35,10 +35,14 @@ const PORT = server.address().port;
 
 const exe = resolveChrome();
 if (!exe) { console.error('pointerprobe.mjs: no full Chromium found. Run: npx playwright install chromium'); process.exit(1); }
+// renderArgs: this probe runs the REAL renderer (no ?capture — capture mode
+// must not be a precondition of input), which under SwiftShader means a
+// minute of pipeline prewarm before the first drag. On a dev Mac, hardware
+// GL collapses that to seconds; the CI box keeps SwiftShader.
+const FAST_GPU = process.platform === 'darwin';
 const browser = await chromium.launch({
   executablePath: exe,
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
-    '--autoplay-policy=no-user-gesture-required',
+  args: [...renderArgs(), '--autoplay-policy=no-user-gesture-required',
     '--no-sandbox', '--disable-dev-shm-usage'],
 });
 const page = await browser.newPage({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 1 });
@@ -47,8 +51,11 @@ page.on('pageerror', (e) => errs.push(String(e).slice(0, 200)));
 // nosound: audio is not what this probe tests; nophys keeps steps cheap under
 // SwiftShader (slicing is camera-plane hit testing, not Rapier — audioprobe
 // precedent). NO ?capture: capture mode must not be a precondition of input.
+const t0 = Date.now();
+const mark = (label) => console.error(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${label}`);
 await page.goto(`http://localhost:${PORT}/?nosound=1&nophys=1`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.ZS, null, { timeout: 55000 });
+mark('boot');
 // r37: wait for the pipeline prewarm to settle before dragging. This probe
 // asserts that REAL pointer input reaches the blade in the steady state —
 // under SwiftShader a boot-time compile chunk costs ~100x its device price,
@@ -56,6 +63,7 @@ await page.waitForFunction(() => !!window.ZS, null, { timeout: 55000 });
 // ctx.prewarmed is false while the prewarm runs, true when done, undefined
 // when it never runs (?capture) — wait only while it is exactly false.
 await page.waitForFunction(() => window.ZS.ctx.prewarmed !== false, null, { timeout: 60000 }).catch(() => {});
+mark('prewarm');
 
 // stage: count bus traffic and hang a fat fruit at center — audioprobe's
 // exact staging (slow upward toss, brief settle), because a PARKED fruit
@@ -126,7 +134,11 @@ for (attempts = 1; attempts <= 4; attempts++) {
     await page.waitForTimeout(140);
   }
   await page.mouse.up();
-  const hit = await page.waitForFunction(() => window.__slices > 0, null, { timeout: 12000 })
+  mark(`attempt ${attempts} drag done`);
+  // The deferred-cut drain is one cut per rendered frame: seconds under
+  // SwiftShader, milliseconds on hardware — the ceiling only bites on a
+  // real failure, so keep the fail path short where frames are fast.
+  const hit = await page.waitForFunction(() => window.__slices > 0, null, { timeout: FAST_GPU ? 3000 : 12000 })
     .then(() => true).catch(() => false);
   if (hit) break;
   // re-stage: the parked fruit may have been shoved; pin a fresh one
