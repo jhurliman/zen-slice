@@ -171,7 +171,7 @@ function clipVert(A, dA, B, dB) {
  * @param {{n:THREE.Vector3,d:number}} plane in the SAME local space as geom
  * @param {number} rindThickness  world units of peel thickness at the cut edge
  */
-export function cutGeometry(geom, plane, rindThickness = 0.055) {
+export function cutGeometry(geom, plane, rindThickness = 0.055, _retry = 0) {
   emitReset();   // r38: last cut's emit batches were copied out by buildGeometry
   const pos = geom.attributes.position.array;
   const nor = geom.attributes.normal.array;
@@ -186,7 +186,30 @@ export function cutGeometry(geom, plane, rindThickness = 0.055) {
   const P = new SideBuilder(), N = new SideBuilder();
   const segs = []; // pairs of points on the plane, local space
 
-  const nx = plane.n.x, ny = plane.n.y, nz = plane.n.z, pd = plane.d;
+  const nx = plane.n.x, ny = plane.n.y, nz = plane.n.z;
+  let pd = plane.d;
+
+  // ── r37: THE KNIFE-THROUGH-VERTEX GUARD ────────────────────────────────────
+  // A plane that passes EXACTLY through mesh vertices (a perfectly vertical
+  // stroke on a lathe whose column seam sits in that plane — the orange and
+  // the strawberry both do) clips into zero-length segments that chainLoops
+  // cannot weld, so the cut used to fall through to the soup cap: closed, but
+  // a coarse flat pinwheel instead of the real face. Count near-coincident
+  // vertices first; past a handful, nudge the plane by a sub-visible epsilon
+  // (~0.06% of the mesh radius) and cut there instead. The halves move by
+  // less than a mesh vertex ever could on screen; the cap machinery gets a
+  // clean transversal plane.
+  {
+    let onPlane = 0;
+    for (let i = 0; i < pos.length; i += 3) {
+      const d = nx * pos[i] + ny * pos[i + 1] + nz * pos[i + 2] - pd;
+      if (d > -1e-7 && d < 1e-7) onPlane++;
+    }
+    if (onPlane > 6) {
+      if (!geom.boundingSphere) geom.computeBoundingSphere();
+      pd += Math.max(6e-4 * (geom.boundingSphere?.radius || 1), 1e-4);
+    }
+  }
 
   const V = [null, null, null];
   const dist = [0, 0, 0];
@@ -245,6 +268,10 @@ export function cutGeometry(geom, plane, rindThickness = 0.055) {
     const AB = clipVert(A, dA, B, dB);
     const AC = clipVert(A, dA, C, dC);
 
+    // r37: remember where each crossing came from — p[3] carries the SOURCE
+    // skin uv.y (the appendage band sits above 1.0), so a cap loop can later
+    // know it is a crown-leaf cross-section. chainLoops welds on [0..2] only.
+    AB.p[3] = AB.uv[1]; AC.p[3] = AC.uv[1];
     if (loneSign > 0) {
       sink(P, A, AB, AC);
       sink(N, AB, B, C); sink(N, AB, C, AC);
@@ -287,15 +314,47 @@ export function cutGeometry(geom, plane, rindThickness = 0.055) {
     for (let i = 0; i < loops.length; i++) {
       const lp = loops[i];
       if (!ring || lp.length > ring.length) ring = lp;
-      if (scale[i] < 0.28 * maxS) { addFlatCap(P, lp, plane, +1); addFlatCap(N, lp, plane, -1); continue; }
+      // r37: a loop born mostly from the appendage uv band (uv.y > 1) is a
+      // crown-leaf cross-section. Flag it by pushing the cap's UNUSED uv.x
+      // (species derive the angle from position, never from u) up by 16, so
+      // the flesh material can paint leaf interior instead of flesh — in a
+      // frame that survives the half's recentring and any re-cut.
+      let leafy = 0;
+      for (let k = 0; k < lp.length; k++) if ((lp[k][3] || 0) > 1.02) leafy++;
+      const uOff = leafy > lp.length * 0.6 ? 16 : 0;
+      if (scale[i] < 0.28 * maxS) { addFlatCap(P, lp, plane, +1, uOff); addFlatCap(N, lp, plane, -1, uOff); continue; }
       const R = buildCapRing(lp, plane, rindThickness);
-      if (R) { addCap(P, R, +1); addCap(N, R, -1); }
-      else { addFlatCap(P, lp, plane, +1); addFlatCap(N, lp, plane, -1); }
+      if (R) { addCap(P, R, +1); addCap(N, R, -1); }   // rich cap flags per angle
+      else { addFlatCap(P, lp, plane, +1, uOff); addFlatCap(N, lp, plane, -1, uOff); }
     }
   } else if (segs.length >= 3) {
-    // Ordering failed. Cap the unordered segment soup instead — it is flat and
-    // plain, but it is provably closed (see addSoupCap), and a hole you can see
-    // through the fruit is the worst artefact this file can produce.
+    // Ordering failed — usually a GRAZING cut: the plane runs along a thin
+    // shell's own mid-plane (a strawberry sepal on a perfectly vertical cut)
+    // and the crossing segments cannot close. r37: before accepting the soup,
+    // retry ONCE with the plane nudged ~2% of the mesh radius — sub-visible
+    // on the halves, and it converts a degenerate tangency into a clean
+    // transversal cut. Only then fall back to the soup cap.
+    if (_retry < 2) {
+      if (!geom.boundingSphere) geom.computeBoundingSphere();
+      const r = geom.boundingSphere?.radius || 1;
+      // Tangency is ANGULAR, so a small tilt beats a big offset: the
+      // strawberry's sepal fan needed the plane moved 11% of the radius to
+      // clear by offset, but ~4.6 degrees of tilt welds 100% of segments
+      // (2 degrees does not). The graze can be one-sided (the sepals droop),
+      // so try +0.08 rad first and, if that still fails, swing to −0.08 net
+      // on the second retry. Sub-visible either way on halves already flying
+      // apart; the soup cap remains the floor if both retries fail.
+      const axis = Math.abs(plane.n.y) < 0.9
+        ? new THREE.Vector3(0, 1, 0).cross(plane.n).normalize()
+        : new THREE.Vector3(1, 0, 0).cross(plane.n).normalize();
+      const ang = _retry === 0 ? 0.08 : -0.16;          // net −0.08 from the original
+      const dd = _retry === 0 ? 0.004 * r : 0;
+      const n2 = plane.n.clone().applyAxisAngle(axis, ang).normalize();
+      return cutGeometry(geom, { n: n2, d: plane.d + dd }, rindThickness, _retry + 1);
+    }
+    // Still failing off the tangency: the soup is flat and plain, but it is
+    // provably closed (see addSoupCap), and a hole you can see through the
+    // fruit is the worst artefact this file can produce.
     addSoupCap(P, segs, plane, +1); addSoupCap(N, segs, plane, -1);
     ring = [];
     for (let i = 0; i < segs.length; i++) ring.push(segs[i][0]);
@@ -453,7 +512,7 @@ function capScratch(n) {
     par: f(m),                                // resample param: segment + fraction
     sx: f(m), sy: f(m),                       // resampled boundary, smoothed 2D
     nix: f(m), niy: f(m),                     // inward normal of the smoothed loop
-    rs: f(m), uA: f(m), wW: f(m),
+    rs: f(m), uA: f(m), wW: f(m), uy: f(m),   // uy: resampled SOURCE skin uv.y (r37 leaf flag)
     s2: f(m), c2: f(m), s3: f(m), c3: f(m), s5: f(m), c5: f(m),
     s6: f(m), c6: f(m), s7: f(m), c7: f(m), s11: f(m), c11: f(m), s13: f(m), c13: f(m),
     px: f(RINGS * m), py: f(RINGS * m),       // per-ring 2D position in the plane
@@ -633,6 +692,9 @@ function buildCapRing(ring, plane, rind) {
     S.par[w] = si + f;
     crSample(S.ox, S.oy, L, si, f, tmp);
     S.sx[w] = tmp[0]; S.sy[w] = tmp[1];
+    // r37: interpolate the source skin uv.y along with the position — each
+    // resampled rim vertex remembers whether it came from the appendage band
+    S.uy[w] = (ring[si][3] || 0) * (1 - f) + (ring[(si + 1) % L][3] || 0) * f;
   }
 
   // ── per-vertex frame: radius, angle, inward normal, harmonic tables ────────
@@ -916,6 +978,12 @@ function addCap(side, R, sign) {
   let ci = 0, si = 0;
 
   /** write ring m / index i (m < 0 = apex) into the cap buffer */
+  // r37: the leaf flag is PER ANGLE, not per loop — an inner-whorl blade's
+  // cross-section is often CONNECTED to the body in a single loop, so a loop
+  // vote reads "body" and misses it. Each radial sector inherits its rim
+  // vertex's provenance: rim resampled from the appendage uv band (> 1.02)
+  // pushes that sector's cap u up by 16.
+  const uOffAt = (i) => (S.uy[i] > 1.02 ? 16 : 0);
   function wc(m, i, B) {
     const o = ci * 3, ou = ci * 2; ci++;
     if (m < 0) {
@@ -927,7 +995,7 @@ function addCap(side, R, sign) {
     const g = (m * N + i) * 3, a = B ? NB : NA;
     cP[o] = G[g]; cP[o + 1] = G[g + 1]; cP[o + 2] = G[g + 2];
     cN[o] = a[g]; cN[o + 1] = a[g + 1]; cN[o + 2] = a[g + 2];
-    cU[ou] = S.uA[i]; cU[ou + 1] = RV[m];
+    cU[ou] = S.uA[i] + uOffAt(i); cU[ou + 1] = RV[m];
   }
   /** same, into the skin buffer; always group B */
   function ws(m, i) {
@@ -1011,7 +1079,7 @@ function mergeStrip(N, L, par, cb) {
  * could not fully recover, where a wrong cap would be far more visible than a
  * plain one.
  */
-function addFlatCap(side, ring, plane, sign) {
+function addFlatCap(side, ring, plane, sign, uOff = 0) {
   const L = ring.length;
   const cnx = -sign * plane.n.x, cny = -sign * plane.n.y, cnz = -sign * plane.n.z;
   let cx = 0, cy = 0, cz = 0;
@@ -1024,13 +1092,13 @@ function addFlatCap(side, ring, plane, sign) {
   _bt.copy(_n).cross(_t).normalize();
 
   const nrm = [cnx, cny, cnz];
-  const centre = { p: [cx, cy, cz], n: nrm, uv: [0.5, 0.0] };
+  const centre = { p: [cx, cy, cz], n: nrm, uv: [0.5 + uOff, 0.0] };
   const rim = new Array(L);
   let area2 = 0;
   for (let i = 0; i < L; i++) {
     const dx = ring[i][0] - cx, dy = ring[i][1] - cy, dz = ring[i][2] - cz;
     const X = dx * _t.x + dy * _t.y + dz * _t.z, Y = dx * _bt.x + dy * _bt.y + dz * _bt.z;
-    rim[i] = { p: [ring[i][0], ring[i][1], ring[i][2]], n: nrm, uv: [Math.atan2(Y, X) / TAU + 0.5, 1.0], X, Y };
+    rim[i] = { p: [ring[i][0], ring[i][1], ring[i][2]], n: nrm, uv: [Math.atan2(Y, X) / TAU + 0.5 + uOff, 1.0], X, Y };
   }
   for (let i = 0; i < L; i++) {
     const j = (i + 1) % L;

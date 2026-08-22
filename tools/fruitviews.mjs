@@ -64,6 +64,9 @@ const FLAGS = { species: 'string', seed: 'number', deadline: 'number', zoom: 'bo
 
 const ALL_SPECIES = ['watermelon', 'orange', 'kiwi', 'apple', 'strawberry', 'pineapple', 'rock'];
 const POSES = ['side', 'top', 'threequarter'];
+// r37: 'half' — the fruit sliced lengthwise, one half posed cut-face toward
+// camera. The rock is noCut, so it sits the pose out.
+const CUTTABLE = ALL_SPECIES.filter((s) => s !== 'rock');
 const only = arg('species', null);
 if (only && !ALL_SPECIES.includes(String(only))) {
   console.error(`fruitviews.mjs: unknown species '${only}' (known: ${ALL_SPECIES.join(', ')})`);
@@ -214,7 +217,46 @@ const pose = ({ id, pose, zoom }) => {
   if (zoom) f.pos.z = 2.0;   // closer to camera, still inside the stage volume
   if (pose === 'side') f.quat.identity();
   else if (pose === 'top') f.quat.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1));
-  else { // threequarter: long axis tilted like the game's biased spawn
+  else if (pose === 'half') {
+    // Slice LENGTHWISE (a vertical stroke cuts on a plane containing the long
+    // axis — through the pineapple's crown), then keep one half posed with its
+    // cut face swung toward the camera, park the other far off-screen, and run
+    // ~1.5 s of dark sim so the juice burst flies out of frame. The kept half
+    // is re-pinned every step because the ballistic integrator keeps pulling
+    // it down.
+    f.quat.identity();
+    ZS.advance(0);
+    ZS.newStroke();
+    ZS.swipe(0, 3.2, 0, -2.0, 14, 6.0);
+    const live = ZS.ctx.fruits.live;
+    const halves = live.filter((h) => h.generation > 0);
+    if (halves.length < 2) throw new Error(`half pose: cut produced ${halves.length} halves`);
+    const keep = halves[0], park = halves[1];
+    // the cap's normal is the cut-plane normal (±x for a vertical stroke);
+    // read it off the cap group's first vertex so the face turns the right way
+    const geo = keep.mesh.geometry;
+    const capGroup = geo.groups.find((g) => g.materialIndex === 1);
+    const nrm = geo.getAttribute('normal');
+    const nx = capGroup && capGroup.count > 0 ? nrm.getX(capGroup.start) : 1;
+    const yaw = (nx >= 0 ? -1 : 1) * 1.00;   // swing the face ~57 deg to camera
+    for (let k = 0; k < 16; k++) {
+      // the director keeps tossing on its own timer during the settle — evict
+      // every photobomber so the portrait holds exactly one half
+      for (const o of [...ZS.ctx.fruits.live]) {
+        if (o !== keep && o !== park) ZS.ctx.fruits.remove(o);
+      }
+      keep.pos.set(0, 0.6, 0); keep.vel.set(0, 0, 0); keep.spin.set(0, 0, 0);
+      keep.quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      park.pos.set(80, 0.6, 0); park.vel.set(0, 0, 0); park.spin.set(0, 0, 0);
+      ZS.advance(0.11);
+    }
+    for (const o of [...ZS.ctx.fruits.live]) {
+      if (o !== keep && o !== park) ZS.ctx.fruits.remove(o);
+    }
+    keep.pos.set(0, 0.6, 0); keep.vel.set(0, 0, 0); keep.spin.set(0, 0, 0);
+    keep.quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    park.pos.set(80, 0.6, 0); park.vel.set(0, 0, 0);
+  } else { // threequarter: long axis tilted like the game's biased spawn
     const axis = new THREE.Vector3(Math.cos(0.6) * Math.cos(0.5), Math.sin(0.6) * Math.cos(0.5), Math.sin(0.5)).normalize();
     f.quat.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
   }
@@ -223,7 +265,8 @@ const pose = ({ id, pose, zoom }) => {
 
 let failures = 0;
 for (const id of SPECIES) {
-  for (const p of POSES) {
+  const poses = CUTTABLE.includes(id) ? [...POSES, 'half'] : POSES;
+  for (const p of poses) {
     const name = `${id}-${p}`;
     const started = Date.now();
     const ok = await bounded(`shot:${name}`, SHOT_MS, async () => {
@@ -258,6 +301,37 @@ for (const id of SPECIES) {
     }
     flush();
   }
+}
+
+// ── r37: the README strips — every species at 45°, and the halves ───────────
+// Trim each shot to content (the void is pure black, so trim is safe), letter-
+// box to a square cell, and lay the cells in one row. Two strips: the whole
+// fruit three-quarter views (rock included) and the lengthwise halves.
+if (!only && !failures) {
+  const composeStrip = async (names, out) => {
+    const { default: sharp } = await import('sharp');
+    const CELL = 280, GAP = 10;
+    const cells = [];
+    for (const n of names) {
+      const trimmed = await sharp(join(outDir, `${n}.png`))
+        .trim({ background: '#000000', threshold: 20 }).toBuffer();
+      cells.push(await sharp(trimmed)
+        .resize(CELL, CELL, { fit: 'contain', background: '#000000' }).toBuffer());
+    }
+    const W = names.length * CELL + (names.length + 1) * GAP;
+    await sharp({ create: { width: W, height: CELL + 2 * GAP, channels: 3, background: '#000000' } })
+      .composite(cells.map((input, i) => ({ input, left: GAP + i * (CELL + GAP), top: GAP })))
+      .png().toFile(join(outDir, out));
+    log(`composed ${out}`);
+  };
+  // codex r37: a compose failure/timeout must fail the RUN — a green exit
+  // with a stale or half-written README strip is mislabelled evidence.
+  const stripsOk = await bounded('strips', 60000, async () => {
+    await composeStrip(ALL_SPECIES.map((s) => `${s}-threequarter`), 'strip-threequarter.png');
+    await composeStrip(CUTTABLE.map((s) => `${s}-half`), 'strip-half.png');
+    return true;
+  });
+  if (!stripsOk) failures++;
 }
 
 state.complete = true;

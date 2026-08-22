@@ -637,8 +637,16 @@ export function createBlade() {
       ev.preventDefault();
     }, { passive: false });
 
+    // r37: rawupdate AND pointermove, not either/or. Environments that
+    // advertise onpointerrawupdate do not always deliver raw updates for
+    // every input source (headless/CDP-synthesized drags delivered ONE raw
+    // sample out of six — pointerprobe caught a stroke whose flushed segment
+    // ended a third of the way across the screen; assistive input sources
+    // are the same risk on device). pointermove is the guaranteed stream;
+    // rawupdate adds rate when it works. Double delivery of the same sample
+    // is free: push() drops any point closer than MIN_STEP.
     if ('onpointerrawupdate' in el) el.addEventListener('pointerrawupdate', handleMove, { passive: true });
-    else el.addEventListener('pointermove', handleMove, { passive: true });
+    el.addEventListener('pointermove', handleMove, { passive: true });
 
     const up = () => { down = false; api.active = false; };
     el.addEventListener('pointerup', up);

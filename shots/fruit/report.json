@@ -3,21 +3,165 @@
   "zoom": false,
   "shots": [
     {
+      "name": "watermelon-side",
+      "luma": 8.926,
+      "ms": 3288,
+      "ok": true
+    },
+    {
+      "name": "watermelon-top",
+      "luma": 7.865,
+      "ms": 1015,
+      "ok": true
+    },
+    {
+      "name": "watermelon-threequarter",
+      "luma": 8.16,
+      "ms": 1070,
+      "ok": true
+    },
+    {
+      "name": "watermelon-half",
+      "luma": 10.625,
+      "ms": 34773,
+      "ok": true
+    },
+    {
+      "name": "orange-side",
+      "luma": 7.578,
+      "ms": 1695,
+      "ok": true
+    },
+    {
+      "name": "orange-top",
+      "luma": 7.568,
+      "ms": 940,
+      "ok": true
+    },
+    {
+      "name": "orange-threequarter",
+      "luma": 7.689,
+      "ms": 969,
+      "ok": true
+    },
+    {
+      "name": "orange-half",
+      "luma": 8.993,
+      "ms": 32878,
+      "ok": true
+    },
+    {
+      "name": "kiwi-side",
+      "luma": 4.943,
+      "ms": 1408,
+      "ok": true
+    },
+    {
+      "name": "kiwi-top",
+      "luma": 4.397,
+      "ms": 944,
+      "ok": true
+    },
+    {
+      "name": "kiwi-threequarter",
+      "luma": 4.604,
+      "ms": 931,
+      "ok": true
+    },
+    {
+      "name": "kiwi-half",
+      "luma": 6.32,
+      "ms": 31928,
+      "ok": true
+    },
+    {
+      "name": "apple-side",
+      "luma": 6.713,
+      "ms": 1556,
+      "ok": true
+    },
+    {
+      "name": "apple-top",
+      "luma": 8.204,
+      "ms": 928,
+      "ok": true
+    },
+    {
+      "name": "apple-threequarter",
+      "luma": 7.736,
+      "ms": 987,
+      "ok": true
+    },
+    {
+      "name": "apple-half",
+      "luma": 7.81,
+      "ms": 31476,
+      "ok": true
+    },
+    {
       "name": "strawberry-side",
-      "luma": 3.9,
-      "ms": 5605,
+      "luma": 3.899,
+      "ms": 1528,
       "ok": true
     },
     {
       "name": "strawberry-top",
       "luma": 3.846,
-      "ms": 1799,
+      "ms": 916,
       "ok": true
     },
     {
       "name": "strawberry-threequarter",
       "luma": 3.947,
-      "ms": 1567,
+      "ms": 958,
+      "ok": true
+    },
+    {
+      "name": "strawberry-half",
+      "luma": 4.677,
+      "ms": 32050,
+      "ok": true
+    },
+    {
+      "name": "pineapple-side",
+      "luma": 11.588,
+      "ms": 1682,
+      "ok": true
+    },
+    {
+      "name": "pineapple-top",
+      "luma": 8.844,
+      "ms": 1049,
+      "ok": true
+    },
+    {
+      "name": "pineapple-threequarter",
+      "luma": 8.094,
+      "ms": 1101,
+      "ok": true
+    },
+    {
+      "name": "pineapple-half",
+      "luma": 14.933,
+      "ms": 33896,
+      "ok": true
+    },
+    {
+      "name": "rock-side",
+      "luma": 4.255,
+      "ms": 1289,
+      "ok": true
+    },
+    {
+      "name": "rock-top",
+      "luma": 4.149,
+      "ms": 883,
+      "ok": true
+    },
+    {
+      "name": "rock-threequarter",
+      "luma": 4.262,
+      "ms": 887,
       "ok": true
     }
   ],

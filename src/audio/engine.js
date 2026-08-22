@@ -369,6 +369,25 @@ export function createEngine() {
   };
   eng.space = () => spaceName;
 
+  /** r37: pre-build every space IR off the critical path. setSpace used to
+   *  run makeIR synchronously at the exact moment a level landed — a few ms
+   *  of main-thread math riding the same frame as the level's palette work,
+   *  part of the reported level-start drop. One IR per tick, staggered, so
+   *  the warm itself can never be the spike it removes. */
+  eng.warmSpaces = () => {
+    const names = Object.keys(SPACES);
+    let i = 0;
+    const one = () => {
+      if (!eng.actx) return;
+      while (i < names.length && irCache[names[i]]) i++;
+      if (i >= names.length) return;
+      irCache[names[i]] = makeIR(eng.actx, SPACES[names[i]]);
+      i++;
+      setTimeout(one, 350);
+    };
+    setTimeout(one, 0);
+  };
+
   /**
    * r27: the mix BREATHES — duck the pad/drone bed and bloom it back. Used
    * for the sidechain moment after a big harmony (the world making room for
