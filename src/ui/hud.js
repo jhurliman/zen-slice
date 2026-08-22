@@ -575,7 +575,12 @@ export function createHud() {
           // On device, `T1≤1` after 15 min = the ratchet held; `T2≤3` cycling
           // = the chip recovered honestly.
           const g = window.ZS?.gov?.();
-          const gv = g ? ` · T${g.tier}≤${g.ceil} ${g.ms}ms` : '';
+          // r39: ×S is the governor's render scale (with its own ratchet
+          // ceiling when one is set). Silent at native — a strip that always
+          // says ×1 teaches the eye to skip the slot that matters.
+          const sc = g && (g.scale < 1 || g.sceil < 1)
+            ? ` ×${g.scale}${g.sceil < 1 ? `≤${g.sceil}` : ''}` : '';
+          const gv = g ? ` · T${g.tier}≤${g.ceil}${sc} ${g.ms}ms` : '';
           const txt = st
             ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${rec}${hap}${mix}${gv}`
             : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}${hap}${gv}`;
