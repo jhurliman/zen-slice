@@ -142,46 +142,147 @@ export function createDirector({ seed = 20260806 } = {}) {
   // the wrong programs — and renderer.compileAsync builds every pipeline
   // while the title screen holds the sky. Best-effort by design: a compile
   // failure must never take the boot down.
+  // ── r42: the yield. rAF, not a 150 ms timer ─────────────────────────────────
+  // r37 slept 150 ms between species to keep the pointer pipeline alive under
+  // SwiftShader. It bought that at a price nobody measured: 7 x 150 ms = 1.05 s
+  // of floor before the last species is compiled, and the warmup is racing a
+  // player who taps at ~1 s. A rAF yield services pointer events just as well —
+  // they are dispatched between frames — and costs one frame instead of
+  // eighteen. THE WARMUP MUST FINISH BEFORE THE ARC STARTS; api.fixed now holds
+  // spawning on `ctx.prewarmed === false`, so every millisecond here is a
+  // millisecond the player spends waiting at an empty sky.
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+
+  /** Park a mesh where the vertex shader throws it off the clip volume. The
+   *  draw is still ISSUED (frustumCulled = false), which is the whole point:
+   *  the pipeline links and three allocates the render object's bind group
+   *  and uniform buffer. Nothing rasterises, so nothing is visible. */
+  const park = (mesh) => { mesh.position.set(0, -500, 0); mesh.frustumCulled = false; return mesh; };
+
+  // ══ r42: THE WARM START ═════════════════════════════════════════════════════
+  // THE PLAYER: "the only hitch is in the first 10 seconds of the game there
+  // are several long frame stalls. Perhaps we should render a few invisible
+  // frames heavily loaded with fruits and stones to preallocate buffers?"
+  //
+  // He was right, and r37's prewarm was three-quarters of the answer already —
+  // it just ran too late, too slowly, and stopped short. Measured on real
+  // WebGPU (Chromium/Metal, tools/stallprobe.mjs), the r37 build blocked the
+  // main thread for 2.44 s in ONE unbroken gap at t=2.6 s, with a fruit
+  // already spawned and flying through it. Three separate defects:
+  //
+  //  1. The first compileAsync call compiles the WHOLE SCENE — stage, post
+  //     stack, fluid, blade — not just the species handed to it, so chunk 1
+  //     carried everything and chunks 2-7 were nearly free. Splitting the
+  //     scene pass out and yielding after it is most of the fix.
+  //  2. The 150 ms sleeps put the tail of the warmup a full second into live
+  //     play. See nextFrame() above.
+  //  3. It compiled pipelines but never DREW under load, so three's per-render-
+  //     object bind groups and uniform buffers — one set per mesh, allocated on
+  //     first draw — were still being minted one fruit at a time during play.
+  //     That is the "preallocate buffers" the player asked for, and it is what
+  //     the crowd phase below does.
+  //
+  // Best-effort throughout, exactly as r37 was: a warmup that throws must never
+  // take the boot down. Timings land in ctx.warmLog for tools/stallprobe.mjs.
   api.prewarmPipelines = async () => {
     if (!ctx?.renderer?.compileAsync || !ctx.scene) return;
-    // INCREMENTAL, one species per chunk with real-time yields between: a
-    // monolithic compile pass can starve the pointer pipeline long enough
-    // that a drag landing during boot produces no swipe (pointerprobe caught
-    // it under SwiftShader, where each compile chunk costs 100x its device
-    // price). ctx.prewarmed publishes the steady state for harnesses; on
-    // device the chunks are milliseconds and the yields dominate, so input
-    // stays live throughout. compileAsync caches per pipeline, so each pass
-    // only pays its own species' programs.
     ctx.prewarmed = false;
+    const log = (ctx.warmLog = []);
+    // THE GATE HAS A DEADLINE. api.fixed holds the arc while `prewarmed` is
+    // false, which turns any pathological compile — a driver that takes ten
+    // seconds, a device that never resolves a pipeline promise — into a game
+    // that never starts. Four seconds is far beyond the measured warmup
+    // (1.3 s on a dev Mac with real GL, of which the scene pass is nearly
+    // all) and far short of a player deciding the app is broken. Releasing
+    // the gate does not cancel the remaining phases: they keep compiling
+    // behind the play that has now been allowed to begin, which is strictly
+    // the r37 behaviour and therefore never worse than shipping without this.
+    const deadline = setTimeout(() => {
+      if (ctx.prewarmed === false) { ctx.prewarmed = true; log.push({ phase: 'DEADLINE', ms: 4000 }); }
+    }, 4000);
+    const phase = async (name, fn) => {
+      const t0 = performance.now();
+      try { await fn(); } catch (_) { /* best-effort by design */ }
+      log.push({ phase: name, ms: +(performance.now() - t0).toFixed(1) });
+      await nextFrame();
+    };
+
+    // 1. THE SCENE AS IT STANDS — stage lights, post graph, fluid's two
+    //    systems, the blade ribbon. This is the expensive one (it was hiding
+    //    inside chunk 1 before) and it is paid against an empty sky.
+    await phase('scene', () => ctx.renderer.compileAsync(ctx.scene, ctx.camera));
+
+    // 2. EVERY SPECIES, whole and cut. A pipeline compiles on first DRAW, so a
+    //    level introducing a species dropped frames on its first toss and the
+    //    first cut of each species compiled the cap variant mid-swipe.
     for (const sp of SPECIES_LIST) {
-      await new Promise((r) => setTimeout(r, 150));
-      const warm = [], junk = [];
-      try {
-        const geom = geomFor(sp, ctx.quality.fruitSegments);
-        const mats = matsFor(sp);
-        const whole = new THREE.Mesh(geom, mats);
-        whole.position.set(0, -500, 0);
-        whole.frustumCulled = false;   // compileAsync CULLS its render list
-        warm.push(whole);
-        if (!sp.noCut) {
-          const rind = sp.rind ?? 0.05;
-          const res = cutGeometry(geom, { n: new THREE.Vector3(1, 0, 0), d: 0 }, rind);
-          if (res && res.pos) {
-            const half = new THREE.Mesh(res.pos, mats);
-            half.position.set(0, -500, 0);
-            half.frustumCulled = false;
-            warm.push(half); junk.push(res.pos);
+      await phase('fruit:' + sp.id, async () => {
+        const warm = [], junk = [];
+        try {
+          const geom = geomFor(sp, ctx.quality.fruitSegments);
+          const mats = matsFor(sp);
+          warm.push(park(new THREE.Mesh(geom, mats)));
+          if (!sp.noCut) {
+            const rind = sp.rind ?? 0.05;
+            const res = cutGeometry(geom, { n: new THREE.Vector3(1, 0, 0), d: 0 }, rind);
+            if (res && res.pos) { warm.push(park(new THREE.Mesh(res.pos, mats))); junk.push(res.pos); }
+            if (res && res.neg) junk.push(res.neg);
           }
-          if (res && res.neg) junk.push(res.neg);
+          for (const m of warm) ctx.scene.add(m);
+          await ctx.renderer.compileAsync(ctx.scene, ctx.camera);
+        } finally {
+          for (const m of warm) ctx.scene.remove(m);
+          for (const j of junk) j.dispose?.();
         }
-        for (const m of warm) ctx.scene.add(m);
-        await ctx.renderer.compileAsync(ctx.scene, ctx.camera);
-      } catch (_) { /* best-effort */ }
-      finally {
-        for (const m of warm) ctx.scene.remove(m);
+      });
+    }
+
+    // 3. THE CUT ARENAS. cutter.js bump-allocates out of a grow-only buffer
+    //    that starts at LENGTH ZERO and doubles on overflow, and capScratch
+    //    grows ~22 Float64Arrays to fit the biggest cap loop it has seen. The
+    //    axis-aligned cuts above size it for the easy case; an oblique cut
+    //    through the fattest species is the one that sets the high-water mark,
+    //    so the player's first real swipe reallocates nothing.
+    await phase('cut-arenas', () => {
+      const big = SPECIES.watermelon || SPECIES_LIST.find((s) => !s.noCut);
+      if (!big) return;
+      const geom = geomFor(big, ctx.quality.fruitSegments);
+      const rind = big.rind ?? 0.05;
+      for (const n of [new THREE.Vector3(0.6, 0.8, 0), new THREE.Vector3(0.35, 0.62, 0.7).normalize()]) {
+        const res = cutGeometry(geom, { n, d: 0 }, rind);
+        res?.pos?.dispose?.(); res?.neg?.dispose?.();
+      }
+    });
+
+    // 4. THE LOADED FRAMES — the player's own suggestion. A full stage's worth
+    //    of bodies (a whole fruit of every species, four halves, and a stone)
+    //    parked off-frustum and left in the scene for three REAL frames, drawn
+    //    by the ordinary loop through the ordinary post stack. Nothing is
+    //    presented that was not already on screen; what changes is that three
+    //    mints every render object's bind group and uniform buffer here,
+    //    under load, instead of one at a time under the player's thumb.
+    await phase('crowd', async () => {
+      const crowd = [], junk = [];
+      try {
+        for (const sp of SPECIES_LIST) {
+          const geom = geomFor(sp, ctx.quality.fruitSegments);
+          const mats = matsFor(sp);
+          crowd.push(park(new THREE.Mesh(geom, mats)));
+          if (!sp.noCut && crowd.length < 12) {
+            const res = cutGeometry(geom, { n: new THREE.Vector3(1, 0, 0), d: 0 }, sp.rind ?? 0.05);
+            if (res?.pos) { crowd.push(park(new THREE.Mesh(res.pos, mats))); junk.push(res.pos); }
+            if (res?.neg) junk.push(res.neg);
+          }
+        }
+        for (const m of crowd) ctx.scene.add(m);
+        await nextFrame(); await nextFrame(); await nextFrame();
+      } finally {
+        for (const m of crowd) ctx.scene.remove(m);
         for (const j of junk) j.dispose?.();
       }
-    }
+    });
+
+    clearTimeout(deadline);
     ctx.prewarmed = true;
   };
 
@@ -405,7 +506,16 @@ export function createDirector({ seed = 20260806 } = {}) {
     // Probes never set the flag (?capture suppresses the title), so frozen
     // rng streams are untouched.
     const held = !!ctx.titleHold;
-    if (!held) levelT += sdt;
+    // r42: AND THE ARC WAITS FOR THE WARMUP. `prewarmed` is false only while
+    // api.prewarmPipelines is running, true when it finishes, and undefined
+    // when it never started (?capture, a renderer without compileAsync) — so
+    // `=== false` is the whole guard and probes are untouched. Without it the
+    // first toss of the session flies through the compile that the toss
+    // itself needs, which is exactly the stall the player reported. The
+    // title's marquee melon is deliberately NOT gated: it is the composition,
+    // it is one cached mesh, and its pipeline is compiled by phase 2.
+    const warming = ctx.prewarmed === false;
+    if (!held && !warming) levelT += sdt;
     const L = LEVELS[api.level];
     updateVisibleBox();
 
@@ -427,7 +537,7 @@ export function createDirector({ seed = 20260806 } = {}) {
     // allocated a throwaway array every fixed step — 120 of them a second
     // against R4's "zero steady-state allocation in the hot loop".
     nextSpawn -= sdt;
-    if (!held && nextSpawn <= 0) {
+    if (!held && !warming && nextSpawn <= 0) {
       // ══ r28 THE BEAT-QUANTIZED TOSS (the Lumines/Rez move) ══════════════
       // When the timer expires, the toss HOLDS until the conductor's next
       // audible 8th (audio.js publishes ctx.toss8In each render frame; the

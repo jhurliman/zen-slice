@@ -78,9 +78,18 @@ const res = await build({
   // App Store builds run `APPSTORE=1 node build.mjs`, which compiles the flag
   // to false — the toggle never renders and the strip can never be enabled,
   // so no debug chrome can ship to review.
-  define: { __ZS_DEBUG_UI__: process.env.APPSTORE === '1' ? 'false' : 'true' },
   minify: process.env.DEV !== '1',
+  // ⚠ r42: THIS WAS TWO SEPARATE `define` KEYS IN ONE OBJECT LITERAL, and the
+  // second silently overwrote the first — a duplicate key is legal JS, so
+  // esbuild only ever received `__ZS_DEMO__`/`__ZS_APPSTORE_URL__` and
+  // `__ZS_DEBUG_UI__` was NEVER substituted in any build. It survived into the
+  // bundle as a bare identifier, which means (a) every read of it threw a
+  // ReferenceError rather than testing a boolean, and (b) `APPSTORE=1` was not
+  // compiling the debug UI out — the one guarantee that flag exists to make.
+  // Found because r42 added a read of it in main.js just above
+  // `window.ZS = ZS`, which turned the silent failure into a blank canvas.
   define: {
+    __ZS_DEBUG_UI__: process.env.APPSTORE === '1' ? 'false' : 'true',
     __ZS_DEMO__: DEMO ? 'true' : 'false',
     __ZS_APPSTORE_URL__: JSON.stringify(APPSTORE_URL),
   },

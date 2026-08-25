@@ -361,6 +361,21 @@ export async function boot(canvas) {
     for (const m of modules) safe(m, 'quality', ctx.quality);
     resize();
     bus.emit('quality', { profile: ctx.quality });
+    // ── r42: A TIER FLIP USED TO UNDO THE WARMUP, MID-PLAY ────────────────────
+    // stage.quality() rebuilds the post graph whenever the DOF tap count or the
+    // bloom flag changes — which is every tier step — and a rebuild sets
+    // `pipeline.needsUpdate`, so EVERY material in the scene re-links on the
+    // next draw. That re-link runs on the draw path, where three passes
+    // `promises = null` and the backend therefore calls the SYNCHRONOUS
+    // `device.createRenderPipeline()`. One frame pays for the whole scene.
+    // compileAsync takes the identical work down the `createRenderPipelineAsync`
+    // branch instead, off the main thread, before anyone draws. The governor's
+    // first decision lands at WARMUP_S = 8 s — inside the ten seconds the
+    // player was complaining about — so this is not a hypothetical path.
+    // Fire-and-forget: a compile failure must never take a tier change down.
+    if (!flags.capture && renderer.compileAsync) {
+      Promise.resolve().then(() => renderer.compileAsync(scene, camera)).catch(() => {});
+    }
   }
   const gov = createGovernor({
     tier: ctx.quality.tier,
@@ -394,6 +409,9 @@ export async function boot(canvas) {
 
   // ── loop ───────────────────────────────────────────────────────────────────
   let last = performance.now(), acc = 0, running = true;
+  const bootAt = performance.now();
+  /** @type {{t:number,ms:number,warm:number,fruit:number,tier:number}[]} r42 */
+  const stalls = [];
   const stats = { fps: 0, ms: 0, tier: ctx.quality.tier, fruit: 0, frames: 0 };
   let fpsAcc = 0, fpsN = 0;
   let virtualNow = performance.now() / 1000;   // harness-controlled clock
@@ -426,6 +444,21 @@ export async function boot(canvas) {
     if (doRender) safe(stage, 'render');
 
     const ms = performance.now() - wallStart;
+    // ── r42: THE STALL LEDGER ─────────────────────────────────────────────────
+    // "several long frame stalls in the first 10 seconds" is a report nothing
+    // in this build could answer: ZS.profile() has to be armed in advance and
+    // is off on the shipping path, so the one session that matters — a cold
+    // boot on the player's own device — was never recorded. This costs one
+    // comparison per frame, always on, and keeps the first 48 frames that blew
+    // four vsyncs at 120 Hz. Virtual-clock frames are excluded: `ms` there is
+    // wall time for a step the harness asked for, not a hitch anyone saw.
+    if (!useVirtual && ms > 33 && stalls.length < 48) {
+      stalls.push({
+        t: +((performance.now() - bootAt) / 1000).toFixed(2), ms: +ms.toFixed(1),
+        warm: ctx.prewarmed === false ? 0 : 1, fruit: director.live?.length ?? 0,
+        tier: ctx.quality.tier,
+      });
+    }
     if (prof) {
       prof.frames++;
       prof.frameMs.push(ms);
@@ -484,6 +517,11 @@ export async function boot(canvas) {
     profile: (on) => { api_profile(on); },
     /** Snapshot WITHOUT resetting — reading a profiler must never disturb it. */
     profileRead: () => __profSnapshot(),
+    /** r42: every frame since boot that cost more than 33 ms (four vsyncs at
+     *  120 Hz), capped at 48, plus what the warmup was doing at the time.
+     *  `ZS.warm()` is its companion: the per-phase cost of the warm start. */
+    stalls: () => stalls.slice(),
+    warm: () => ({ done: ctx.prewarmed, phases: ctx.warmLog || [] }),
     setTier: applyTier,
     /** r39: manual render-scale override for testing, same spirit as setTier —
      *  applies immediately, and the governor may adjust it afterwards. */
@@ -559,6 +597,41 @@ export async function boot(canvas) {
     },
     THREE,
   };
+  // r42: the phone has no console anyone can reach mid-play, so a dev build
+  // says its cold-boot numbers out loud once, at 12 s — late enough that the
+  // warmup, the audio unlock and the governor's first decision (WARMUP_S = 8)
+  // have all happened. Capacitor forwards console.log to the native log, so
+  // `xcrun devicectl device process launch --console` captures a real cold
+  // boot on real hardware without a probe or a cable-side harness.
+  // `APPSTORE=1 node build.mjs` compiles this out with the rest of the debug UI.
+  if (__ZS_DEBUG_UI__) {
+    // Written repeatedly, earliest first: a launch made by `devicectl` with the
+    // iPad idle is SUSPENDED within a few seconds — rAF stops, timers stop —
+    // so a single 12 s dump captured nothing off a real device. The 2.5 s shot
+    // lands while the app is certainly alive and already has the whole warm
+    // log; the later ones overwrite it with governor state if the app survives.
+    const dump = () => {
+      try {
+        const diag = JSON.stringify({
+          at: +((performance.now() - bootAt) / 1000).toFixed(1),
+          warm: ZS.warm(), stalls,
+          gov: (() => { try { return ZS.gov(); } catch (_) { return null; } })(),
+          backend: ZS.backend, frames: stats.frames, fps: Math.round(stats.fps),
+        });
+        console.log('[zs] diag ' + diag);
+        // …and to localStorage, because the native app's console is not
+        // reachable over the wireless tunnel (devicectl's --console channel
+        // fails where install/launch succeed) while its container IS:
+        //   devicectl device copy from … LocalStorage/localstorage.sqlite3
+        // is the only path off the device that needs nothing installed.
+        localStorage.setItem('zsDiag', diag);
+      } catch (_) { /* diagnostics only */ }
+    };
+    setTimeout(dump, 2500);
+    setTimeout(dump, 12000);
+    setTimeout(dump, 30000);
+  }
+
   window.ZS = ZS;
   return ZS;
 }

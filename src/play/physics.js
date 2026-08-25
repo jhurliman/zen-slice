@@ -257,6 +257,14 @@ export function createPhysics() {
         world.maxCcdSubsteps = 0;   // 0.1 units of travel per step vs a 1-unit
                                     // body: nothing can tunnel, so don't pay.
         api.ready = true;
+        // ⚠ r42: warmUp() WAS DEAD CODE. It was written in r19 with the
+        // measurement in its own header — "the first cut of a session cost
+        // 33 ms and nothing after it cost 2" — and then never called from
+        // anywhere; `grep -rn warmUp src tools` returned one hit, the
+        // definition. Every session since has paid the 33 ms spike on the
+        // player's first cut. It must run AFTER `world` exists, which is
+        // here and nowhere earlier: the function builds throwaway bodies.
+        warmUp();
       }).catch((err) => {
         api.enabled = false;
         console.error('[zs] physics disabled: rapier init failed', err);
