@@ -129,6 +129,34 @@ export async function boot(canvas) {
     if (gl) params.context = gl;
   }
 
+  // ══ r42: THE SHEET WAS NEVER DRAWN ON WEBGPU. NOT ONCE, ON ANY DEVICE. ═════
+  // The juice sheet's geometry is `position` plus NINE instanced attributes
+  // (fOrg fTan fNrm fDir fInh fA fB fC fTint — fluid.js makeSheet), which is
+  // ten vertex buffers. WebGPU's DEFAULT `maxVertexBuffers` is 8, three asks
+  // for default limits, and so the sheet's pipeline fails to create:
+  //   "Vertex buffer count (10) exceeds the maximum number of vertex buffers (8)"
+  // three then flags the material errored and silently skips the draw. Asked
+  // directly, Safari 26 on macOS — the same WebKit the iOS app runs — answers
+  //   maxVertexBuffers: default-device 8, adapter 12
+  //   10-buffer pipeline: NO — vertexBuffer count(10) exceeds limit(8)
+  // so this failed on the iPad exactly as it fails in Chrome. Nothing caught
+  // it because every visual probe runs `?capture=1`, which forces the WebGL2
+  // backend, where no such limit exists — the one path the sheet DOES draw on
+  // is the one path no player ever sees.
+  //
+  // The adapter will grant 12; only the requested DEVICE was capped at 8. So
+  // ask for 10 — but ask CONDITIONALLY. requestDevice REJECTS outright if the
+  // adapter cannot meet a required limit, and a rejected device is
+  // `renderer.init()` throwing, which this file's header calls the failure
+  // mode that looks like every other failure mode: a permanently black canvas.
+  // An adapter that cannot do 10 therefore gets exactly today's behaviour.
+  if (!flags.forceWebGL && navigator.gpu?.requestAdapter) {
+    try {
+      const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+      if (adapter && adapter.limits?.maxVertexBuffers >= 10) params.requiredLimits = { maxVertexBuffers: 10 };
+    } catch (_) { /* no adapter probe, no raised limit, no change */ }
+  }
+
   const renderer = new THREE.WebGPURenderer(params);
   // MANDATORY. See header note 1.
   await renderer.init();
