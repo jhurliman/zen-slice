@@ -117,6 +117,16 @@ forces the WebGL2 backend, which is what SwiftShader can run).
   JS/scene/heap leak (thermal throttling is the standing suspect).
 - **`tools/perfprofile.mjs`** — per-module, per-phase frame-cost attribution
   over `ZS.profile()`. Tail latency lives in p95/max per module, not the mean.
+- **`tools/govprobe.mjs`** (r40) — the quality governor, driven through whole
+  synthetic sessions in PURE NODE (`src/core/governor.js` imports nothing, so
+  there is no browser and no bundle in the loop; 37 checks in ~40 ms). Its
+  scenarios are CLOSED-LOOP and that is the point: frame cost is modelled as
+  a function of the pixels and features the governor just chose, and the
+  delivered period is quantised to the panel's vsync divisors. A fixed dt
+  trace lies in both directions — one that never gets cheaper says the
+  governor "climbs forever", one that never gets faster says it "does
+  nothing" — and a feedback loop can only be judged inside one. **It gates
+  `npm run ios` alongside pointerprobe.**
 - **`tools/pointerprobe.mjs`** (r38f) — the REAL-INPUT probe, and the reason
   it exists is a scar: every other tool drives `ZS.swipe()` (bus emission),
   so a blade whose `init()` threw — pointer listeners never attached — kept

@@ -1,7 +1,9 @@
 /**
- * main.js — wiring harness only. Owns the renderer, the clock, the quality
- * governor and the slow-motion time dilation. It knows nothing about fruit,
- * juice or scoring.
+ * main.js — wiring harness only. Owns the renderer, the clock, the slow-motion
+ * time dilation, and the APPLY half of quality: what a tier means, what a
+ * render scale means, and who needs telling. The DECIDE half moved to
+ * core/governor.js in r40 so that it could be tested (tools/govprobe.mjs).
+ * It knows nothing about fruit, juice or scoring.
  *
  * ── Renderer: WebGPURenderer + TSL ──────────────────────────────────────────
  * `build.mjs` points the bare specifier 'three' at `three/webgpu`, so every
@@ -52,6 +54,8 @@
 
 import * as THREE from 'three';
 import { Bus, SIM_DT, MAX_SUBSTEPS, TIER, STAGE, clamp, damp, Clock, nowSec } from './core/contract.js';
+import { createGovernor, scaleFloorFor, GFX_MODES } from './core/governor.js';
+import { loadPrefs } from './core/prefs.js';
 import { installTextureViewCompat, watchDeviceLost, backendName } from './render/compat.js';
 import { createStage } from './render/stage.js';
 import { createBlade } from './input/blade.js';
@@ -321,14 +325,7 @@ export async function boot(canvas) {
   // pipeline is byte-identical to pre-r39 — a fast GPU that never misses
   // budget renders native, 8K included; the only ceiling anyone gets is
   // their own hardware's measured ability to hold frame rate.
-  const SCALE_MIN = 0.5, SCALE_STEP = 0.85;
   let renderScale = 1;
-  /** Clamp + apply: resize() re-derives the effective dpr and tells every
-   *  module. No 'quality' bus event — the tier profile did not change. */
-  function applyScale(s) {
-    renderScale = Math.min(1, Math.max(SCALE_MIN, s));
-    resize();
-  }
 
   // ── resize ─────────────────────────────────────────────────────────────────
   function resize() {
@@ -350,82 +347,50 @@ export async function boot(canvas) {
   window.addEventListener('orientationchange', () => setTimeout(resize, 120));
   resize();
 
-  // ── quality governor ───────────────────────────────────────────────────────────────────────
-  // THE THERMAL RATCHET (HANDOFF open item 6). The soak harness proved the
-  // 15-min on-device slowdown is not a JS/scene/heap leak — it is the SoC
-  // hitting its thermal limit. The old governor made that WORSE by
-  // oscillating: downshift on misses → chip cools → upshift after ~8 s clean
-  // → reheat → miss → downshift… a duty cycle that pins the device at its
-  // throttle point forever. Two changes:
-  //  · an upshift now needs ~30 s of clean, fast frames (transient hiccups —
-  //    shader compiles, GC — still recover; a hot chip won't fake this);
-  //  · if a downshift is needed within 90 s OF an upshift, that upshift was
-  //    a thermal mistake: a session-long tier CEILING ratchets down to where
-  //    we retreated. The governor stops re-testing a level the device has
-  //    already failed — sustained load drops, the SoC gets to actually cool.
-  // r39: the governor is now TWO nested loops. renderScale is the fine inner
-  // loop — pixels are the cheapest thing to shed (the fluid sim is per-pixel)
-  // and a 15% linear step is the least visible change we can make, so it
-  // moves first and moves fast. Tiers are the coarse outer loop and only move
-  // when the inner loop is saturated: tier-down requires scale already at its
-  // floor, tier-up requires scale already restored. The two share the
-  // framesOver/framesUnder detectors; the inner loop's earlier trigger
-  // (20 vs 45 over, 360 vs 1800 under) plus the resets on every change make
-  // the branches naturally sequential — no extra state machine.
-  // The thermal-ratchet doctrine applies to scale too: a scale-down within
-  // 60 s of a scale-up means that scale-up was a thermal mistake, and a
-  // session ceiling (scaleCeil) ratchets down so the governor stops
-  // re-testing a resolution the device already failed at.
-  let emaMs = 8, sinceChange = 0, framesOver = 0, framesUnder = 0;
-  let govT = 0, tierCeil = TIER.ULTRA, lastUpAt = -1e9;
-  let scaleCeil = 1, lastScaleUpAt = -1e9;
-  // r39b: `ms` times only JS (encode+submit), so a GPU-bound frame looks
-  // cheap while rAF crawls. dt carries the GPU back-pressure: estimate the
-  // panel period as a rolling min of dt (decays upward so a glitch can't
-  // poison it) and count dt > 1.5 vsyncs as a missed frame. Frames whose dt
-  // was synthesized (first frame after boot/resume, negative rAF delta) never
-  // reach the governor: their SIM_DT (1/120 s) is not a vsync interval, and
-  // the min would learn 120 Hz on a 60 Hz panel — every honest 16.7 ms frame
-  // then reads as missed for the ~10 s the decay needs to walk back.
-  let vsyncS = 1 / 60, emaDt = 1 / 60;
+  // ── quality governor ───────────────────────────────────────────────────────
+  // r40: the decision logic lives in core/governor.js so that it can be tested
+  // (tools/govprobe.mjs drives whole sessions through it in pure node). It
+  // shipped in r39 with four defects that between them turned a ProMotion
+  // iPhone holding an honest 60 fps into tier LOW at 11% of native pixels
+  // within 12 seconds, with no path back — read that file's header for the
+  // full account. main.js keeps only the APPLY half: what a tier means, what
+  // a scale means, and who needs telling.
+  let emaMs = 8;
   function applyTier(t) {
     ctx.quality = { ...PROFILES[t] };
     for (const m of modules) safe(m, 'quality', ctx.quality);
     resize();
     bus.emit('quality', { profile: ctx.quality });
   }
-  function governor(ms, dt) {
-    govT += dt;
-    vsyncS = Math.min(vsyncS * 1.0005, Math.max(dt, 1 / 240));
-    emaDt += (dt - emaDt) * 0.05;
-    const missedVsync = dt > vsyncS * 1.5;
-    emaMs += (ms - emaMs) * 0.05;
-    sinceChange += dt;
-    const budget = 1000 / 60 * 0.92;   // never dip under 60
-    if (emaMs > budget || missedVsync) { framesOver++; framesUnder = 0; } else { framesUnder++; framesOver = 0; }
-    const scaleTop = Math.min(1, scaleCeil);
-    if (sinceChange > 1.0 && framesOver > 20 && renderScale > SCALE_MIN + 1e-6) {
-      // inner loop, down: shed pixels before touching features
-      if (govT - lastScaleUpAt < 60) scaleCeil = Math.max(SCALE_MIN, renderScale * SCALE_STEP);
-      applyScale(renderScale * SCALE_STEP);
-      sinceChange = 0; framesOver = 0; emaMs = budget * 0.8;
-    } else if (sinceChange > 1.5 && framesOver > 45 && ctx.quality.tier > TIER.LOW) {
-      // outer loop, down: scale is at its floor and it's still not enough
-      if (govT - lastUpAt < 90) tierCeil = Math.max(TIER.LOW, ctx.quality.tier - 1);
-      applyTier(ctx.quality.tier - 1); sinceChange = 0; framesOver = 0; emaMs = budget * 0.8;
-    } else if (sinceChange > 6 && framesUnder > 360 && emaMs < budget * 0.7
-      && renderScale < scaleTop - 1e-6) {
-      // inner loop, up: restore resolution before features come back
-      lastScaleUpAt = govT;
-      applyScale(Math.min(scaleTop, renderScale / SCALE_STEP));
-      sinceChange = 0; framesUnder = 0;
-    } else if (sinceChange > 30 && framesUnder > 1800 && emaMs < 1000 / 120 * 0.7
-      && ctx.quality.tier < Math.min(TIER.ULTRA, tierCeil)
-      && renderScale >= scaleTop - 1e-6) {
-      lastUpAt = govT;
-      applyTier(ctx.quality.tier + 1); sinceChange = 0; framesUnder = 0;
-    }
+  const gov = createGovernor({
+    tier: ctx.quality.tier,
+    minTier: TIER.LOW,
+    maxTier: TIER.ULTRA,
+    // Re-read per frame: the floor is expressed in effective dpr and so moves
+    // with the tier's dpr cap. See scaleFloorFor().
+    scaleFloor: () => scaleFloorFor(window.devicePixelRatio || 1, ctx.quality.dpr),
+    onTier: applyTier,
+    // No 'quality' bus event — the tier profile did not change, only the
+    // raster size, and resize() already tells every module.
+    onScale: (s) => { renderScale = s; resize(); },
+  });
+
+  // ── graphics setting (auto / low / med / high / ultra) ──────────────────────
+  // r40, asked for directly: "expose the total graphics level as a setting we
+  // can cycle through, for people that want to sacrifice some framerate for
+  // gfx". `auto` is the governor. Anything else pins the tier AND the render
+  // scale and switches the governor off entirely — a player who picked ultra
+  // has said what they want, and a governor that quietly walks it back would
+  // be the same disrespect this round is fixing.
+  const GFX_TIER = { low: TIER.LOW, med: TIER.MED, high: TIER.HIGH, ultra: TIER.ULTRA };
+  let gfxMode = 'auto';
+  function applyGfx(mode) {
+    gfxMode = GFX_MODES.includes(mode) ? mode : 'auto';
+    if (gfxMode !== 'auto') applyTier(GFX_TIER[gfxMode]);
+    gov.setMode(gfxMode, GFX_TIER[gfxMode]);
   }
+  applyGfx(loadPrefs().gfx);
+  bus.on('pref', (e) => { if (e.key === 'gfx') applyGfx(e.value); });
 
   // ── loop ───────────────────────────────────────────────────────────────────
   let last = performance.now(), acc = 0, running = true;
@@ -469,10 +434,15 @@ export async function boot(canvas) {
       // steady-state is how a spike disappears into a good-looking mean.
       if (ctx.__zsCutThisFrame) { prof.cutFrames.push(ms); ctx.__zsCutThisFrame = false; }
     }
-    if (!useVirtual && !syntheticDt) governor(ms, dt); else emaMs += (ms - emaMs) * 0.05;
+    // Synthesized dt (first frame after boot/resume, a negative rAF delta) and
+    // the harness's virtual clock never reach the governor: SIM_DT is not a
+    // vsync interval and the panel-rate learner would believe it.
+    emaMs += (ms - emaMs) * 0.05;
+    if (!useVirtual && !syntheticDt) gov.frame(ms, dt);
     fpsAcc += dt; fpsN++;
     if (fpsAcc > 0.5) { stats.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
     stats.ms = emaMs; stats.tier = ctx.quality.tier; stats.scale = renderScale;
+    stats.gfx = gfxMode;
     stats.fruit = director.live?.length ?? 0; stats.frames++;
     stats.acc = acc; stats.steps = steps; stats.simdt = SIM_DT;
   }
@@ -517,14 +487,24 @@ export async function boot(canvas) {
     setTier: applyTier,
     /** r39: manual render-scale override for testing, same spirit as setTier —
      *  applies immediately, and the governor may adjust it afterwards. */
-    setScale: applyScale,
+    setScale: (s) => { renderScale = Math.min(1, Math.max(0.25, s)); resize(); },
+    /** r40: the graphics setting, same values as the panel button.
+     *  ZS.setGfx('ultra') pins; ZS.setGfx('auto') hands it back. */
+    setGfx: applyGfx,
     /** governor triage (the ?debug strip): live tier, ratchet ceilings,
-     *  frame-cost EMA, render scale, and (r39b) delivered fps + panel rate. */
-    gov: () => ({
-      tier: ctx.quality.tier, ceil: tierCeil, ms: +emaMs.toFixed(2),
-      scale: +renderScale.toFixed(2), sceil: +Math.min(1, scaleCeil).toFixed(2),
-      fps: Math.round(1 / Math.max(emaDt, 1e-4)), hz: Math.round(1 / vsyncS),
-    }),
+     *  frame-cost EMA, render scale, and (r39b) delivered fps + panel rate.
+     *  r40: `mode` is the graphics setting — anything but `auto` means every
+     *  other number here is frozen by choice, which is the first thing to
+     *  check before debugging a governor that "isn't doing anything". */
+    gov: () => {
+      const s = gov.snapshot();
+      return {
+        mode: s.mode, tier: ctx.quality.tier, ceil: s.tierCeil, ms: +emaMs.toFixed(2),
+        scale: +renderScale.toFixed(2), sceil: +Math.min(1, s.scaleCeil).toFixed(2),
+        fps: Math.round(1 / Math.max(s.emaDt, 1e-4)), hz: Math.round(1 / s.vsyncS),
+        eff: +(Math.min(window.devicePixelRatio || 1, ctx.quality.dpr) * renderScale).toFixed(2),
+      };
+    },
     /** Probe hook: fluid's per-frame GPU kernel off/on (see fluid.setCompute).
      *  Fast-forward harnesses dispatch it per step — minutes of wall under a
      *  software rasterizer. Gameplay sim is identical without it. */

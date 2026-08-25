@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import { loadPrefs, savePref } from '../core/prefs.js';
+import { GFX_MODES } from '../core/governor.js';
 
 // ── the callout's motion constants ──────────────────────────────────────────
 // SHARED, because the placement clamp and the animation have to agree about how
@@ -16,6 +17,15 @@ import { loadPrefs, savePref } from '../core/prefs.js';
 // width against the resting size while the pop overshoots it.
 const RISE_MAX = 58;      // px the callout travels upward over its life
 const POP_MAX = 1.20;     // peak overshoot of the punch-in
+
+// ── r40: the graphics setting ───────────────────────────────────────────────
+// GFX_MODES is imported, not restated: the ladder is main.js's contract with
+// core/governor.js, and a copy here would be a second place to forget when a
+// level is added. The HUD owns only the ORDER of the cycle (which is the
+// import's order) and the words on the button.
+const gfxOf = (v) => (GFX_MODES.includes(v) ? v : 'auto');
+/** `auto` is the default and says so; the pinned levels read as themselves. */
+const gfxLabel = (v) => gfxOf(v);
 
 // The debug strip is reachable two ways: ?debug (dev URLs) and a settings
 // toggle (pref 'debug') — hearing each level's music still needs the remote
@@ -297,6 +307,9 @@ export function createHud() {
         + `<div class="zs-panel" id="zs-panel">`
         + `<button data-k="sound">sound ${p.sound !== false ? 'on' : 'off'}</button>`
         + `<button data-k="haptics">haptics ${p.haptics !== false ? 'on' : 'off'}</button>`
+        // r40: graphics. Cycles rather than opening a sub-panel — the whole
+        // settings idiom here is one line per choice, tapped in place.
+        + `<button data-k="gfx">graphics ${gfxLabel(p.gfx)}</button>`
         // the debug toggle exists only in non-App-Store builds (see
         // DEBUG_UI_ALLOWED above); note `=== true` — debug defaults OFF
         + (DEBUG_UI_ALLOWED ? `<button data-k="debug">debug ${p.debug === true ? 'on' : 'off'}</button>` : '')
@@ -326,6 +339,17 @@ export function createHud() {
           togglePanel(false);
           gearEl.classList.remove('show');
           idleT = 0;
+          return;
+        }
+        // r40: graphics is the one non-boolean pref — it CYCLES through
+        // auto -> low -> med -> high -> ultra -> auto. main.js listens for the
+        // same 'pref' event the toggles use and re-pins the governor.
+        if (k === 'gfx') {
+          const cur = GFX_MODES.indexOf(gfxOf(loadPrefs().gfx));
+          const next = GFX_MODES[(cur + 1) % GFX_MODES.length];
+          savePref(k, next);
+          b.textContent = `graphics ${gfxLabel(next)}`;
+          ctx.bus.emit('pref', { key: k, value: next });
           return;
         }
         const now = !(loadPrefs()[k] !== false);   // flip
@@ -580,8 +604,16 @@ export function createHud() {
           // draft made "governor happy" indistinguishable from "governor
           // not wired", which cost a review round. ×1 IS information.
           const sc = g ? ` ×${g.scale}${g.sceil < 1 ? `≤${g.sceil}` : ''}` : '';
+          // r40: `dpr` is the number the r39 bug was actually about — tier and
+          // render scale COMPOUND into it, and reading them separately is how
+          // "tier 0 ×0.5" failed to look like "one thirty-sixth of the
+          // pixels" to anyone. It is the effective dpr, and it is the thing to
+          // read when the game looks soft. `gfx:` appears only when the player
+          // has pinned a level, because then the governor is off ON PURPOSE.
+          const eff = g ? ` ${g.eff}dpr` : '';
+          const gm = g && g.mode !== 'auto' ? ` · gfx:${g.mode}` : '';
           // r39b: low ms + low fps = GPU-bound (the case the JS EMA misses)
-          const gv = g ? ` · T${g.tier}≤${g.ceil}${sc} ${g.ms}ms ${g.fps}/${g.hz}fps` : '';
+          const gv = g ? ` · T${g.tier}≤${g.ceil}${sc}${eff} ${g.ms}ms ${g.fps}/${g.hz}fps${gm}` : '';
           const txt = st
             ? `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''} · ${st.chord} · ${st.bpm} bpm · ${st.space} · bloom ${st.bloom}${lat}${rec}${hap}${mix}${gv}`
             : `L${dir?.level ?? '?'} ${c.score?.levelName ?? ''}${hap}${gv}`;

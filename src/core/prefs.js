@@ -14,8 +14,15 @@
 
 const KEY = 'zs-prefs';
 // `debug` gates the diagnostic strip (hud.js); unlike sound/haptics it
-// defaults OFF, and the toggle itself only exists when build.mjs allows it
-const DEFAULTS = Object.freeze({ sound: true, haptics: true, bestScore: 0, debug: false });
+// defaults OFF, and the toggle itself only exists when build.mjs allows it.
+// `gfx` (r40) is the one pref that is not a boolean: 'auto' | 'low' | 'med' |
+// 'high' | 'ultra'. 'auto' means the perf governor owns quality, which is the
+// right default for everyone who never opens the panel; the named levels pin
+// it and turn the governor off. main.js validates the string against
+// GFX_MODES, so a hand-edited localStorage cannot wedge the renderer.
+const DEFAULTS = Object.freeze({
+  sound: true, haptics: true, bestScore: 0, debug: false, gfx: 'auto',
+});
 
 export function loadPrefs() {
   let stored = null;

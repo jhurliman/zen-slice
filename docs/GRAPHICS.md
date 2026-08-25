@@ -151,9 +151,37 @@ object.
 ## Quality tiers & the governor
 
 `ctx.quality` carries the tier (LOW → ULTRA): geometry detail, droplet
-counts, sheet count, DOF/glow on/off, `maxFruit`. `main.js`'s governor
-watches the frame-cost EMA and steps the tier; the fluid's turbulence kernel
-is the first thing to go on a weak device (tier 0 disables compute).
+counts, sheet count, DOF/glow on/off, `maxFruit`. The fluid's turbulence
+kernel is the first thing to go on a weak device (tier 0 disables compute).
+
+The decision logic is `src/core/governor.js` — pure arithmetic, importing
+nothing, so `tools/govprobe.mjs` can drive whole sessions through it in node.
+`main.js` keeps only the apply half (what a tier means, who needs telling).
+Two nested loops: **render scale** is the fine one and moves first (pixels
+are the cheapest thing to shed — the fluid sim is per-pixel), **tiers** are
+the coarse one and only move when scale is saturated.
+
+Three things are easy to get wrong here and all three shipped in r39:
+
+- **Judge DOWN against a fixed 60 fps period, never a learned panel rate.**
+  A ProMotion phone drops to its 60 Hz divisor the moment the scene costs
+  more than 8.3 ms, and r39 read that honest 60 as "every frame missed" —
+  spending all four tiers in 12 s with no path back.
+- **Debit clean-run counters, never zero them.** A 30 s clean run that any
+  single GC pause restarts is a run that never completes on real hardware.
+- **Effective dpr is `min(devicePixelRatio, tier.dpr) * renderScale`** — two
+  governed factors that COMPOUND. Bounding them separately let r39 reach 0.5
+  effective dpr on a dpr-3 phone: 1/36 of native pixels. `scaleFloorFor()`
+  bounds the product instead.
+
+The player can override the whole thing: the settings panel cycles
+`graphics auto|low|med|high|ultra` (pref `gfx`). Anything but `auto` pins the
+tier AND the render scale and switches the governor off — deliberately, for
+players who would rather spend frame rate on pixels. `?debug` shows
+`T<tier>≤<ceiling> ×<scale> <eff>dpr <ms> <fps>/<panel>fps`, plus `gfx:<mode>`
+when a level is pinned. **Read the `dpr` figure when the game looks soft** —
+it is the product, and reading tier and scale separately is exactly how
+"tier 0 ×0.5" failed to look like a problem to anyone.
 
 ## Verification
 
@@ -163,6 +191,7 @@ node tools/fruitviews.mjs    # every species top/side/three-quarter → shots/fr
 node tools/shoot.mjs         # the screenshot corpus (virtual clock, bounded waits)
 node tools/soak.mjs          # long-session resource census (no GPU work — see header)
 node tools/perfprofile.mjs   # per-module frame-cost attribution (ZS.profile)
+node tools/govprobe.mjs      # the quality governor, whole sessions, pure node
 ```
 
 All probes run the real bundle in headless Chromium on a virtual clock
