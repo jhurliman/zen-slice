@@ -70,6 +70,7 @@ function session(device, { seconds, dpr = 3, startTier = TIER.HIGH, mode = 'auto
     minTier: TIER.LOW,
     maxTier: TIER.ULTRA,
     scaleFloor: () => scaleFloorFor(dpr, TIER_DPR[tier]),
+    effBase: () => Math.min(dpr, TIER_DPR[tier]),
     onTier: (t) => { tier = t; changes++; late(); },
     onScale: (s) => { scale = s; changes++; late(); },
   });
@@ -241,6 +242,7 @@ console.log('\n── 8. manual modes are fully manual ──');
   const gov = createGovernor({
     tier: TIER.ULTRA, minTier: TIER.LOW, maxTier: TIER.ULTRA,
     scaleFloor: () => scaleFloorFor(3, TIER_DPR[tier]),
+    effBase: () => Math.min(3, TIER_DPR[tier]),
     onTier: (v) => { tier = v; }, onScale: (v) => { scale = v; },
   });
   gov.setMode('ultra', TIER.ULTRA);
@@ -250,6 +252,71 @@ console.log('\n── 8. manual modes are fully manual ──');
   for (let i = 0; i < 60 * 60; i++) gov.frame(40, 0.05);
   check('auto resumes governing immediately after', tier < TIER.ULTRA || scale < 1,
     `tier=${TIER_NAME[tier]} scale=${scale.toFixed(2)}`);
+}
+
+console.log('\n── 6. THE THERMAL RATCHET SURVIVES A TIER ROUND TRIP (PR #31 review) ──');
+{
+  // Codex, on PR #31: "a later tier upshift ... never restores the ceiling, so
+  // the governor can report scale=1 with scaleCeil=0.5 and reintroduce the
+  // load every 30 seconds, well before the 180-second ratchet release."
+  //
+  // Driven by hand rather than through makeDevice, because the sequence needs
+  // an exact order the closed loop will not reliably produce: scale up (arms
+  // RATCHET_SCALE_S), scale down inside that window (sets the ceiling), grind
+  // to the floor, drop a tier (the floor RISES and refunds scale), then go
+  // cheap so the tier climbs back.
+  let tier = TIER.HIGH, scale = 1;
+  const gov = createGovernor({
+    tier, minTier: TIER.LOW, maxTier: TIER.ULTRA,
+    scaleFloor: () => scaleFloorFor(3, TIER_DPR[tier]),
+    effBase: () => Math.min(3, TIER_DPR[tier]),
+    onTier: (v) => { tier = v; }, onScale: (v) => { scale = v; },
+  });
+  const OVER = () => gov.frame(4, 1 / 25);    // 40 ms: way over the 60 fps bar
+  const UNDER = () => gov.frame(4, 1 / 120);  // 8.3 ms: full headroom
+  /** Drive until the governor reaches a state, so the phases do not depend on
+   *  frame arithmetic that shifts whenever a constant is retuned. */
+  const until = (drive, done, cap = 200000) => {
+    for (let i = 0; i < cap; i++) { drive(); if (done(gov.snapshot())) return true; }
+    return false;
+  };
+
+  until(UNDER, (s) => s.govT > GOV.WARMUP_S + 2);
+  // Shed SOME pixels but stop short of the floor, or the tier drops before the
+  // scale ratchet has anything to arm it: at LOW on a dpr-3 phone the floor is
+  // 1.0, so no scale-up can ever happen there and lastScaleUpAt stays unset.
+  until(OVER, (s) => s.scale <= 0.75);
+  // ...climb back. THIS is what arms RATCHET_SCALE_S.
+  const climbed = until(UNDER, (s) => s.scale >= 1 - 1e-6);
+  // ...and fail again immediately, which is the definition of a thermal
+  // mistake: the ceiling is recorded, then the grind continues into a tier drop.
+  const dropped = until(OVER, (s) => s.tier < TIER.HIGH && s.scale >= s.scaleCeil - 1e-6);
+  const bottom = gov.snapshot();
+  // Recovery, bounded well short of RATCHET_RELAX_S — past it the ratchet
+  // releases the ceiling deliberately and there is nothing left to test.
+  const relaxAt = bottom.govT + GOV.RATCHET_RELAX_S;
+  until(UNDER, (s) => s.tier > bottom.tier || s.govT > relaxAt - 5);
+  const back = gov.snapshot();
+
+  const effOf = (t, sc) => Math.min(3, TIER_DPR[t]) * sc;
+  check('the sequence reproduces (scale climbs, then a tier is lost)',
+    climbed && dropped, `bottom tier=${TIER_NAME[bottom.tier]}`);
+  check('the ratchet engages, remembering a ceiling in effective dpr',
+    bottom.scaleCeilEff < Infinity, `ceilEff=${bottom.scaleCeilEff.toFixed(2)}`);
+  check('the tier recovers when the load goes away',
+    back.tier > bottom.tier, `${TIER_NAME[bottom.tier]} -> ${TIER_NAME[back.tier]}`);
+  check('the ceiling is still held, not released early',
+    back.scaleCeilEff < Infinity && back.govT < relaxAt,
+    `ceilEff=${back.scaleCeilEff} govT=${back.govT.toFixed(0)}s relaxAt=${relaxAt.toFixed(0)}s`);
+  // THE BUG, as reported on PR #31. The ceiling used to be a bare multiplier,
+  // so climbing back into a tier with a bigger dpr cap re-permitted the pixels
+  // it existed to forbid: tier=med scale=1.00 is eff 1.50 against a ceiling
+  // learned at eff 1.00 — 2.25x the pixels, 150 s before the ratchet was due
+  // to re-probe. Pre-fix this check fails; every other check here passes.
+  check('and never renders above it, whatever the tier does underneath',
+    effOf(back.tier, back.scale) <= back.scaleCeilEff + 1e-3,
+    `eff=${effOf(back.tier, back.scale).toFixed(2)} ceilEff=${back.scaleCeilEff.toFixed(2)}`
+    + ` tier=${TIER_NAME[back.tier]} scale=${back.scale.toFixed(2)}`);
 }
 
 const pass = failures.length === 0;

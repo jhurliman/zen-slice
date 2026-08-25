@@ -24,16 +24,36 @@ const DEFAULTS = Object.freeze({
   sound: true, haptics: true, bestScore: 0, debug: false, gfx: 'auto',
 });
 
+// ══ r43b: THE SESSION MIRROR ════════════════════════════════════════════════
+// "private mode: the choice still applies this session" is what the catch below
+// used to claim, and it was not true. Every reader called loadPrefs(), which
+// re-read localStorage; when setItem throws there is nothing there to read, so
+// the next read handed back DEFAULTS and the choice evaporated between one tap
+// and the next.
+//
+// Raised in review of PR #31 against the graphics button, where the failure is
+// most visible — it cycles auto -> low -> med -> ... by looking up the CURRENT
+// value, so with no persistence every tap computed `low` from `auto` and the
+// player could never reach med, high, ultra, or get back to auto. But the
+// review named a symptom, not the bug: `sound` and `haptics` flip by reading
+// their own stored value too, so in private mode they could be turned off and
+// never back on. Fixing it in the HUD would have fixed one button; fixing it
+// here fixes the class, and makes savePref's own promise honest.
+//
+// Writes land in this mirror FIRST, and reads overlay it on top of storage, so
+// persistence is now the thing that can fail rather than the thing everything
+// depends on.
+let session = null;
+
 export function loadPrefs() {
   let stored = null;
   try { stored = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (_) { /* */ }
-  return Object.assign({}, DEFAULTS, stored && typeof stored === 'object' ? stored : {});
+  return Object.assign({}, DEFAULTS, stored && typeof stored === 'object' ? stored : {}, session || {});
 }
 
 export function savePref(key, value) {
+  (session || (session = {}))[key] = value;
   try {
-    const p = loadPrefs();
-    p[key] = value;
-    localStorage.setItem(KEY, JSON.stringify(p));
-  } catch (_) { /* private mode: the choice still applies this session */ }
+    localStorage.setItem(KEY, JSON.stringify(loadPrefs()));
+  } catch (_) { /* private mode: the choice still applies this session — above */ }
 }

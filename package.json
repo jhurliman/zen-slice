@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "ios": "node build.mjs && node tools/govprobe.mjs && node tools/pointerprobe.mjs && npx cap sync ios && git checkout -- ios/App/CapApp-SPM/Package.swift"
+    "ios": "node build.mjs && node tools/govprobe.mjs && node tools/prefsprobe.mjs && node tools/pointerprobe.mjs && npx cap sync ios && git checkout -- ios/App/CapApp-SPM/Package.swift"
   },
   "keywords": [],
   "author": "John Hurliman",

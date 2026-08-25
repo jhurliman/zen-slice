@@ -412,6 +412,10 @@ export async function boot(canvas) {
     // Re-read per frame: the floor is expressed in effective dpr and so moves
     // with the tier's dpr cap. See scaleFloorFor().
     scaleFloor: () => scaleFloorFor(window.devicePixelRatio || 1, ctx.quality.dpr),
+    // r43b: what renderScale 1 is WORTH at this tier, so the thermal ratchet
+    // can remember its ceiling in effective dpr instead of as a bare
+    // multiplier that means different pixel counts at different tiers.
+    effBase: () => Math.min(window.devicePixelRatio || 1, ctx.quality.dpr),
     onTier: applyTier,
     // No 'quality' bus event — the tier profile did not change, only the
     // raster size, and resize() already tells every module.

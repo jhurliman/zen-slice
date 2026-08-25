@@ -198,6 +198,11 @@ export function scaleFloorFor(devicePixelRatio, tierDpr) {
  *        main.js expresses this in effective-dpr terms so that the tier's dpr
  *        cap and renderScale cannot compound into mush. Re-read every frame
  *        because it depends on the current tier.
+ * @param {()=>number} [o.effBase] the tier's EFFECTIVE dpr at renderScale 1,
+ *        i.e. `min(devicePixelRatio, tier.dpr)`. r43b: the thermal ratchet's
+ *        scale ceiling is stored in effective dpr and needs this to convert.
+ *        Defaults to 1, which makes the ceiling a bare multiplier again — the
+ *        pre-r43b behaviour, correct only when the tier's dpr cap never binds.
  * @param {(t:number)=>void} [o.onTier]
  * @param {(s:number)=>void} [o.onScale]
  */
@@ -206,6 +211,7 @@ export function createGovernor({
   minTier,
   maxTier,
   scaleFloor = () => GOV.SCALE_MIN,
+  effBase = () => 1,
   onTier = () => {},
   onScale = () => {},
 }) {
@@ -225,7 +231,24 @@ export function createGovernor({
 
   // session ceilings — the thermal ratchet
   let tierCeil = maxTier;
-  let scaleCeil = 1;
+  // ══ r43b: THE CEILING IS EFFECTIVE DPR, NOT A MULTIPLIER ═══════════════════
+  // Raised in review of PR #31: "a later tier upshift ... never restores the
+  // ceiling, so the governor can report scale=1 with scaleCeil=0.5 and
+  // reintroduce the load every 30 seconds, well before the 180-second ratchet
+  // release." Correct, and the cause is this file's OWN fourth-defect lesson
+  // applied to the floor but not to the ceiling: `min(dpr, tier.dpr) * scale`
+  // has two governed factors, so a bare `scale` number means different pixel
+  // counts at different tiers. A ceiling of 0.5 learned at HIGH (cap 2.0) is
+  // 1.0 effective dpr; carried verbatim to MED (cap 1.5) it permits 1.5.
+  //
+  // Storing the memory in effective dpr fixes the reported path and is also
+  // lossless across a round trip, which translating the multiplier at each
+  // tier change is not: the ceiling has to be clamped to 1 to be usable, and
+  // a ceiling that is not binding at LOW would come back from the clamp as a
+  // tighter number than it left. Infinity = no ceiling.
+  let scaleCeilEff = Infinity;
+  /** The ceiling as a renderScale multiplier AT THE CURRENT TIER. */
+  const scaleTop = () => Math.min(1, scaleCeilEff / Math.max(1e-6, effBase()));
   let lastTierUpAt = -Infinity;
   let lastScaleUpAt = -Infinity;
   let lastDownAt = -Infinity;
@@ -270,7 +293,15 @@ export function createGovernor({
   }
 
   function setScale(s) {
-    const next = Math.min(1, Math.max(scaleFloor(), s));
+    // r43b: the ceiling binds HERE, not only in the up-loop. setTier() calls
+    // this to re-clamp against a tier's new floor, and that back door was how
+    // a refunded scale escaped the ratchet. The FLOOR still wins: a ceiling
+    // below the floor would mean rendering mush, and the floor exists to
+    // forbid exactly that — at LOW on a dpr-3 phone the floor is 1.0 and the
+    // scale is 1.0 no matter what the ratchet remembers. That is not the
+    // ratchet being ignored; the tier's own dpr cap is already holding the
+    // pixel count down.
+    const next = Math.min(1, Math.max(scaleFloor(), Math.min(s, scaleTop())));
     if (Math.abs(next - scale) < 1e-6) return;
     scale = next;
     onScale(scale);
@@ -338,8 +369,8 @@ export function createGovernor({
       // Ratchet release. Nothing has needed a downshift for a long time, so
       // whatever the ceilings are remembering may no longer be true.
       if (!probing && govT - lastDownAt > relaxAfter
-        && (scaleCeil < 1 - 1e-6 || tierCeil < maxTier)) {
-        scaleCeil = 1;
+        && (scaleTop() < 1 - 1e-6 || tierCeil < maxTier)) {
+        scaleCeilEff = Infinity;
         tierCeil = maxTier;
         probing = true;
       }
@@ -351,7 +382,7 @@ export function createGovernor({
       }
 
       const floor = scaleFloor();
-      const top = Math.min(1, scaleCeil);
+      const top = scaleTop();
 
       if (sinceChange > GOV.HOLD_SCALE_DOWN && framesOver > GOV.OVER_SCALE
         && curTier > minTier && govT - lastTierUpAt < GOV.TIER_REVERT_S) {
@@ -368,7 +399,9 @@ export function createGovernor({
         && scale > floor + 1e-6) {
         // inner loop, down: shed pixels before features
         if (govT - lastScaleUpAt < GOV.RATCHET_SCALE_S) {
-          scaleCeil = Math.max(floor, scale * GOV.SCALE_STEP);
+          // r43b: recorded in effective dpr, so it still means the same number
+          // of pixels after the tier moves underneath it.
+          scaleCeilEff = Math.max(floor, scale * GOV.SCALE_STEP) * effBase();
         }
         noteDown();
         setScale(scale * GOV.SCALE_STEP);
@@ -409,7 +442,7 @@ export function createGovernor({
       mode = next;
       if (next === 'auto') {
         tierCeil = maxTier;
-        scaleCeil = 1;
+        scaleCeilEff = Infinity;
         lastTierUpAt = -Infinity;
         lastScaleUpAt = -Infinity;
         lastDownAt = -Infinity;
@@ -426,7 +459,11 @@ export function createGovernor({
     snapshot() {
       return {
         mode, tier: curTier, scale, emaMs, emaDt, vsyncS,
-        framesOver, framesUnder, tierCeil, scaleCeil, govT, relaxAfter, probing,
+        framesOver, framesUnder, tierCeil, govT, relaxAfter, probing,
+        // `scaleCeil` stays in the snapshot as the multiplier AT THIS TIER, so
+        // the ?debug strip's "×0.72≤0.85" keeps reading the way it always has.
+        // scaleCeilEff is the number actually remembered (r43b).
+        scaleCeil: scaleTop(), scaleCeilEff,
       };
     },
   };
