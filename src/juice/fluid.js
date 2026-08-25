@@ -406,6 +406,16 @@ const FLUID_G = GRAVITY * (() => {
   catch (_) { return 2.6; }
 })();
 
+// ── r43: HOW MUCH OF THE FRUIT A THROWN DROPLET KEEPS ───────────────────────
+// Juice that has LEFT the fruit launches with 0.8 of the fruit's velocity —
+// a tuned look that has shipped since r7, previously applied by slicer.js
+// before the value was even handed over. It lives here now because r43 needs
+// the undamped velocity as well (the film's attached root travels with the
+// fruit exactly, not at 0.8 of it), and one constant in one file is the only
+// way those two numbers can never drift apart. The shader's tip term applies
+// this same factor, so nothing a player has already seen changes.
+const INH_TIP = 0.8;
+
 // ── r8: A CROSS-FILE CONTRACT THAT EXISTED ONLY IN THIS COMMENT ─────────────
 // The line here used to read "Must match render/stage.js: key = (7.5, 8.2,
 // 5.0), rim = (-2.6, 1.6, -9.0)". It did not match. I went and read stage.js
@@ -524,6 +534,11 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     dt: uniform(1 / 120),
     pix: uniform(500),                               // 0.5 * viewportH * P[1][1]
     grav: uniform(FLUID_G),   // r36c: the fluid's own gravity, NOT the world's
+    // r43: and the WORLD's, which is a different number doing a different job.
+    // FLUID_G is the rate a free droplet falls at. gravW is the rate the FRUIT
+    // falls at, and the film's root is attached to the fruit — so the root has
+    // to fall at the fruit's rate or it slides off its own cut face.
+    gravW: uniform(GRAVITY),
     L1: uniform(new THREE.Vector3().copy(L1)),       // VIEW space (billboards)
     L2: uniform(new THREE.Vector3().copy(L2)),
     wL1: uniform(new THREE.Vector3().copy(L1)),      // WORLD space (the sheet)
@@ -1588,9 +1603,34 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const rad = radial(th).toVar();
       const ca = aA.w.mul(float(1.0).add(wig(th.mul(2.0).add(4.0), aA.y.mul(0.7)).mul(0.45))).toVar();
       const d = normalize(rad.mul(sin(ca)).add(aNrm.mul(cos(ca))).add(aDir.mul(aB.x)));
-      return d.mul(aA.z.mul(weightAt(th))).add(aInh);
+      // r43: aInh now arrives UNDAMPED (the film's root needs the fruit's real
+      // velocity), so the tip applies INH_TIP here instead. Identical result.
+      return d.mul(aA.z.mul(weightAt(th))).add(aInh.mul(INH_TIP));
     });
 
+    // ══ r43: THE ROOT IS PART OF THE FRUIT. THE TIP IS NOT. ═══════════════════
+    // THE PLAYER: "ideally the sheet has matching physics and trajectory with
+    // the fruit so it follows the fruit, staying aligned with the cut wedge."
+    //
+    // He is describing the one thing high-speed footage of a cut fruit always
+    // shows and this film did not: the sheet is ATTACHED. Its inner rim is the
+    // wetted edge of the cut face, so it goes wherever that face goes, and the
+    // film stretches away from a moving anchor. Here the anchor ring was a
+    // fixed world position — `A0` frozen at the instant of the cut — while the
+    // two halves flew out of it. At 5 dm/s over the film's 0.34 s life the
+    // fruit travelled 1.7 dm, most of its own radius, and the film was left
+    // hanging in the air behind it like a decal on the sky.
+    //
+    // The fix is one term, and the shape of it matters: the carry is applied to
+    // the ANCHOR and mixed out by `sv`, so it is total at the root (v = 0) and
+    // exactly zero at the torn rim (v = 1). The rim therefore keeps the free
+    // ballistic-with-drag path it always had — which is what real film does,
+    // because the outer edge has left the fruit and only air is acting on it —
+    // and it is why filmAt()'s bead-shedding mirror stays true (below).
+    //
+    // The carry is the FRUIT's law, not the fluid's: undamped velocity, and
+    // gravW rather than FLUID_G. Anything else and the root drifts off the
+    // face it is supposed to be glued to, which is the bug being fixed.
     const filmP = Fn(([th, v, t]) => {
       const A0 = anchorAt(th).toVar();
       const V0 = evelAt(th).toVar();
@@ -1598,7 +1638,10 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       const e = float(1.0).sub(exp(k.negate().mul(t))).div(k).toVar();
       const P = A0.add(V0.mul(e)).add(vec3(0.0, U.grav.mul(t.sub(e)).div(k), 0.0)).toVar();
       const sv = v.mul(float(0.70).add(v.mul(0.30))).toVar();
-      const qv = A0.add(P.sub(A0).mul(sv)).toVar();
+      // where the cut face has got to by now: v*t + 1/2*g*t^2, the fruit's path
+      const carry = aInh.mul(t).add(vec3(0.0, U.gravW.mul(t).mul(t).mul(0.5), 0.0)).toVar();
+      const R0 = A0.add(carry).toVar();
+      const qv = R0.add(P.sub(R0).mul(sv)).toVar();
       qv.addAssign(aNrm.mul(aA.x.mul(0.18).mul(sv).mul(wig(th.mul(5.0).add(v.mul(3.1)), aA.y.mul(2.3)))));
       qv.addAssign(aDir.mul(aA.x.mul(-0.10).mul(sv).mul(sv)));   // it sags behind the blade
       return qv;
@@ -1838,6 +1881,12 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
   const B = {
     O: new THREE.Vector3(), T: new THREE.Vector3(), B: new THREE.Vector3(),
     N: new THREE.Vector3(), D: new THREE.Vector3(), inh: new THREE.Vector3(),
+    // r43: `inh` is the LAUNCH velocity every free particle gets — the fruit's
+    // velocity damped by INH_TIP, which is a tuned look, not a measurement.
+    // `inhFull` is the fruit's ACTUAL velocity, and only the film's attached
+    // root uses it: the root is not a free particle, it is a piece of the
+    // fruit, and it has to travel at exactly the fruit's speed or it detaches.
+    inhFull: new THREE.Vector3(),
     R: 1, seed: 0, spd: 60, crown: 1.0, lean: 0.4, k: 40,
   };
 
@@ -2006,9 +2055,18 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
     const th = (ai / NA) * TAU;
     const rip = B.R * 0.18 * sv * jsWig(th * 5.0 + v * 3.1, B.seed * 2.3);
     const sag = B.R * -0.10 * sv * sv;
-    oP.x = TBL[o] + TBL[o + 3] * sp * es + B.N.x * rip + B.D.x * sag + B.inh.x * es;
-    oP.y = TBL[o + 1] + TBL[o + 4] * sp * es + B.N.y * rip + B.D.y * sag + B.inh.y * es + gp;
-    oP.z = TBL[o + 2] + TBL[o + 5] * sp * es + B.N.z * rip + B.D.z * sag + B.inh.z * es;
+    // r43: the same carry the shader applies, mixed out by sv exactly as there
+    // — (1 - sv), so it vanishes at the torn rim and is total at the root. Most
+    // beads shed from v > 0.6 within 30 ms of the cut, where this is fractions
+    // of a millimetre; it is here because "mirrored EXACTLY" is the only reason
+    // a bead starts where the film's rim actually was, and a mirror that is
+    // right for the common case and wrong for the rest is not a mirror.
+    const cw = 1 - sv;
+    const cx = B.inhFull.x * t * cw, cz = B.inhFull.z * t * cw;
+    const cy = (B.inhFull.y * t + 0.5 * GRAVITY * t * t) * cw;
+    oP.x = TBL[o] + TBL[o + 3] * sp * es + B.N.x * rip + B.D.x * sag + B.inh.x * es + cx;
+    oP.y = TBL[o + 1] + TBL[o + 4] * sp * es + B.N.y * rip + B.D.y * sag + B.inh.y * es + gp + cy;
+    oP.z = TBL[o + 2] + TBL[o + 5] * sp * es + B.N.z * rip + B.D.z * sag + B.inh.z * es + cz;
     oDir.set(TBL[o + 3], TBL[o + 4], TBL[o + 5]);
   }
 
@@ -2379,7 +2437,13 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
 
     B.O.copy(e.at); B.T.copy(_t3); B.B.copy(_b3); B.N.copy(_n3);
     if (e.stroke && e.stroke.dir) B.D.copy(e.stroke.dir).normalize(); else B.D.set(1, 0, 0);
-    if (e.inherit) B.inh.copy(e.inherit); else B.inh.set(0, 0, 0);
+    // r43: the emitter now hands over the fruit's FULL velocity and the damping
+    // happens here, at the one place every consumer reads. B.inh is therefore
+    // bit-identical to what slicer.js used to pass (it multiplied by the same
+    // INH_TIP before sending), so beads, ligaments, spray and mist are
+    // untouched by this round; only the film's root reads inhFull.
+    if (e.inherit) { B.inhFull.copy(e.inherit); B.inh.copy(e.inherit).multiplyScalar(INH_TIP); }
+    else { B.inhFull.set(0, 0, 0); B.inh.set(0, 0, 0); }
     B.R = R;
     B.seed = rng() * 10;
     // The film's reach is set DIRECTLY: with drag k the asymptotic extent is
@@ -2631,7 +2695,9 @@ export function createFluid({ maxBeads = 9000, maxMist = 0, sheets = 6, maxStran
       put3(A.fTan, B.T.x, B.T.y, B.T.z);
       put3(A.fNrm, B.N.x, B.N.y, B.N.z);
       put3(A.fDir, B.D.x, B.D.y, B.D.z);
-      put3(A.fInh, B.inh.x, B.inh.y, B.inh.z);
+      // r43: UNDAMPED. The shader's tip applies INH_TIP itself; the root must
+      // not have it applied at all. See filmP.
+      put3(A.fInh, B.inhFull.x, B.inhFull.y, B.inhFull.z);
       put3(A.fTint, J.r, J.g, J.b);
       A.fA.array[i4] = R; A.fA.array[i4 + 1] = B.seed;
       A.fA.array[i4 + 2] = B.spd;   // identical to the JS mirror, by construction
