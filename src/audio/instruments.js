@@ -189,7 +189,7 @@ async function renderPianoNote(sr, f0, idx, vnt = 0) {
  * flavors of pure filtered air, distinguished by brightness, length, and —
  * at most — a slow, shallow tremolo you feel as breathing, not rattling:
  *
- *   breath — long dark exhale (dawn, and the Deep Calm coda)
+ *   breath — long dark exhale (dawn, and the Dreaming of Bliss coda)
  *   air    — brighter, quicker passing air (first light, noon, golden hour)
  *   mist   — soft air with a 7 Hz / 25% swell — dew shimmer, not droplets
  *   dusk   — darker medium air with a barely-there 5 Hz breathe
@@ -331,7 +331,7 @@ export function makeDrone(engine) {
 /**
  * Chord-following pad: up to `max` continuous voices that crossfade between
  * voicings on chord changes. Voices past the requested count fade to silence
- * (level richness: Still Water breathes on 2 voices, Deep Calm blooms on 5).
+ * (level richness: Still Water breathes on 2 voices, Dreaming of Bliss blooms on 5).
  */
 export function makePadBank(engine, max = 5) {
   const actx = engine.actx;
@@ -520,7 +520,7 @@ export const TEXTURES = [
   /* 4 Noon Bloom — bright open air, full sun, no weather (first-ear pass:
    * "a touch loud, could sit deeper in the mix" — 0.017 → 0.011) */
   { air: { f: 950, q: 0.8, g: 0.011, breathe: 0.35, trem: 0.04, wander: 160 } },
-  /* 5 Summer Weight — heat HAZE: warm still air + detuned shimmer. The
+  /* 5 Summer Glare — heat HAZE: warm still air + detuned shimmer. The
    * first-ear version was a 5.2 Hz tremolo on a high band — "some wild
    * shaker! way too much" — exactly the r23 grain-train lesson relearned on
    * a new layer. Heavy summer heat doesn't pulse; it shimmers. */
@@ -533,7 +533,7 @@ export const TEXTURES = [
     air: { f: 640, q: 0.9, g: 0.018, breathe: 0.4, trem: 0.05, wander: 90 },
     shimmer: { g: 0.01, det: 5 },
   },
-  /* 7 Dusk Ember — darkening air; ultra-sparse low crackle */
+  /* 7 Dusk's Edge — darkening air; ultra-sparse low crackle */
   {
     air: { f: 400, q: 1.0, g: 0.017, breathe: 0.5, trem: 0.045, wander: 60 },
     grains: { kind: 'ember', rate: 0.55, g: 0.04 },
@@ -543,7 +543,7 @@ export const TEXTURES = [
     air: { f: 270, q: 1.3, g: 0.018, breathe: 0.55, trem: 0.035, wander: 45 },
     grains: { kind: 'cricket', rate: 0.14, g: 0.05 },
   },
-  /* 9 Deep Calm — the widest, softest air + shimmer; the day, gentled */
+  /* 9 Dreaming of Bliss — the widest, softest air + shimmer; the day, gentled */
   {
     air: { f: 500, q: 0.65, g: 0.019, breathe: 0.5, trem: 0.03, wander: 70 },
     shimmer: { g: 0.008, det: 3 },

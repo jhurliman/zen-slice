@@ -39,8 +39,20 @@ const COMBO_WINDOW_FALLBACK = 0.63;
 // roughly a clean run deep into the second level.
 const BEST_FLOOR = 1000;
 
+// r44: THE JOURNEY BONUS. Arriving at Dreaming of Bliss pays 5% on the score
+// you arrive with — once per session, before the coda freezes it — so the
+// number the celebration shows is the run's final word, lifted a little for
+// having gone the distance. Applied to the LIVE streak, not the peak: a run
+// that hit a stone on Night Jasmine's last slice arrives with a small score
+// and a small bonus, and the journey's best is shown beside it unchanged.
+// That is the streak rule kept honest, not a punishment.
+const BLISS_BONUS = 0.05;
+
 export function createScore() {
-  const api = { score: 0, combo: 0, best: 0, total: 0, level: 0, levelName: 'Still Water', bestScore: 0 };
+  // r44: `peak` is the best the streak reached THIS session — the journey's
+  // best, which a rock cannot take (score resets, peak stays). Shown at the
+  // arrival beside the all-time best, which is `bestScore` below.
+  const api = { score: 0, combo: 0, best: 0, total: 0, level: 0, levelName: 'Still Water', bestScore: 0, peak: 0 };
   let ctx, lastSliceT = -1e9;
   // r36: THE SCORE IS THE STREAK. A rock resets it to zero (see the rockhit
   // handler), so `score` now measures how far a run has come since the last
@@ -50,6 +62,7 @@ export function createScore() {
   // score you arrive with is the run's final word — the coda is the victory
   // lap, not a farm.
   let frozen = false;
+  let blissed = false;   // r44: the journey bonus is paid once per session
   // r36: Game Center, through the injected global like haptics.js — a no-op
   // outside the shell. Rides the same rate-limited moments as savePref so
   // the network sees a submit per milestone, not per slice. The leaderboard
@@ -111,6 +124,7 @@ export function createScore() {
       // beat-synced window are sustained-play cues, not score.
       const gain = frozen ? 0 : Math.round(base * mult);
       api.score += gain;
+      if (api.score > api.peak) api.peak = api.score;
 
       if (api.score >= BEST_FLOOR && api.score > api.bestScore) {
         if (api.bestScore > 0 && !announcedBest) {
@@ -149,6 +163,28 @@ export function createScore() {
       // r36: the coda flag rides the level event (director owns LEVELS).
       // Set, not latched — the ?debug level remote can jump back out.
       frozen = !!e.coda;
+      // ══ r44: THE ARRIVAL ══════════════════════════════════════════════
+      // The bonus lands HERE, in the same event that freezes the score, so
+      // the freeze is applied to the lifted number and nothing after it can
+      // move. Emitted as 'bliss' with everything the celebration shows —
+      // hud.js owns the timing (it waits for the music's arrival bar), this
+      // file owns the facts. The all-time best is persisted immediately
+      // rather than on the 5 s rate limit: this is a milestone, and the
+      // session may well end at it. `newBest` is against the best as it
+      // stood BEFORE the bonus, so the celebration can say so; the once-per-
+      // session whisper is marked spent so it never doubles the message.
+      if (frozen && !blissed) {
+        blissed = true;
+        const bonus = Math.round(api.score * BLISS_BONUS);
+        api.score += bonus;
+        if (api.score > api.peak) api.peak = api.score;
+        const prevBest = api.bestScore;
+        const newBest = api.score >= BEST_FLOOR && api.score > prevBest;
+        if (newBest) { api.bestScore = api.score; announcedBest = true; persistBest(); }
+        c.bus.emit('bliss', {
+          bonus, score: api.score, journeyBest: api.peak, allTimeBest: api.bestScore, newBest,
+        });
+      }
     });
 
     // the rate-limited save above can be up to 5 s stale — flush it when the
@@ -164,11 +200,11 @@ export function createScore() {
     // session-scoped goes back to zero; the persisted bestScore survives, and
     // a fresh run may whisper 'personal best' again when it passes it.
     c.bus.on('reset', () => {
-      api.score = 0; api.combo = 0; api.best = 0; api.total = 0;
+      api.score = 0; api.combo = 0; api.best = 0; api.total = 0; api.peak = 0;
       api.level = 0; api.levelName = 'Still Water';
       lastSliceT = -1e9;
       announcedBest = false;
-      frozen = false;
+      frozen = false; blissed = false;
       // discard (not flush) any open harmony group — a reset mid-stroke
       // must not emit a callout into the fresh session
       hStrokeId = -1; hSize = 0; hGain = 0; hAt = null; hCloseT = -1e9;

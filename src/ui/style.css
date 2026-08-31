@@ -23,7 +23,7 @@ html, body {
   font-variant-numeric: tabular-nums;
   transition: opacity 1.8s ease;   /* the coda fade — slow, like the light */
 }
-/* Deep Calm retires the score (hud.js toggles this on the coda's 'level') */
+/* Dreaming of Bliss retires the score (hud.js toggles this on the coda's 'level') */
 .zs-score.coda { opacity: 0; pointer-events: none; }
 /* r25: the live phrase multiplier, riding beside the score. Gold like the
    best-score whisper, sized against the score's own em so it scales with it;
@@ -281,6 +281,60 @@ html, body {
   padding: 10px 10px;
 }
 
+/* ══ r44: THE ARRIVAL ═══════════════════════════════════════════════════════
+ * The celebration at Dreaming of Bliss, in the HUD's existing voices: the
+ * level name's thin tracked capitals, the phrase whisper's small lowercase
+ * for the labels, the score's light tabular figures for the numbers, the
+ * multiplier's gold for the bonus. A centred column; hud.js flips the
+ * classes on the music's bar lines. Transitions only, no keyframes — a row
+ * that must leave early is never fighting an animation for its opacity. */
+.zs-bliss {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  display: flex; flex-direction: column; align-items: center;
+  gap: clamp(10px, 2.2vmin, 22px);
+  white-space: nowrap; pointer-events: none;
+  transition: opacity 1.4s ease;
+}
+.zs-bliss.off { opacity: 0; }
+.zs-bliss-name {
+  font-size: clamp(18px, 3.6vmin, 34px); font-weight: 200;
+  letter-spacing: 0.62em; margin-right: -0.62em;
+  text-transform: uppercase; color: rgba(255,255,255,0);
+  text-shadow: 0 0 34px rgba(180,220,255,0.5);
+  margin-bottom: clamp(8px, 2vmin, 20px);
+  transition: color 2.2s cubic-bezier(.2,.6,.2,1), letter-spacing 2.2s cubic-bezier(.2,.6,.2,1),
+              margin-right 2.2s cubic-bezier(.2,.6,.2,1);
+}
+.zs-bliss.on .zs-bliss-name { color: rgba(255,255,255,0.88); letter-spacing: 0.42em; margin-right: -0.42em; }
+.zs-bliss-row {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  opacity: 0; transform: translateY(16px);
+  transition: opacity 0.8s ease, transform 0.8s cubic-bezier(.2,.6,.2,1);
+}
+.zs-bliss-row.in { opacity: 1; transform: translateY(0); }
+.zs-bliss-row.out { opacity: 0; transform: translateY(-14px); transition: opacity 0.7s ease, transform 0.7s ease; }
+.zs-bliss-k {
+  font-size: 12px; letter-spacing: 0.40em; margin-right: -0.40em; text-transform: lowercase;
+  color: rgba(200, 220, 255, 0.72);
+  text-shadow: 0 0 22px rgba(140, 190, 255, 0.35);
+}
+.zs-bliss-v {
+  font-size: clamp(26px, 5.2vmin, 50px); font-weight: 200; letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.90);
+  text-shadow: 0 0 26px rgba(140,190,255,0.35), 0 2px 12px rgba(0,0,0,0.8);
+  font-variant-numeric: tabular-nums;
+}
+.zs-bliss-row.bonus .zs-bliss-v {
+  color: rgba(255,235,170,0.92);
+  text-shadow: 0 0 22px rgba(255,206,110,0.45), 0 2px 12px rgba(0,0,0,0.8);
+}
+.zs-bliss-new {
+  font-size: 12px; font-weight: 400; letter-spacing: 0.40em; text-transform: uppercase;
+  vertical-align: middle; margin-left: 0.9em;
+  color: rgba(255,235,170,0.88);
+  text-shadow: 0 0 18px rgba(255,206,110,0.40);
+}
+
 /* r22 — the phrase whisper: a sustained run of chained cuts, acknowledged
  * once when it ends, in the hint's quiet voice just above it */
 .zs-phrase {
@@ -408,6 +462,8 @@ html, body {
 /* prefers-reduced-motion: the level name simply fades — no tracking sweep —
  * and the hint stops pulsing. Callout motion is zeroed in hud.js. */
 @media (prefers-reduced-motion: reduce) {
+  .zs-bliss-row, .zs-bliss-row.in, .zs-bliss-row.out { transform: none; }
+  .zs-bliss-name, .zs-bliss.on .zs-bliss-name { letter-spacing: 0.42em; margin-right: -0.42em; }
   .zs-level.show { animation: zsLevelStill 3.4s ease forwards; }
   .zs-hint { animation: none; opacity: 0.4; }
   .zs-hint.hold, .zs-hint.gone { opacity: 0; }
