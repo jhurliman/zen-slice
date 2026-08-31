@@ -475,6 +475,11 @@ export function createHud() {
     if (bliss) endBliss(true);
     codaFallback = -1;
     ctx.blissHold = true;
+    // r44b (PR #32 review): snap the readout to the EXACT pre-bonus number
+    // before pinning it — it may still be easing toward the last stroke's
+    // gains, and a pin on a stale value would then roll those in with the
+    // bonus, so the +5% would not read as +5%
+    shownScore = e.score - (e.bonus | 0);
     scoreHold = e.bonus > 0;
     const el = document.createElement('div');
     el.className = 'zs-bliss';

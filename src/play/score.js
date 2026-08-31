@@ -63,6 +63,10 @@ export function createScore() {
   // lap, not a farm.
   let frozen = false;
   let blissed = false;   // r44: the journey bonus is paid once per session
+  // r44b: the coda ARMS on its 'level' event and SETTLES (freeze + bonus) on
+  // the next scored slice, or on the next frame if none follows. See the
+  // 'level' handler for why.
+  let arriving = false;
   // r36: Game Center, through the injected global like haptics.js — a no-op
   // outside the shell. Rides the same rate-limited moments as savePref so
   // the network sees a submit per milestone, not per slice. The leaderboard
@@ -125,6 +129,9 @@ export function createScore() {
       const gain = frozen ? 0 : Math.round(base * mult);
       api.score += gain;
       if (api.score > api.peak) api.peak = api.score;
+      // r44b: the cut that turned the page is scored above, THEN the coda
+      // settles — its gain is in the streak the bonus is paid on
+      if (arriving) settleArrival();
 
       if (api.score >= BEST_FLOOR && api.score > api.bestScore) {
         if (api.bestScore > 0 && !announcedBest) {
@@ -162,29 +169,19 @@ export function createScore() {
       api.level = e.level; api.levelName = e.name;
       // r36: the coda flag rides the level event (director owns LEVELS).
       // Set, not latched — the ?debug level remote can jump back out.
-      frozen = !!e.coda;
-      // ══ r44: THE ARRIVAL ══════════════════════════════════════════════
-      // The bonus lands HERE, in the same event that freezes the score, so
-      // the freeze is applied to the lifted number and nothing after it can
-      // move. Emitted as 'bliss' with everything the celebration shows —
-      // hud.js owns the timing (it waits for the music's arrival bar), this
-      // file owns the facts. The all-time best is persisted immediately
-      // rather than on the 5 s rate limit: this is a milestone, and the
-      // session may well end at it. `newBest` is against the best as it
-      // stood BEFORE the bonus, so the celebration can say so; the once-per-
-      // session whisper is marked spent so it never doubles the message.
-      if (frozen && !blissed) {
-        blissed = true;
-        const bonus = Math.round(api.score * BLISS_BONUS);
-        api.score += bonus;
-        if (api.score > api.peak) api.peak = api.score;
-        const prevBest = api.bestScore;
-        const newBest = api.score >= BEST_FLOOR && api.score > prevBest;
-        if (newBest) { api.bestScore = api.score; announcedBest = true; persistBest(); }
-        c.bus.emit('bliss', {
-          bonus, score: api.score, journeyBest: api.peak, allTimeBest: api.bestScore, newBest,
-        });
-      }
+      //
+      // ══ r44b: ARM, DON'T FREEZE (PR #32 review) ═══════════════════════
+      // On a natural page-turn slicer.js calls director.noteSlice() BEFORE
+      // it emits that cut's 'slice' (slicer.js:308 vs :367), so this event
+      // arrives with the arriving cut not yet scored. Freezing here — which
+      // r36 did — made the cut that reached the coda award zero, and r44
+      // would have paid the bonus on a streak missing its own last note.
+      // So the coda ARMS here and SETTLES in the slice handler, after that
+      // cut's gain is in; the ?debug remote's jumpLevel has no slice behind
+      // it, so frame() settles it on the next tick instead. Either way the
+      // freeze and the bonus land together, on the complete streak.
+      if (e.coda) { arriving = true; }
+      else { arriving = false; frozen = false; }
     });
 
     // the rate-limited save above can be up to 5 s stale — flush it when the
@@ -204,7 +201,7 @@ export function createScore() {
       api.level = 0; api.levelName = 'Still Water';
       lastSliceT = -1e9;
       announcedBest = false;
-      frozen = false; blissed = false;
+      frozen = false; blissed = false; arriving = false;
       // discard (not flush) any open harmony group — a reset mid-stroke
       // must not emit a callout into the fresh session
       hStrokeId = -1; hSize = 0; hGain = 0; hAt = null; hCloseT = -1e9;
@@ -231,6 +228,34 @@ export function createScore() {
     });
   };
 
+  /**
+   * ══ r44: THE ARRIVAL ═══════════════════════════════════════════════════
+   * Freeze the score (r36) and pay the journey bonus, together, on the
+   * complete streak. Emitted as 'bliss' with everything the celebration
+   * shows — hud.js owns the timing (it waits for the music's arrival bar),
+   * this file owns the facts. The all-time best is persisted immediately
+   * rather than on the 5 s rate limit: this is a milestone, and the session
+   * may well end at it. `newBest` is against the best as it stood BEFORE the
+   * bonus, so the celebration can say so; the once-per-session whisper is
+   * marked spent so it never doubles the message. Called from the slice
+   * handler (natural page-turn) or frame() (jumpLevel) — see 'level'.
+   */
+  function settleArrival() {
+    arriving = false;
+    frozen = true;
+    if (blissed) return;
+    blissed = true;
+    const bonus = Math.round(api.score * BLISS_BONUS);
+    api.score += bonus;
+    if (api.score > api.peak) api.peak = api.score;
+    const prevBest = api.bestScore;
+    const newBest = api.score >= BEST_FLOOR && api.score > prevBest;
+    if (newBest) { api.bestScore = api.score; announcedBest = true; persistBest(); }
+    ctx.bus.emit('bliss', {
+      bonus, score: api.score, journeyBest: api.peak, allTimeBest: api.bestScore, newBest,
+    });
+  }
+
   /** Close the open harmony group; strokes of 2+ become a callout. */
   function flushHarmony() {
     if (hSize >= 2 && hAt) {
@@ -240,6 +265,9 @@ export function createScore() {
   }
 
   api.frame = () => {
+    // r44b: a coda reached with no slice behind it (the ?debug remote)
+    // settles here, one tick later
+    if (arriving) settleArrival();
     const now = nowSec();
     if (api.combo && now - lastSliceT > api.comboWindow()) {
       // a sustained run ending on its own terms earns the phrase whisper —

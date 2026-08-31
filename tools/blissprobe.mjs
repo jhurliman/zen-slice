@@ -98,6 +98,7 @@ const R = await page.evaluate(() => {
   step(2.5);                                 // let the readout settle on it
   spawns = 0;
   ZS.director.jumpLevel(9);
+  step(DT);                                  // r44b: jumpLevel settles on the next frame
   out.holdAtArrival = !!ctx.blissHold;
   out.colAtArrival = !!col();
   out.rowsAtArrival = rowState();
@@ -134,12 +135,33 @@ const R = await page.evaluate(() => {
   // second run: a lifted score that IS a new all-time best, then an abort
   ZS.clear(); step(0.2);
   out.blissAfterReset = ZS.score.peak === 0 && ZS.score.score === 0;
-  ZS.score.score = 9000;
-  ZS.director.jumpLevel(9);
+  ZS.score.score = 9000;                     // set and jump in the SAME tick: the
+  ZS.director.jumpLevel(9);                  // readout has not begun easing toward it
+  step(DT);
+  out.numStale = num();                      // r44b: must snap to 9000, not pin the stale 0
   step(1.0);
   out.abortBefore = { hold: !!ctx.blissHold, col: !!col() };
   ZS.clear(); step(3 * DT);
   out.abortAfter = { hold: !!ctx.blissHold, col: !!col(), bg: !!ctx.scene.backgroundNode };
+
+  // third run: the NATURAL page-turn (PR #32 review). slicer.js calls
+  // noteSlice() before it emits that cut's 'slice', so the coda's 'level'
+  // lands with the arriving cut unscored. Drive the real path: Night Jasmine
+  // with its gates satisfied (dur 150 s of sim, 48 slices), then ONE real
+  // cut turns the page — its gain must be in the streak the bonus is paid on.
+  ZS.clear(); step(0.2);
+  ZS.director.jumpLevel(8);
+  ZS.director.sliced = 48;
+  ZS.advance(151);
+  ZS.score.score = 2000; ZS.score.peak = 2000;
+  const nBefore = out.ev.bliss.length;
+  const f9 = ZS.spawn('watermelon');
+  f9.pos.set(0, 1.2, 0); f9.vel.set(0, 0.6, 0);
+  step(2 * DT, true);
+  const n9 = f9.pos.clone().project(ctx.camera);
+  ZS.newStroke?.(); ZS.swipe(n9.x - 0.8, n9.y, n9.x + 0.8, n9.y, 12, 7);
+  step(0.3, true);
+  out.natural = { level: ZS.director.level, fired: out.ev.bliss.length - nBefore, total: ZS.score.total };
   out.moduleErrors = ZS.moduleErrors.map((m) => m.module + '.' + m.phase + ': ' + m.error.split('\n')[0]);
   return out;
 });
@@ -156,12 +178,17 @@ const b1 = R.ev.bliss[0], b2 = R.ev.bliss[1];
 check('a slice moves the peak with the score', R.peakAfterSlice.score > 0 && R.peakAfterSlice.peak === R.peakAfterSlice.score, JSON.stringify(R.peakAfterSlice));
 check('the peak follows a long run', R.peakAfterLong.peak === R.peakAfterLong.score && R.peakAfterLong.score > 4000, JSON.stringify(R.peakAfterLong));
 check('a stone takes the streak, not the peak', R.afterRock.score === 0 && R.afterRock.peak === R.peakAfterLong.peak, JSON.stringify(R.afterRock));
-check('bliss fired once for the first arrival', R.ev.bliss.length === 2, `${R.ev.bliss.length} events over two runs`);
+check('bliss fired once per arrival', R.ev.bliss.length === 3, `${R.ev.bliss.length} events over three runs`);
 check('bonus is 5% of the LIVE streak (2000 → +100)', b1 && b1.bonus === 100 && b1.score === 2100, JSON.stringify(b1));
 check('journey best is the session peak, not the arriving score', b1 && b1.journeyBest === R.peakAfterLong.peak, `${b1?.journeyBest} vs peak ${R.peakAfterLong.peak}`);
 check('all-time best unchanged when the lifted score is below it', b1 && b1.allTimeBest === R.peakAfterLong.best && b1.newBest === false, `${b1?.allTimeBest} new=${b1?.newBest}`);
 check('second run: 9000 → +450, and it IS a new all-time best', b2 && b2.bonus === 450 && b2.score === 9450 && b2.newBest === true && b2.allTimeBest === 9450, JSON.stringify(b2));
 check('reset clears the peak (and re-arms the bonus)', R.blissAfterReset);
+const b3 = R.ev.bliss[2];
+check('natural page-turn: one real cut turns the page to the coda', R.natural.level === 9 && R.natural.fired === 1, JSON.stringify(R.natural));
+check('…and THAT cut is in the streak the bonus is paid on (PR #32 review)',
+  b3 && b3.score - b3.bonus > 2000 && b3.bonus === Math.round((b3.score - b3.bonus) * 0.05),
+  b3 ? `pre-bonus ${b3.score - b3.bonus} (cut worth ${b3.score - b3.bonus - 2000}), bonus ${b3.bonus}` : 'no event');
 
 console.log('\n── the hold and the column (hud.js / director.js) ──');
 check('blissHold is up the moment the facts land', R.holdAtArrival);
@@ -189,6 +216,7 @@ check('pinned at the pre-bonus number through the wait', R.numAtArrival === '200
 check('still pinned as the bonus row appears', R.numAtBonusIn === '2000', R.numAtBonusIn);
 check('settled on the lifted number by the end', R.numAtEnd === '2100', R.numAtEnd);
 check('the readout retires (coda) only when the sequence ends', R.codaAtEnd === true);
+check('a readout still easing when the coda lands snaps to the exact pre-bonus number (PR #32 review)', R.numStale === '9000', R.numStale);
 
 console.log('\n── after ──');
 check('the arc resumes: tosses return once the hold lets go', R.spawnsAfter > 0, `${R.spawnsAfter} in 4 s`);
