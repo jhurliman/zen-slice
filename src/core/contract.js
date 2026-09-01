@@ -225,7 +225,10 @@ export class SliceStroke {
  *  'spawn'      {fruit:Fruit}
  *  'expire'     {fruit:Fruit, reason:'missed'|'offstage'}
  *  'combo'      {count:number, at:Vector3}
- *  'level'      {level:number, name:string}
+ *  'level'      {level:number, name:string, coda?:boolean}
+ *  'bliss'      {bonus, score, journeyBest, allTimeBest, newBest}  r44: the coda's facts (score.js)
+ *  'arrival'    {in:number, beat:number}   r44: the conductor's landing downbeat (audio.js)
+ *  'interlude'  {on:boolean}               r44: the celebration is on screen (hud.js → stage.js)
  *  'slowmo'     {scale:number, seconds:number}
  *  'quality'    {profile:QualityProfile}
  *  'perf'       {fps:number, ms:number, tier:number}

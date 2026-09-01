@@ -61,7 +61,7 @@ const PALETTES = [
     { name: 'Esus4(9)', bass: 7, tones: [7, 0, 2], color: 9 },
     { name: 'Aadd9', bass: 0, tones: [0, 4, 7], color: 2 },
   ],
-  // 5 Summer Weight — weight shifts to the subdominant, D-lydian color
+  // 5 Summer Glare — weight shifts to the subdominant, D-lydian color
   [
     { name: 'Dmaj9(#11)', bass: 5, tones: [5, 9, 0, 4], color: 11 },
     { name: 'A/C#', bass: 4, tones: [0, 4, 7], color: 2 },
@@ -75,7 +75,7 @@ const PALETTES = [
     { name: 'D/F#', bass: 9, tones: [5, 9, 0], color: 7 },
     { name: 'Esus4(9)', bass: 7, tones: [7, 0, 2], color: 9 },
   ],
-  // 7 Dusk Ember — vi-centered, the day cooling into F# minor
+  // 7 Dusk's Edge — vi-centered, the day cooling into F# minor
   [
     { name: 'F#m9', bass: 9, tones: [9, 0, 4, 7], color: 11 },
     { name: 'Dmaj7', bass: 5, tones: [5, 9, 0, 4], color: 7 },
@@ -89,7 +89,7 @@ const PALETTES = [
     { name: 'Dmaj9#11', bass: 5, tones: [5, 9, 0, 4], color: 11 },
     { name: 'Esus4(9)', bass: 7, tones: [7, 0, 2], color: 9 },
   ],
-  // 9 Deep Calm — home again, richest voicings, slowest harmonic rhythm
+  // 9 Dreaming of Bliss — home again, richest voicings, slowest harmonic rhythm
   [
     { name: 'Amaj9', bass: 0, tones: [0, 4, 7, 11], color: 2 },
     { name: 'F#m11', bass: 9, tones: [9, 0, 4, 7], color: 2 },

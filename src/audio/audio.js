@@ -201,6 +201,14 @@ export function createAudio() {
     c.bus.on('combo', guard(onCombo));
     c.bus.on('spawn', guard(onSpawn));
     c.bus.on('expire', guard(onExpire));
+    // r44: the arrival, announced. The conductor marks the one-time landing
+    // at Dreaming of Bliss with its three blooms on a bar line; this hands
+    // that downbeat to the bus (`in` = seconds until it sounds, at most the
+    // scheduler's look-ahead) so hud.js starts the celebration on it rather
+    // than on the level event, which lands up to a bar earlier in the hush.
+    conductor.onArrival = (t) => {
+      c.bus.emit('arrival', { in: Math.max(0, t - engine.now()), beat: 60 / conductor.bpm });
+    };
     c.bus.on('level', guard((e) => {
       conductor.setLevel(e.level);
       engine.setSpace(SPACE_FOR_LEVEL[Math.max(0, Math.min(SPACE_FOR_LEVEL.length - 1, e.level | 0))]);
@@ -493,6 +501,9 @@ export function createAudio() {
         // r28: seconds to the next audible 8th, for the director's
         // beat-quantized toss (absent/0 = toss immediately)
         ctxRef.toss8In = started ? conductor.timeToNext8(engine.now()) : 0;
+        // r44: seconds to the next bar line, for the celebration's rolls
+        // (-1 = no grid yet; hud.js falls back to its own metronome)
+        ctxRef.barIn = started ? conductor.timeToNextBar(engine.now()) : -1;
         // r28: the chain stem follows the live multiplier
         conductor.setChain((ctxRef.score?.combo ?? 0) >= 2);
       }

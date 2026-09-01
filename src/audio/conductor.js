@@ -5,7 +5,7 @@
  *    octave-folded into 60–90 BPM and slew-limited to 2 BPM/s. The grid
  *    follows the player, never the reverse.
  *  · THE CHORD CLOCK. The progression advances every barsPerChord bars
- *    (2, or 4 in Still Water / Deep Calm). A combo peak can NUDGE the next
+ *    (2, or 4 in Still Water / Dreaming of Bliss). A combo peak can NUDGE the next
  *    change to the next bar boundary — never delaying, only leaning in.
  *  · THE LOOK-AHEAD SCHEDULER ("tale of two clocks"): frame() walks a
  *    16th-note cursor 120 ms ahead of actx.currentTime. Background time
@@ -27,7 +27,7 @@
  *  · MOTIFS — each level has a composed 16-step pattern (and a bass
  *    pattern) with its own rhythmic identity, voiced live from the harmonic
  *    field. Still Water has none; Orchard Rain patters like rain; Golden
- *    Hour flows in 16ths; Deep Calm breathes in wide slow arcs. This is the
+ *    Hour flows in 16ths; Dreaming of Bliss breathes in wide slow arcs. This is the
  *    "musical structure per level".
  *  · THE ECHO — every note the player plays is answered: it returns 8 grid
  *    steps (2 beats) later, snapped TO the grid, an octave up, quiet and
@@ -76,7 +76,7 @@ export const MOTIFS = [
     { s: 0, d: 0, o: 0, v: 0.45 }, { s: 4, d: 1, o: 0, v: 0.40 },
     { s: 8, d: 2, o: 0, v: 0.42 }, { s: 12, d: 3, o: 0, v: 0.38 },
   ],
-  /* 5 Summer Weight — dotted, unhurried, mid register */
+  /* 5 Summer Glare — dotted, unhurried, mid register */
   [
     { s: 0, d: 0, o: 0, v: 0.5 }, { s: 3, d: 1, o: 0, v: 0.36 },
     { s: 6, d: 2, o: 0, v: 0.44 }, { s: 10, d: 3, o: 0, v: 0.38 },
@@ -90,7 +90,7 @@ export const MOTIFS = [
     { s: 8, d: 0, o: 1, v: 0.38 }, { s: 11, d: 3, o: 0, v: 0.30 },
     { s: 12, d: 2, o: 0, v: 0.34 }, { s: 14, d: 1, o: 0, v: 0.28 },
   ],
-  /* 7 Dusk Ember — falling sighs as the light goes */
+  /* 7 Dusk's Edge — falling sighs as the light goes */
   [
     { s: 0, d: 3, o: 0, v: 0.42 }, { s: 6, d: 2, o: 0, v: 0.36 },
     { s: 8, d: 1, o: 0, v: 0.40 }, { s: 14, d: 0, o: 0, v: 0.32 },
@@ -100,7 +100,7 @@ export const MOTIFS = [
     { s: 0, d: 0, o: -1, v: 0.40 }, { s: 7, d: 3, o: 1, v: 0.30 },
     { s: 8, d: 2, o: 0, v: 0.36 }, { s: 15, d: 3, o: 1, v: 0.26 },
   ],
-  /* 9 Deep Calm — wide slow arcs */
+  /* 9 Dreaming of Bliss — wide slow arcs */
   [
     { s: 0, d: 0, o: -1, v: 0.5 }, { s: 6, d: 2, o: 0, v: 0.4 },
     { s: 8, d: 3, o: 0, v: 0.44 }, { s: 14, d: 1, o: 1, v: 0.34 },
@@ -137,7 +137,7 @@ export function createConductor(engine, harmony) {
   let arpPool = null;
   let padLpNow = 2200;
   let background = true, arps = true;
-  let arrived = false, arrivalPending = false;   // the one-time Deep Calm arrival
+  let arrived = false, arrivalPending = false;   // the one-time Dreaming of Bliss arrival
 
   // layer presences, derived from bloom each frame
   let gBass = 0, gMotif = 0, gEcho = 0;
@@ -265,6 +265,29 @@ export function createConductor(engine, harmony) {
       if (((idx % 2) + 2) % 2 === 1) t8 += stepDur;  // odd 16th → next 8th
       return Math.max(0, t8 - now);
     },
+
+    /**
+     * r44: seconds from `now` to the next BAR line (step 0), on the same
+     * grid arithmetic as timeToNext8. Published on ctx each frame by
+     * audio.js as `barIn`, so the arrival celebration (hud.js) can roll its
+     * lines on the bar and half-bar the way the tosses ride the 8ths —
+     * re-read live rather than predicted from one tempo, because with no
+     * one slicing the tempo relaxes toward 66 bpm at 2 bpm/s and a bar
+     * predicted at 90 bpm would be a whole beat early by the third one.
+     * -1 before start(): "no grid", the consumer keeps its own time.
+     */
+    timeToNextBar(now) {
+      if (!started) return -1;
+      const stepDur = 60 / bpm / 4;
+      const m = Math.floor((nextStep - now) / stepDur);
+      const t0 = nextStep - m * stepDur;              // first step time ≥ now
+      const idx = (((stepIdx - m) % 16) + 16) % 16;   // its step index
+      return Math.max(0, t0 + ((16 - idx) & 15) * stepDur - now);
+    },
+
+    /** r44: set by audio.js — called with the engine time of the arrival
+     *  blooms (see onBar), so the celebration starts ON that downbeat. */
+    onArrival: null,
 
     /** r28: the phrase chain's audible stem (see gChain above). */
     setChain(on) { chainOn = !!on; },
@@ -407,6 +430,7 @@ export function createConductor(engine, harmony) {
           // and tonic-above blooming in sequence, the pad thrown fully open,
           // and the arrangement at full growth. Warm, not a fanfare.
           arrivalPending = false;
+          if (api.onArrival) { try { api.onArrival(t); } catch (_) { /* */ } }
           const root = harmony.noteFor('orange', 0);
           playBloom(engine, root, t);
           playBloom(engine, root + 7, t + 0.12);

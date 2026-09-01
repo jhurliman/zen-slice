@@ -1967,6 +1967,55 @@ export function createStage() {
     api.dof = dofNode;
   }
 
+  // ══ r44: THE ARRIVAL GLOW ═════════════════════════════════════════════════
+  // "the otherwise always black bg lightens and shimmers just a touch" while
+  // the celebration at Dreaming of Bliss is on screen (hud.js emits
+  // 'interlude' { on }). Done IN the pipeline, not as a DOM veil: a
+  // `scene.backgroundNode` is drawn by three as a camera-locked sphere forced
+  // to the far plane with depth writes off, so the frame's depth buffer — and
+  // with it the DoF's whole reading of the frame — is exactly what the void's
+  // was, and the glow passes through the same exposure, bloom (two orders of
+  // magnitude under its 1.35 threshold) and tone map as everything else. The
+  // node is attached only while the glow is non-zero: ordinary frames render
+  // with the void, byte-identical to every frozen probe baseline.
+  //
+  // The shape: a soft lobe centred a little above the frame's middle (a sky,
+  // not a spotlight) over a pre-dawn blue-violet, with three slow sine sheets
+  // drifting across it at ±12% — the shimmer. `positionLocal` on three's
+  // sphere is the view direction in world axes (the camera looks down -Z, so
+  // x is across the frame and y is up), and the visible cone is only ~±0.3,
+  // which is what the sheet frequencies are scaled against: two cycles across
+  // the width, not twenty. Measured on the graded output (the sweep in the
+  // r44 PR): amp 0.065 with this tint lands the lobe's centre near display
+  // (30, 34, 47) and the corners near (3, 4, 12) — the void goes from black
+  // to a moonlit grey-blue, a lift you feel more than see. (A first guess of
+  // 0.022 came out as (4, 4, 21): the grade's crush and contrast ate all of
+  // it but the blue.) `U.blissK` rises over ~2 s (a beat or two behind the name)
+  // and falls with a 1 s time constant when the hold lets go — invisible
+  // within ~3 s, detached (back to the true void) at 1% of peak.
+  // The four uniforms live on `U` (public as api.uniforms) so the amplitude
+  // and tint were tuned against the GRADED output — gradeFn crushes, adds
+  // contrast about a 0.34 pivot and saturates, so a scene-linear guess lands
+  // nowhere near the display value it produces. Sized by sweep, r44.
+  U.blissK = uniform(0);          // 0..1 presence, eased below
+  U.blissT = uniform(0);          // the shimmer's own clock
+  U.blissAmp = uniform(0.065);    // peak scene-linear at the lobe's centre
+  U.blissTint = uniform(new THREE.Vector3(0.82, 0.86, 1.0));
+  let blissTarget = 0, blissNode = null;
+  const buildBlissNode = () => Fn(() => {
+    const d = positionLocal.normalize();
+    const r = vec2(d.x, d.y.sub(0.08)).length();
+    const sky = float(1.0).sub(smoothstep(0.0, 0.55, r));
+    const t = U.blissT;
+    const s1 = sin(d.x.mul(23.0).add(t.mul(0.7))).mul(sin(d.y.mul(17.0).sub(t.mul(0.5))));
+    const s2 = sin(d.x.mul(41.0).sub(d.y.mul(29.0)).add(t.mul(1.1)));
+    const sh = s1.mul(0.6).add(s2.mul(0.4)).mul(0.5).add(0.5);
+    const amp = U.blissK.mul(U.blissAmp)
+      .mul(float(0.30).add(sky.mul(0.70)))
+      .mul(float(0.76).add(sh.mul(0.24)));
+    return vec4(vec3(U.blissTint).mul(amp), 1.0);
+  })();
+
   api.init = (ctx) => {
     renderer = ctx.renderer;
     scene = ctx.scene;
@@ -2747,6 +2796,9 @@ export function createStage() {
     scene.add(streak);
     api.streak = streak;
 
+    // r44: the arrival glow follows hud.js's interlude (see U.bliss* above)
+    ctx.bus.on('interlude', (e) => { blissTarget = e && e.on ? 1 : 0; });
+
     ctx.bus.on('slice', (e) => {
       // Latch the fresh halves as the focus subject (see api.frame). A multi-cut
       // swipe fires this once per fruit, so the LAST fruit crossed wins, which
@@ -2923,6 +2975,17 @@ export function createStage() {
 
   api.frame = (dt, alpha, ctx) => {
     U.time.value += dt;
+
+    // r44: the arrival glow eases toward its target; the background node is
+    // attached only while the glow is non-zero (see U.bliss* above)
+    if (blissTarget > 0 || U.blissK.value > 0) {
+      U.blissT.value += dt;
+      const k0 = U.blissK.value;
+      const k = k0 + (blissTarget - k0) * Math.min(1, dt / (blissTarget > k0 ? 2.0 : 1.0));
+      U.blissK.value = blissTarget === 0 && k < 0.01 ? 0 : k;
+      const want = U.blissK.value > 0 ? (blissNode || (blissNode = buildBlissNode())) : null;
+      if (scene.backgroundNode !== want) scene.backgroundNode = want;
+    }
 
     const slow = 1.0 - Math.min(1, (ctx.timeScale - 0.15) / 0.85);
     U.slow.value += (slow - U.slow.value) * Math.min(1, dt * 6);

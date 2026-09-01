@@ -62,14 +62,23 @@ export const LEVELS = [
   { name: 'Morning Dew', pool: ['apple', 'kiwi', 'strawberry'], every: [1.2, 1.7], burst: 2, need: 24, dur: 110, rock: 0.07 },
   { name: 'Orchard Rain', pool: ['orange', 'apple', 'kiwi', 'strawberry'], every: [1.1, 1.6], burst: 2, need: 32, dur: 130, rock: 0.10 },
   { name: 'Noon Bloom', pool: ['watermelon', 'orange', 'apple', 'strawberry'], every: [1.0, 1.5], burst: 2, need: 36, dur: 130, rock: 0.12 },
-  { name: 'Summer Weight', pool: ['watermelon', 'pineapple', 'orange', 'kiwi'], every: [1.0, 1.4], burst: 3, need: 40, dur: 140, rock: 0.14 },
+  { name: 'Summer Glare', pool: ['watermelon', 'pineapple', 'orange', 'kiwi'], every: [1.0, 1.4], burst: 3, need: 40, dur: 140, rock: 0.14 },
   { name: 'Golden Hour', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.95, 1.35], burst: 3, need: 42, dur: 140, rock: 0.15 },
-  { name: 'Dusk Ember', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [0.9, 1.3], burst: 3, need: 45, dur: 150, rock: 0.16 },
+  { name: 'Dusk\'s Edge', pool: ['pineapple', 'watermelon', 'orange', 'kiwi', 'strawberry'], every: [0.9, 1.3], burst: 3, need: 45, dur: 150, rock: 0.16 },
   { name: 'Night Jasmine', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.85, 1.25], burst: 3, need: 48, dur: 150, rock: 0.18 },
   // the endless coda — the journey arrives here and stays
   // r32: the coda is ROCK-FREE — "you get that far and it's just fruit swiping bliss"
-  { name: 'Deep Calm', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.8, 1.2], burst: 3, need: Infinity, dur: Infinity, rock: 0 },
+  // r44: renamed (Deep Calm → Dreaming of Bliss, with Summer Glare and Dusk's
+  // Edge above); arriving here is a MOMENT now — score.js pays the journey
+  // bonus and hud.js rolls the celebration, under ctx.blissHold (api.fixed).
+  { name: 'Dreaming of Bliss', pool: ['pineapple', 'watermelon', 'orange', 'apple', 'kiwi', 'strawberry'], every: [0.8, 1.2], burst: 3, need: Infinity, dur: Infinity, rock: 0 },
 ];
+
+// r44: the arrival hold's safety rail (see `arriving` in api.fixed). The
+// interlude itself runs ~4 bars — 11 s at 66 bpm, 16 s at the slowest tempo
+// the conductor infers — so 30 s only ever fires if the HUD module died with
+// the flag up.
+const BLISS_HOLD_MAX_S = 30;
 
 export function createDirector({ seed = 20260806 } = {}) {
   const rng = makeRng(seed);
@@ -91,6 +100,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   let t = 0;
   let levelT = 0;   // sim seconds in the current level (the r18 time gate)
   let demoEnded = false;   // the demo veil fires once (web demo build only)
+  let blissHeldT = 0;      // r44: sim-seconds the arrival hold has been up
   // running triangle total of the live population, maintained incrementally by
   // add()/remove() so the budget check is two comparisons and not an O(n) sum
   // every fixed step (R4: zero steady-state allocation, and no per-step scan we
@@ -506,6 +516,18 @@ export function createDirector({ seed = 20260806 } = {}) {
     // Probes never set the flag (?capture suppresses the title), so frozen
     // rng streams are untouched.
     const held = !!ctx.titleHold;
+    // r44: AND THE ARRIVAL. hud.js publishes ctx.blissHold from the coda's
+    // 'level' event until its celebration has rolled off — nothing new is
+    // tossed under the stats, the music plays to an empty sky, and the first
+    // fruit of Dreaming of Bliss arrives when the hold lets go. Fruit already
+    // in the air fly and leave as normal (the hold is on the TOSS, not the
+    // world). A resting hold — the title's marquee melon is the one
+    // exception, and it is not wanted here — so it is a separate flag, not
+    // `held`: `held` also drives the marquee. Bounded below in case the HUD
+    // dies mid-interlude: a hold older than BLISS_HOLD_MAX_S sim-seconds is
+    // ignored, so the coda can never be silenced by a dead module.
+    if (ctx.blissHold) blissHeldT += sdt; else blissHeldT = 0;
+    const arriving = !!ctx.blissHold && blissHeldT < BLISS_HOLD_MAX_S;
     // r42: AND THE ARC WAITS FOR THE WARMUP. `prewarmed` is false only while
     // api.prewarmPipelines is running, true when it finishes, and undefined
     // when it never started (?capture, a renderer without compileAsync) — so
@@ -515,7 +537,7 @@ export function createDirector({ seed = 20260806 } = {}) {
     // title's marquee melon is deliberately NOT gated: it is the composition,
     // it is one cached mesh, and its pipeline is compiled by phase 2.
     const warming = ctx.prewarmed === false;
-    if (!held && !warming) levelT += sdt;
+    if (!held && !warming && !arriving) levelT += sdt;
     const L = LEVELS[api.level];
     updateVisibleBox();
 
@@ -537,7 +559,7 @@ export function createDirector({ seed = 20260806 } = {}) {
     // allocated a throwaway array every fixed step — 120 of them a second
     // against R4's "zero steady-state allocation in the hot loop".
     nextSpawn -= sdt;
-    if (!held && !warming && nextSpawn <= 0) {
+    if (!held && !warming && !arriving && nextSpawn <= 0) {
       // ══ r28 THE BEAT-QUANTIZED TOSS (the Lumines/Rez move) ══════════════
       // When the timer expires, the toss HOLDS until the conductor's next
       // audible 8th (audio.js publishes ctx.toss8In each render frame; the
@@ -560,7 +582,7 @@ export function createDirector({ seed = 20260806 } = {}) {
         // "It is very rare to get a 4x or 5x… it's really a highlight moment"
         // — so the sky occasionally OFFERS the chord: on a clear sky (whole
         // fruit only readable when nothing else is up), from Morning Dew on,
-        // a fan of 4 fruit (5 from Summer Weight, tier maxFruit permitting)
+        // a fan of 4 fruit (5 from Summer Glare, tier maxFruit permitting)
         // launches together with a SHARED apex height and even x spacing —
         // they hang side by side at the top of the arc, one clean stroke
         // wide. Never rocks (it is a gift), 22 s minimum between offers, and

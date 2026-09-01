@@ -48,7 +48,19 @@ export function createHud() {
   let settingsEl = null, panelEl = null, gearEl = null, titleEl = null;
   let idleT = 0, panelOpen = false, captureMode = false, reducedMotion = false;
   let swipeCount = 0;
-  const IDLE_SHOW_S = 3;
+  // r44: 3 → 1.5 s, by request. The glyph's whole idiom is "present only
+  // when the fingertip is still"; three seconds read as absent.
+  const IDLE_SHOW_S = 1.5;
+  // ══ r44: THE ARRIVAL — state for the celebration at Dreaming of Bliss ═══
+  // `bliss` is the running interlude or null; see startBliss/endBliss and
+  // the step engine in api.frame. `scoreHold` pins the readout at the
+  // pre-bonus number until the bonus row rolls on, so the +5% is SEEN
+  // ticking up rather than having happened. `codaFallback` counts down
+  // from the coda's 'level' event: if no 'bliss' follows (score module
+  // dead), the old banner + readout retirement happen anyway.
+  let bliss = null, scoreHold = false, codaFallback = -1, levelBanner = null;
+  const blissGone = [];   // columns fading out, removed on the game's own dt
+  const BLISS_WAIT_MAX_S = 6;   // no 'arrival' (nosound, harness) → start anyway
 
   /**
    * Place a callout over a world point and keep it on screen. ONE function
@@ -113,20 +125,63 @@ export function createHud() {
     hintEl = root.querySelector('#zs-hint');
     flagEl = root.querySelector('#zs-flag');
 
-    c.bus.on('level', (e) => {
-      levelEl.textContent = e.name;
+    levelBanner = (name) => {
+      levelEl.textContent = name;
       levelEl.classList.remove('show'); void levelEl.offsetWidth;
       levelEl.classList.add('show');
-      // the coda retires the score readout: Deep Calm is endless and
+    };
+    c.bus.on('level', (e) => {
+      // r44: the coda's name is said by the arrival column, on the music's
+      // downbeat — not by this banner in the pre-arrival hush — and the
+      // readout's retirement (below) waits for the celebration to finish:
+      // the 5% bonus is the last thing the number ever does, and it is
+      // watched. codaFallback covers a 'level' with no 'bliss' behind it.
+      if (e.coda) { codaFallback = 0.6; return; }
+      codaFallback = -1;
+      if (bliss) endBliss(true);   // the ?debug remote stepped back out
+      levelBanner(e.name);
+      // the coda retires the score readout: Dreaming of Bliss is endless and
       // rock-free, the number is frozen (r36) — a dead readout is chrome,
-      // not information. The 'level' event already carries `coda` for
-      // exactly this kind of consumer; any non-coda level (begin again's
-      // level-0 re-announce, the ?debug remote) brings it back.
-      scoreWrap.classList.toggle('coda', !!e.coda);
+      // not information. Any non-coda level (begin again's level-0
+      // re-announce, the ?debug remote) brings it back.
+      scoreWrap.classList.remove('coda');
     });
     // a bus-level reset (harness ZS.clear, director.reset) restores the
     // readout even when no 'level' event follows
-    c.bus.on('reset', () => scoreWrap.classList.remove('coda'));
+    c.bus.on('reset', () => { scoreWrap.classList.remove('coda'); codaFallback = -1; endBliss(true); });
+
+    // ══ r44: THE ARRIVAL ═════════════════════════════════════════════════
+    // "a short but poignant celebration sequence when you arrive at
+    // Dreaming of Bliss ... a 5% bonus on your current score, then your
+    // best score this playthrough and your best all time ... the music keeps
+    // playing softly in the background, the otherwise always black bg
+    // lightens and shimmers just a touch, and we roll these stats on to
+    // the screen then off (timed with the music of course)."
+    //
+    // WHO OWNS WHAT. score.js pays the bonus and emits 'bliss' with the
+    // facts. The conductor marks the landing with its three blooms on a bar
+    // line and audio.js relays that downbeat as 'arrival'. This file owns
+    // the TIMING: it holds the director's tosses (ctx.blissHold) from the
+    // facts to the end, starts the column on the arrival downbeat, and
+    // steps it through the sequence on the music's own bar lines, read
+    // live from ctx.barIn each frame — the same grid the tosses ride.
+    // stage.js lightens the void on 'interlude' { on }.
+    //
+    // THE SHAPE. Bar 0: the name arrives with the blooms and the void
+    // begins to lift. Then each stat rolls on at a HALF-BAR line (a
+    // phrase's breath apart), holds, and they roll off on successive BEATS
+    // (quicker, the way a held chord releases), the name last, and the
+    // hold lets go one beat after — the first fruit of the coda arrives
+    // into a sky that has just gone dark again. About four bars: 11 s at
+    // 66 bpm. No fixed durations anywhere: a slow player's slow tempo gets
+    // a slower ceremony, which is the game's whole thesis.
+    //
+    // NO KEYFRAME ANIMATIONS in the column: every reveal is a class flip
+    // with a transition, so a row that must leave early (reset, the ?debug
+    // remote) is never fighting a running animation for its opacity — the
+    // r34 hint bug, remembered.
+    c.bus.on('bliss', (e) => startBliss(e));
+    c.bus.on('arrival', (e) => { if (bliss && bliss.stage === 'wait') bliss.startIn = Math.max(0, e.in || 0); });
     // ══ THE COMBO CALLOUT ════════════════════════════════════════════════
     // The player asked for this: "when you get a combo text should appear over
     // your slice. This makes the game feel more exciting."
@@ -414,6 +469,67 @@ export function createHud() {
     setTimeout(() => { if (!titleEl) c.bus.emit('level', { level: 0, name: 'Still Water' }); }, 700);
   };
 
+  /** r44: build the arrival column and take the hold; the sequence itself
+   *  runs in api.frame once 'arrival' (or the wait cap) starts it. */
+  function startBliss(e) {
+    if (bliss) endBliss(true);
+    codaFallback = -1;
+    ctx.blissHold = true;
+    // r44b (PR #32 review): snap the readout to the EXACT pre-bonus number
+    // before pinning it — it may still be easing toward the last stroke's
+    // gains, and a pin on a stale value would then roll those in with the
+    // bonus, so the +5% would not read as +5%
+    shownScore = e.score - (e.bonus | 0);
+    scoreHold = e.bonus > 0;
+    const el = document.createElement('div');
+    el.className = 'zs-bliss';
+    const row = (cls, label, value, mark) =>
+      `<div class="zs-bliss-row ${cls}"><div class="zs-bliss-k">${label}</div>`
+      + `<div class="zs-bliss-v">${value}${mark ? `<span class="zs-bliss-new">${mark}</span>` : ''}</div></div>`;
+    // never fabricate: no bonus row at +0 (a stone on the last slice), no
+    // all-time row before a best exists (BEST_FLOOR, score.js) — the journey
+    // row is the one line that is always true
+    el.innerHTML =
+      `<div class="zs-bliss-name">${ctx.score?.levelName || 'Dreaming of Bliss'}</div>`
+      + (e.bonus > 0 ? row('bonus', 'journey bonus · 5%', `+${e.bonus}`) : '')
+      + row('journey', 'best this journey', e.journeyBest | 0)
+      + (e.allTimeBest > 0 ? row('alltime', 'best of all time', e.allTimeBest | 0, e.newBest ? 'new' : '') : '');
+    root.appendChild(el);
+    const rows = Array.from(el.querySelectorAll('.zs-bliss-row'));
+    // the sequence, as gates: each step fires at the next line of its kind
+    // on the music's grid, but never sooner than `min` beats after the
+    // previous step (a bar line is also a half-bar and a beat line)
+    const steps = [];
+    rows.forEach((r) => steps.push({ gate: 'half', min: 1.5, run: () => {
+      r.classList.add('in');
+      if (r.classList.contains('bonus')) scoreHold = false;   // the readout ticks up now
+    } }));
+    rows.forEach((r, i) => steps.push({ gate: i === 0 ? 'half' : 'beat', min: i === 0 ? 1.5 : 0.5,
+      run: () => { r.classList.remove('in'); r.classList.add('out'); } }));
+    steps.push({ gate: 'beat', min: 0.5, run: () => el.classList.add('off') });
+    steps.push({ gate: 'beat', min: 0.5, run: () => endBliss(false) });
+    bliss = {
+      el, steps, stage: 'wait', waited: 0, startIn: -1,
+      step: 0, since: 0, synth: 0,
+      prevBarIn: Infinity, prevHalfIn: Infinity, prevBeatIn: Infinity,
+    };
+  }
+
+  /** r44: let go — of the hold, the void's glow, and the readout. `abort`
+   *  is the early exit (reset, the ?debug remote): the column vanishes;
+   *  the natural end has already rolled everything off and just tidies. */
+  function endBliss(abort) {
+    if (!bliss) return;
+    const b = bliss; bliss = null;
+    scoreHold = false;
+    ctx.blissHold = false;
+    ctx.bus.emit('interlude', { on: false });
+    if (abort) { b.el.remove(); return; }
+    b.el.classList.add('off');
+    blissGone.push({ el: b.el, t: 0 });   // removed in frame() after its fade
+    scoreWrap.classList.add('coda');    // the readout retires now (r36)
+  }
+
   /** Build or tear down the debug strip — shared by init (?debug / stored
    *  pref) and the live settings toggle. */
   function setDebugStrip(on) {
@@ -542,8 +658,57 @@ export function createHud() {
       }
     }
     const s = c.score?.score ?? 0;
-    shownScore += (s - shownScore) * Math.min(1, dt * 9);
+    // r44: pinned while the arrival waits for its bonus row, then eased
+    // slowly enough to be watched (~1 s to settle) instead of the readout's
+    // usual quick catch-up
+    if (!scoreHold) shownScore += (s - shownScore) * Math.min(1, dt * (bliss ? 2.4 : 9));
     scoreEl.textContent = Math.round(shownScore);
+    // a coda 'level' that no 'bliss' followed: the old behaviour, late
+    if (codaFallback >= 0 && (codaFallback -= dt) < 0 && !bliss) {
+      codaFallback = -1;
+      levelBanner(c.score?.levelName || 'Dreaming of Bliss');
+      scoreWrap.classList.add('coda');
+    }
+    for (let i = blissGone.length - 1; i >= 0; i--) {
+      if ((blissGone[i].t += dt) > 1.6) { blissGone[i].el.remove(); blissGone.splice(i, 1); }
+    }
+    // ══ r44: THE ARRIVAL'S STEP ENGINE ═══════════════════════════════════
+    if (bliss) {
+      const b = bliss;
+      if (b.stage === 'wait') {
+        // waiting for the conductor's downbeat ('arrival' sets startIn);
+        // the cap covers ?nosound and a harness with no audio at all
+        b.waited += dt;
+        if (b.startIn >= 0) b.startIn -= dt;
+        if ((b.startIn >= 0 && b.startIn <= 0.004) || b.waited >= BLISS_WAIT_MAX_S) {
+          b.stage = 'run';
+          b.el.classList.add('on');
+          ctx.bus.emit('interlude', { on: true });
+        }
+      } else {
+        const beat = Math.max(0.6, Math.min(1.0, c.beatSec || 60 / 66));
+        const bar = 4 * beat;
+        // the live grid when audio has one; otherwise a metronome from the
+        // downbeat we started on (barIn = bar at synth 0 → a bar line)
+        let barIn = c.barIn;
+        if (!(barIn >= 0)) { b.synth += dt; barIn = bar - (b.synth % bar); }
+        const halfIn = barIn > bar * 0.5 ? barIn - bar * 0.5 : barIn;
+        const beatIn = barIn - Math.floor(barIn / beat) * beat;
+        // a line is crossed when its countdown WRAPS upward (tempo drift
+        // moves it by well under the threshold per frame)
+        const onBar = barIn > b.prevBarIn + 0.05;
+        const onHalf = onBar || halfIn > b.prevHalfIn + 0.05;
+        const onBeat = onHalf || beatIn > b.prevBeatIn + 0.05;
+        b.prevBarIn = barIn; b.prevHalfIn = halfIn; b.prevBeatIn = beatIn;
+        b.since += dt;
+        const st = b.steps[b.step];
+        if (st && b.since >= st.min * beat
+          && (st.gate === 'bar' ? onBar : st.gate === 'half' ? onHalf : onBeat)) {
+          b.step++; b.since = 0;
+          st.run();    // may end the interlude (bliss → null)
+        }
+      }
+    }
     // r25: the LIVE MULTIPLIER, next to the score. The phrase chain has been
     // driving mult silently since r22 and the player judged that too subtle
     // ("show your current multiplier next to your score at top when you have

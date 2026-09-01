@@ -103,7 +103,7 @@ outer:
 for (let minute = 0; minute < MINUTES; minute++) {
   await page.evaluate((minute) => {
     const ZS = window.ZS;
-    // walk the arc: one level per ~90 sim-seconds, capped at Deep Calm
+    // walk the arc: one level per ~90 sim-seconds, capped at Dreaming of Bliss
     const lvl = Math.min(9, Math.floor((minute * 60) / 90));
     if (ZS.ctx.fruits.level !== lvl && ZS.ctx.fruits.jumpLevel) ZS.ctx.fruits.jumpLevel(lvl);
     window.__soakWall = 0;
