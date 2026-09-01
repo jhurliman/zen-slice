@@ -347,7 +347,12 @@ export function createSlicer() {
         // it is painted on, which is the bug this payload was added to fix,
         // reintroduced by the same commit. Caught in review.
         faceVel: halves[1 - i] ? halves[1 - i].vel.clone() : null,
-        radius: capR * 0.95, amount, inherit: f.vel.clone().multiplyScalar(0.8),
+        // r43: the fruit's FULL velocity now. The 0.8 that used to be applied
+        // here moved into fluid.js as INH_TIP, applied at the single point every
+        // free particle reads it — because the juice film's attached root needs
+        // the undamped number and two copies of 0.8 in two files would drift.
+        // Every consumer still sees exactly what it saw before.
+        radius: capR * 0.95, amount, inherit: f.vel.clone(),
       });
     }
     if (CP) CP.juice.push(performance.now() - t0);
