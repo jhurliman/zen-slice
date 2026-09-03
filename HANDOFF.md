@@ -33,6 +33,10 @@ footage (the plates in `reference/`); early rounds were scored blind against
 it by critic agents. The project now iterates in **player-feedback rounds**:
 he plays a build, sends notes, a round ships fixes as one PR.
 
+**1.0 is shipped** (2026-08): the first retail build ($2.99, App Store, plus
+the web demo on GitHub Pages and itch.io) is with Apple in review; future
+builds are 1.1, 1.2, …
+
 ## 2. ⚠ THE MOST IMPORTANT LESSON
 
 **Nine rounds of rising metric scores were contradicted by the player's first
@@ -175,7 +179,7 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    `rapier3d-compat` for `@dimforge/rapier3d` (real .wasm fetch) behind the
    build flag, keep -compat for the PWA build. ~1.9 MB smaller app + faster
    parse; do it when app size starts to matter for review or download.
-3. **Flourish grid-timing** — the prerequisite SHIPPED (r38g): the `?debug`
+2. **Flourish grid-timing (CLOSED with 1.0)** — the prerequisite SHIPPED (r38g): the `?debug`
    strip now has 2/3/4/5 combo triggers — one tap stages an n-fruit
    constellation and sweeps it through the real gather/voice/reward path.
    Building them also flushed out a real slicer bug, fixed: a QUEUED cut's
@@ -191,4 +195,6 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    caps, sub −2 dB, crown back to 0.46) and the sidechain deepened + given a
    fast attack (duckBed 4th arg; triad 0.68, 4+ 0.42 @ 30 ms) — a full
    flourish now peaks ~−11 dBFS post-ceiling instead of riding the −3
-   limiter into the tanh shoulder. Verdict pending the owner's ear.
+   limiter into the tanh shoulder. Verdict (on device, 1.0): the flourish as
+   shipped — gather-flush timing and the r38g mix — reads good; closed, the
+   grid-quantization idea is not pursued.

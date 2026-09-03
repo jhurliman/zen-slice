@@ -1,12 +1,12 @@
 # Chord Cut — native iOS wrapper (Capacitor 8)
 
-Scaffolded r26, researched against 2026 practice. The web game is untouched:
-the shell loads the same single self-contained `dist/index.html` from the app
-bundle, and every native integration reaches the game through the injected
-`window.Capacitor` global (`src/core/native.js`, `src/input/haptics.js`) —
-zero wrapper bytes in the web/PWA build.
+Shipped to the App Store as 1.0 (2026-08), researched against 2026 practice. The web game is
+untouched: the shell loads the same single self-contained `dist/index.html`
+from the app bundle, and every native integration reaches the game through
+the injected `window.Capacitor` global (`src/core/native.js`,
+`src/input/haptics.js`) — zero wrapper bytes in the web/PWA build.
 
-## Why these choices (research summary, 2026-08)
+## Design rationale (researched 2026-08)
 
 - **Capacitor 8.5 (SPM-based), not a bare Swift shell or Tauri**: same
   WKWebView either way (zero runtime penalty), first-party plugins cover
@@ -33,7 +33,7 @@ zero wrapper bytes in the web/PWA build.
   (4.2 "not just a website"): status bar and home indicator hidden, scrolling
   disabled, edge swipes deferred.
 
-## What is already wired
+## Native integration
 
 | Piece | Where |
 |---|---|
@@ -74,42 +74,40 @@ xcrun devicectl device process launch --device <device-udid> org.jhurliman.chord
 (`xcrun devicectl list devices` for the UDID; launch requires the phone
 unlocked — install works either way.)
 
-## On a Mac (the only part Linux can't do)
+## Mac-only steps (signing & distribution)
 
-1. Xcode 26+. `npx cap open ios`.
-2. Signing: enroll in the Apple Developer Program ($99/yr), select your team,
-   leave "Automatically manage signing" on. Bundle id `org.jhurliman.chordcut`.
-3. Run on a physical iPhone on iOS 26.x. Verify in order:
-   - `navigator.gpu` exists and the game renders (WebGPU in the WKWebView);
-   - haptics tick on slice (`?debug` strip shows `hap native·Nc`);
-   - audio behavior vs the silent switch (below);
-   - watch for the known iOS 26.4 WebContent/GPU-process crash
-     (Apple forums thread 822200) — platform bug, file Feedback if hit.
-4. Archive → Distribute → App Store Connect → TestFlight.
-5. CI later if wanted: GitHub Actions `macos-26` runners ship Xcode 26;
-   fastlane match/pilot with an App Store Connect API key — or Xcode Cloud
-   (25 free compute hours/month, signing handled). Manual archive is fine
-   for a solo 1.0.
+- Xcode 26+ (`npx cap open ios`); signing is automatic under the enrolled
+  Apple Developer account, bundle id `org.jhurliman.chordcut`.
+- When the shell changes, verify on a physical iPhone in this order:
+  - `navigator.gpu` exists and the game renders (WebGPU in the WKWebView);
+  - haptics tick on slice (`?debug` strip shows `hap native·Nc`);
+  - audio behavior vs the silent switch (see caveats);
+  - watch for the known iOS 26.4 WebContent/GPU-process crash
+    (Apple forums thread 822200) — platform bug, file Feedback if hit.
+- Distribution is Archive → Distribute → App Store Connect → TestFlight.
+- No CI by design for a solo 1.0: manual archive has been enough. If it ever
+  gets wanted, GitHub Actions `macos-26` runners ship Xcode 26, or Xcode
+  Cloud (25 free compute hours/month, signing handled).
 
-## Known caveats
+## Caveats shipped as-is
 
 - **Silent switch**: WKWebView runs its own audio session and largely ignores
   the host app's category (WebKit bug 167788, open since 2017). Pure WebAudio
   is treated as ambient → muted by the hardware silent switch, same as the
-  Safari PWA today. The AppDelegate `.playback` line is cheap insurance only.
-  If music must ignore the switch: loop a silent `<audio>` element from JS so
-  WebKit self-promotes the page to playback behavior — deliberately NOT done
-  yet (decide on device).
+  Safari PWA. The AppDelegate `.playback` line is cheap insurance only. The
+  alternative — looping a silent `<audio>` element so WebKit self-promotes
+  the page to playback — was deliberately not taken; matching the PWA's
+  behavior was the 1.0 call.
 - **Haptics latency**: `@capacitor/haptics` allocates a fresh generator per
   impact and never calls `prepare()`. If ticks feel a few ms loose, the fix
   is a ~30-line local Swift plugin holding three pre-prepared
   UIImpactFeedbackGenerators — Apple's documented pattern.
-- **Game Center** (r36): wired as a ~60-line app-local plugin — the community
-  plugin only advertises Capacitor 3–5, so we own it. Design: NO in-app UI.
-  Auth happens quietly at boot (iOS may present its own sign-in sheet once),
-  score.js submits the best streak on its existing rate-limited persist
-  moments, and every failure is swallowed. ⚠ Submissions only land once the
-  leaderboard exists in App Store Connect: App → Services → Game Center →
-  add leaderboard, id `chordcut.best` (the constant in GameCenterPlugin.swift).
-  Until the app record + leaderboard exist, submits are silent no-ops.
-- **StoreKit**: not wired; nothing sold.
+- **Game Center** (r36): implemented as a ~60-line app-local plugin — the
+  community plugin only advertises Capacitor 3–5, so we own it. Design: NO
+  in-app UI. Auth happens quietly at boot (iOS may present its own sign-in
+  sheet once), score.js submits the best streak on its existing rate-limited
+  persist moments, and every failure is swallowed. Submissions go to
+  leaderboard `chordcut.best` (the constant in GameCenterPlugin.swift); they
+  are silent no-ops if the leaderboard is missing under App Store Connect →
+  App → Services → Game Center.
+- **StoreKit**: not used; nothing is sold.
