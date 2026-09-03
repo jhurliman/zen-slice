@@ -80,9 +80,17 @@ export const LEVELS = [
 // the flag up.
 const BLISS_HOLD_MAX_S = 30;
 
+// r45: THE JOURNEY, AS A FRACTION. The whole arc weighed in level seconds —
+// every finite `dur` summed (1080 s) — so the bar hud.js draws along the
+// bottom moves at the pace of the day and reaches its end at the arrival.
+// The coda's Infinity is not a part of the sum: it is the destination.
+const JOURNEY_S = LEVELS.reduce((s, L) => s + (isFinite(L.dur) ? L.dur : 0), 0);
+
 export function createDirector({ seed = 20260806 } = {}) {
   const rng = makeRng(seed);
-  const api = { live: [], level: 0, sliced: 0 };
+  // `progress` (r45): 0 at Still Water's first second, 1 at Dreaming of
+  // Bliss, monotonic in between — see journeyProgress()
+  const api = { live: [], level: 0, sliced: 0, progress: 0 };
   let ctx, geoCache = new Map(), matCache = new Map();
   // ── ROUND 11: RIGID BODIES ────────────────────────────────────────────────
   // The player asked for real contacts between fruit. src/play/physics.js owns
@@ -106,6 +114,23 @@ export function createDirector({ seed = 20260806 } = {}) {
   // every fixed step (R4: zero steady-state allocation, and no per-step scan we
   // do not need).
   let liveTris = 0;
+
+  // r45: how far along the day is. Every page already turned counts in
+  // full; the current page counts by the LATER of its two gates — a level
+  // ends when both its seconds and its slices are in, so the fraction is
+  // min(time, slices) and the bar never claims a turn the director will not
+  // make. Idle under a full clock, it waits (honestly) for the slice that
+  // turns the page; each turn is continuous, since the page turns only once
+  // the fraction is 1. jumpLevel and reset write it directly, so the bar is
+  // right on the frame the level changes rather than a step later.
+  const journeyProgress = () => {
+    let done = 0;
+    for (let i = 0; i < api.level; i++) done += LEVELS[i].dur;
+    const L = LEVELS[api.level];
+    if (!isFinite(L.dur)) return 1;
+    const f = Math.min(1, levelT / L.dur, L.need > 0 ? api.sliced / L.need : 1);
+    return Math.min(1, (done + f * L.dur) / JOURNEY_S);
+  };
 
   const geomFor = (sp, detail) => {
     const k = sp.id + ':' + detail;
@@ -538,6 +563,7 @@ export function createDirector({ seed = 20260806 } = {}) {
     // it is one cached mesh, and its pipeline is compiled by phase 2.
     const warming = ctx.prewarmed === false;
     if (!held && !warming && !arriving) levelT += sdt;
+    api.progress = journeyProgress();
     const L = LEVELS[api.level];
     updateVisibleBox();
 
@@ -748,6 +774,7 @@ export function createDirector({ seed = 20260806 } = {}) {
         return;
       }
       api.level++; api.sliced = 0; levelT = 0;
+      api.progress = journeyProgress();
       // r36: `coda` rides the event so score.js can freeze the streak at the
       // arrival without importing LEVELS — the endless level IS the flag.
       ctx.bus.emit('level', {
@@ -762,6 +789,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   api.jumpLevel = (n) => {
     const l = Math.max(0, Math.min(LEVELS.length - 1, n | 0));
     api.level = l; api.sliced = 0; levelT = 0;
+    api.progress = journeyProgress();
     ctx.bus.emit('level', { level: l, name: LEVELS[l].name, coda: !isFinite(LEVELS[l].dur) });
   };
 
@@ -770,6 +798,7 @@ export function createDirector({ seed = 20260806 } = {}) {
     titleWait = 0.5; titleSide = 1;
     for (let i = api.live.length - 1; i >= 0; i--) api.remove(api.live[i]);
     api.level = 0; api.sliced = 0; levelT = 0; nextSpawn = 0.8; liveTris = 0; lastFan = -1e9;
+    api.progress = 0;
     // ⚠ ROUND 10, FOR THE JUICE PIECE — READ THIS. The r9 juice verdict's open
     // item (1) is that `api.reset` retires the bodies but nothing retires the
     // live beads/grains/strands/sheets, so shots/*/00-hero.png carries eleven

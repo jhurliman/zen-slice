@@ -246,6 +246,9 @@ export class Bus {
  * @property {Fruit[]} live          all cuttable bodies (whole fruit AND halves)
  * @property {(f:Fruit)=>void} add
  * @property {(f:Fruit)=>void} remove
+ * @property {number}  progress      r45: the journey, 0..1 — the arc's finite
+ *                                   level-seconds spent, 1 at Dreaming of Bliss
+ *                                   (director.js; hud.js draws it along the bottom)
  */
 
 // ── Fruit / Half shared shape ────────────────────────────────────────────────

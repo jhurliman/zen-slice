@@ -41,6 +41,11 @@ export function createHud() {
   let ctx, root, scoreEl, multEl, levelEl, comboLayer, hintEl, flagEl, scoreWrap;
   let debugOn = false, debugEl = null, debugTxt = null, debugAcc = 0;
   let shownScore = 0;
+  // r45: the journey bar — a thin warm line along the bottom that fills at
+  // the pace of the day (director.progress) and arrives, full, with the
+  // coda. `shownJourney` is the last width written, so the style is touched
+  // only when the number moves.
+  let journeyEl = null, journeyFill = null, shownJourney = '';
   const floats = [];
   // r21: the settings glyph and its three-row panel; idle is TOUCH idle —
   // the director tosses fruit whether or not anyone plays, so "no fruit in
@@ -115,10 +120,13 @@ export function createHud() {
       <div class="zs-level" id="zs-level"></div>
       <div class="zs-combos" id="zs-combos"></div>
       <div class="zs-hint" id="zs-hint">swipe to slice</div>
+      <div class="zs-journey" id="zs-journey"><div class="zs-journey-fill" id="zs-journey-fill"></div></div>
       <div class="zs-flag" id="zs-flag"></div>`;
     document.body.appendChild(root);
     scoreEl = root.querySelector('#zs-num');
     scoreWrap = root.querySelector('.zs-score');
+    journeyEl = root.querySelector('#zs-journey');
+    journeyFill = root.querySelector('#zs-journey-fill');
     multEl = root.querySelector('#zs-mult');
     levelEl = root.querySelector('#zs-level');
     comboLayer = root.querySelector('#zs-combos');
@@ -145,10 +153,14 @@ export function createHud() {
       // not information. Any non-coda level (begin again's level-0
       // re-announce, the ?debug remote) brings it back.
       scoreWrap.classList.remove('coda');
+      journeyEl.classList.remove('coda');   // r45: begin again brings the bar back
     });
     // a bus-level reset (harness ZS.clear, director.reset) restores the
     // readout even when no 'level' event follows
-    c.bus.on('reset', () => { scoreWrap.classList.remove('coda'); codaFallback = -1; endBliss(true); });
+    c.bus.on('reset', () => {
+      scoreWrap.classList.remove('coda'); journeyEl.classList.remove('coda');
+      codaFallback = -1; endBliss(true);
+    });
 
     // ══ r44: THE ARRIVAL ═════════════════════════════════════════════════
     // "a short but poignant celebration sequence when you arrive at
@@ -528,6 +540,7 @@ export function createHud() {
     b.el.classList.add('off');
     blissGone.push({ el: b.el, t: 0 });   // removed in frame() after its fade
     scoreWrap.classList.add('coda');    // the readout retires now (r36)
+    journeyEl.classList.add('coda');    // r45: and the bar, its journey done
   }
 
   /** Build or tear down the debug strip — shared by init (?debug / stored
@@ -668,6 +681,20 @@ export function createHud() {
       codaFallback = -1;
       levelBanner(c.score?.levelName || 'Dreaming of Bliss');
       scoreWrap.classList.add('coda');
+      journeyEl.classList.add('coda');
+    }
+    // ══ r45: THE JOURNEY BAR ═════════════════════════════════════════════
+    // Width straight off the director's fraction: it is continuous in play
+    // (level seconds, and a page turns only once its fraction is 1), so no
+    // easing is needed and none is wanted — an eased bar would lag a
+    // ?debug jump and creep after a reset. `.full` marks the arrival: the
+    // ember at the leading edge goes out and the whole line glows.
+    if (journeyEl) {
+      const p = Math.max(0, Math.min(1, c.fruits?.progress ?? 0));
+      const w = (p * 100).toFixed(2) + '%';
+      if (w !== shownJourney) { shownJourney = w; journeyFill.style.width = w; }
+      const full = p >= 1;
+      if (full !== journeyEl.classList.contains('full')) journeyEl.classList.toggle('full', full);
     }
     for (let i = blissGone.length - 1; i >= 0; i--) {
       if ((blissGone[i].t += dt) > 1.6) { blissGone[i].el.remove(); blissGone.splice(i, 1); }

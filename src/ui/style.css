@@ -230,6 +230,55 @@ html, body {
 .zs-hint.gone { animation: none; opacity: 0; }
 @keyframes zsPulse { 0%,100%{opacity:.22} 50%{opacity:.55} }
 
+/* ══ r45: THE JOURNEY BAR ════════════════════════════════════════════════════
+ * A thin warm line along the bottom edge, filling at the pace of the day and
+ * arriving, full, with the coda. Warm off-white — candle, not neon — over a
+ * track faint enough to read as "the rest of the journey" and no more. The
+ * leading edge carries a small ember that breathes with the hint's cadence;
+ * it goes out on arrival, when the whole line glows instead. Opacity is a
+ * plain transition (the title's release, the coda's retirement); the only
+ * animation lives on the ember's own pseudo-element, so nothing outranks
+ * the fade (the r34 lesson). hud.js writes the width each frame it moves. */
+.zs-journey {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: max(8px, env(safe-area-inset-bottom));
+  height: 3px;
+  background: rgba(255, 238, 214, 0.07);
+  opacity: 1;
+  transition: opacity 1.8s ease;   /* the coda fade — slow, like the score's */
+  pointer-events: none;
+}
+.zs-journey-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 0;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(90deg, rgba(255, 236, 208, 0.62), rgba(255, 241, 218, 0.94));
+  box-shadow: 0 0 6px rgba(255, 226, 180, 0.55), 0 0 18px rgba(255, 200, 140, 0.26);
+}
+/* the ember at the leading edge */
+.zs-journey-fill::after {
+  content: '';
+  position: absolute; right: 0; top: 50%;
+  width: 14px; height: 14px;
+  transform: translate(50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(255, 247, 230, 0.95) 0%, rgba(255, 224, 180, 0.45) 38%, rgba(255, 200, 140, 0) 70%);
+  animation: zsEmber 4.2s ease-in-out infinite;
+}
+@keyframes zsEmber { 0%, 100% { opacity: 0.68; } 50% { opacity: 1; } }
+/* arrival: the ember goes out at the edge and the line itself glows */
+.zs-journey.full .zs-journey-fill {
+  background: rgba(255, 242, 220, 0.96);
+  box-shadow: 0 0 10px rgba(255, 232, 196, 0.8), 0 0 30px rgba(255, 208, 150, 0.42);
+  transition: box-shadow 1.2s ease, background 1.2s ease;
+}
+.zs-journey.full .zs-journey-fill::after { animation: none; opacity: 0; transition: opacity 1.2s ease; }
+/* the journey is done: the bar retires with the score readout */
+.zs-journey.coda { opacity: 0; }
+.zs-hud.zs-title-up .zs-journey { opacity: 0; }
+
 /* ══ r21: THE SETTINGS THAT BARELY EXIST ═════════════════════════════════════
  * One glyph, top-right, in the hint's typographic voice, present only when
  * the fingertip has been still for a while (hud.js owns the timing). Tapping
@@ -467,6 +516,7 @@ html, body {
   .zs-level.show { animation: zsLevelStill 3.4s ease forwards; }
   .zs-hint { animation: none; opacity: 0.4; }
   .zs-hint.hold, .zs-hint.gone { opacity: 0; }
+  .zs-journey-fill::after { animation: none; opacity: 0.85; }
   .zs-title-word { animation: zsTitleFade 1.2s ease both; }
   .zs-title-go { animation: zsTitleFade 1.2s ease 1.6s both; }
 }

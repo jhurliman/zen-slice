@@ -9,7 +9,9 @@
  * the column's rows rolling on in order at half-bar lines and off on beats;
  * the readout pinned at the pre-bonus number until the bonus row appears,
  * then settling on the lifted one; the void's glow attached only while the
- * interlude is on screen; and the abort path (reset mid-wait).
+ * interlude is on screen; and the abort path (reset mid-wait). r45 adds the
+ * journey bar: director.progress by the two gates, its jumps, and the line
+ * hud.js draws from it — full at the arrival, retired with the readout.
  *
  * Runs under ?capture=1&nosound=1 on the harness's virtual clock, which is
  * the NO-GRID path: audio never starts, ctx.barIn stays -1, and hud.js runs
@@ -162,6 +164,31 @@ const R = await page.evaluate(() => {
   ZS.newStroke?.(); ZS.swipe(n9.x - 0.8, n9.y, n9.x + 0.8, n9.y, 12, 7);
   step(0.3, true);
   out.natural = { level: ZS.director.level, fired: out.ev.bliss.length - nBefore, total: ZS.score.total };
+
+  // fourth run (r45): the journey bar — director.progress and the line
+  // hud.js draws from it along the bottom
+  ZS.clear(); step(0.2);
+  const bar = () => document.querySelector('.zs-journey');
+  const barState = () => ({
+    p: ZS.director.progress, w: document.querySelector('#zs-journey-fill')?.style.width,
+    full: !!bar()?.classList.contains('full'), coda: !!bar()?.classList.contains('coda'),
+  });
+  const J = out.journey = {};
+  J.atStart = barState();
+  ZS.advance(20);                            // 20 of Still Water's 40 s, 0 of its 10 slices
+  J.idle20 = ZS.director.progress;
+  ZS.director.sliced = 10; step(DT);         // the slices in: the clock binds
+  J.sliced20 = ZS.director.progress;
+  ZS.advance(30);                            // 50 s of 40 — no cut, so no page-turn
+  J.capped = ZS.director.progress;
+  ZS.director.jumpLevel(4); step(DT);        // Noon Bloom: 40+90+110+130 s behind it
+  J.jump4 = barState();
+  ZS.director.jumpLevel(9); step(DT);
+  J.arrive = barState();
+  let tj = 0; while (tj < 20 && ctx.blissHold) { step(DT); tj += DT; }
+  J.afterEnd = { hold: !!ctx.blissHold, ...barState() };
+  ZS.clear(); step(DT);
+  J.afterReset = barState();
   out.moduleErrors = ZS.moduleErrors.map((m) => m.module + '.' + m.phase + ': ' + m.error.split('\n')[0]);
   return out;
 });
@@ -178,7 +205,7 @@ const b1 = R.ev.bliss[0], b2 = R.ev.bliss[1];
 check('a slice moves the peak with the score', R.peakAfterSlice.score > 0 && R.peakAfterSlice.peak === R.peakAfterSlice.score, JSON.stringify(R.peakAfterSlice));
 check('the peak follows a long run', R.peakAfterLong.peak === R.peakAfterLong.score && R.peakAfterLong.score > 4000, JSON.stringify(R.peakAfterLong));
 check('a stone takes the streak, not the peak', R.afterRock.score === 0 && R.afterRock.peak === R.peakAfterLong.peak, JSON.stringify(R.afterRock));
-check('bliss fired once per arrival', R.ev.bliss.length === 3, `${R.ev.bliss.length} events over three runs`);
+check('bliss fired once per arrival', R.ev.bliss.length === 4, `${R.ev.bliss.length} events over four runs`);
 check('bonus is 5% of the LIVE streak (2000 → +100)', b1 && b1.bonus === 100 && b1.score === 2100, JSON.stringify(b1));
 check('journey best is the session peak, not the arriving score', b1 && b1.journeyBest === R.peakAfterLong.peak, `${b1?.journeyBest} vs peak ${R.peakAfterLong.peak}`);
 check('all-time best unchanged when the lifted score is below it', b1 && b1.allTimeBest === R.peakAfterLong.best && b1.newBest === false, `${b1?.allTimeBest} new=${b1?.newBest}`);
@@ -195,7 +222,8 @@ check('blissHold is up the moment the facts land', R.holdAtArrival);
 check('the column exists, three rows, none shown yet', R.colAtArrival && R.rowsAtArrival.join(',') === '-,-,-', R.rowsAtArrival.join(','));
 check('nothing is tossed under the hold', R.spawnsHeld === 0, `${R.spawnsHeld} spawns during ${R.t.on}s`);
 check('no arrival (nosound) → the sequence starts at the 6 s cap', R.t.on >= 5.9 && R.t.on <= 6.2, `${R.t.on}s`);
-check("'interlude' on/off bracket the sequence", R.ev.interlude.join(',') === 'true,false,false' || R.ev.interlude.join(',') === 'true,false', R.ev.interlude.join(','));
+// run 1 on/off · run 2's abort · run 3's page-turn aborted by run 4's clear · run 4 on/off
+check("'interlude' on/off bracket the sequence", R.ev.interlude.join(',') === 'true,false,false,false,true,false', R.ev.interlude.join(','));
 check('the void glows once the sequence is on', R.bgAtOn === true);
 
 // the fallback metronome: beat 60/66 = 0.909 s, half-bar 1.818 s
@@ -223,6 +251,20 @@ check('the arc resumes: tosses return once the hold lets go', R.spawnsAfter > 0,
 check('the void is dark again within 6 s', R.bgAfter === false);
 check('the column is gone', R.colGone);
 check('abort: reset mid-wait drops the hold, the column and the glow', R.abortBefore.hold && R.abortBefore.col && !R.abortAfter.hold && !R.abortAfter.col && !R.abortAfter.bg, JSON.stringify(R.abortAfter));
+console.log('\n── the journey bar (r45) ──');
+const J = R.journey, T = 1080;   // the finite durs summed (director.js JOURNEY_S)
+const nearP = (v, want) => typeof v === 'number' && Math.abs(v - want) < 2e-3;
+// the browser normalises the written width ('0.00%' reads back as '0%')
+const drawn = (w, want) => typeof w === 'string' && w.endsWith('%') && Math.abs(parseFloat(w) - want * 100) < 0.006;
+check('starts at 0, drawn at 0%, neither full nor retired', nearP(J.atStart.p, 0) && drawn(J.atStart.w, 0) && !J.atStart.full && !J.atStart.coda, JSON.stringify(J.atStart));
+check('idle under a running clock waits for the slices (0 of 10 → 0)', nearP(J.idle20, 0), `${J.idle20}`);
+check('20 s of Still Water with its slices in = 20/1080', nearP(J.sliced20, 20 / T), `${J.sliced20} vs ${20 / T}`);
+check('a page never claims more than its own seconds (50 s of 40 → 40/1080)', nearP(J.capped, 40 / T), `${J.capped} vs ${40 / T}`);
+check('a jump to Noon Bloom = 370/1080, and the bar is drawn there', nearP(J.jump4.p, 370 / T) && drawn(J.jump4.w, 370 / T), JSON.stringify(J.jump4));
+check('the arrival fills it: 1, .full, not yet retired', J.arrive.p === 1 && drawn(J.arrive.w, 1) && J.arrive.full && !J.arrive.coda, JSON.stringify(J.arrive));
+check('…and it retires with the readout when the sequence ends', !J.afterEnd.hold && J.afterEnd.coda && J.afterEnd.full, JSON.stringify(J.afterEnd));
+check('begin again brings it back, empty', nearP(J.afterReset.p, 0) && drawn(J.afterReset.w, 0) && !J.afterReset.coda && !J.afterReset.full, JSON.stringify(J.afterReset));
+
 check('no module died', R.moduleErrors.length === 0 && errs.length === 0, [...R.moduleErrors, ...errs].join(' | '));
 
 const pass = failures.length === 0;
