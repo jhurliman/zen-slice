@@ -1,12 +1,12 @@
 # Chord Cut
 
-### ▶ [Play the demo](https://jhurliman.github.io/zen-slice/) · 🍉 Coming soon to the App Store · ⚖️ GPLv3
+### ▶ [Play the demo](https://jhurliman.github.io/zen-slice/) · [itch.io](https://jhurliman.itch.io/chord-cut) · 🍉 [App Store · $2.99](https://apps.apple.com/us/app/chord-cut/id6803614537) · ⚖️ GPLv3
 
 **On a phone: open that link in Safari, then Share → Add to Home Screen.** It
 launches full-screen with no browser chrome, which is what the framing is
 composed for. The web build is the first three levels of the game's
-ten-level day arc; the full journey ships as a paid iOS app — buying it is
-how you support this work.
+ten-level day arc; the full journey is the paid iOS app on the App Store —
+buying it is how you support this work.
 
 ![A watermelon splitting along a golden blade trail, juice mid-flight, DYAD +66](docs/readme-hero.jpg)
 
@@ -95,15 +95,17 @@ src/ui/tuner.js           dev-only ?tune voicing panel
 ```sh
 npm install
 node build.mjs        # → dist/index.html (one file, ~4 MB, full game)
-DEMO=1 node build.mjs # → the demo-gated build GitHub Pages publishes
+DEMO=1 node build.mjs # → the demo-gated build GitHub Pages and itch.io publish
 ```
 
 Yes: a plain `node build.mjs` gives you the complete, ungated game — that is
-intended, not an oversight. If you enjoy it, the paid iOS app is the way to
-say so.
+intended, not an oversight. If you enjoy it, the full game is $2.99 on the
+[App Store](https://apps.apple.com/us/app/chord-cut/id6803614537).
 
-Published from `main` by
-[`.github/workflows/pages.yml`](.github/workflows/pages.yml) on every push.
+Published from `main` on every push:
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) to GitHub Pages,
+[`.github/workflows/itch.yml`](.github/workflows/itch.yml) to itch.io (via
+butler).
 
 To try a build on a phone before it is pushed, serve it over `localhost` and
 forward the port — `npx serve dist` plus an SSH tunnel, or a tailnet address.
