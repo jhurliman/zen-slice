@@ -3865,15 +3865,15 @@ def({
 // shipped defaults below are what that loop settled on. Colours are linear.
 const PINE_DEFAULTS = {
   rimEdge: 0.50, rows: 2.60, skew: 0.42, sheathVein: 0.20, blemMix: 0.08, sheathV: 0.60,
-  creaseMix: 0.15, creaseH: 0.20, roughThorn: 0.45, creaseW: 0.36, eyeY: 0.04, eyeR: 0.64,
-  eyeAspect: 0.62, tipY: 0.44, bractW: 0.60, bractCurve: 0.85, spread: 0.50, grain: 0.08,
-  veinMix: 0.06, eyeMix: 0.95, eyeGrad: 1.00, eyePow: 3.00, rimMix: 1.00, rimLow: -0.40,
-  rimW: 0.20, bractMix: 0.60, bractOverEye: 0.70, soft: 3.00, jit: 0.80, lipMix: 0.10, lipH: 0.15,
+  creaseMix: 0.15, creaseH: 0.20, roughThorn: 0.45, creaseW: 0.36, eyeY: 0.04, eyeR: 0.60,
+  eyeAspect: 0.90, tipY: 0.44, bractW: 0.60, bractCurve: 0.85, spread: 0.50, grain: 0.08,
+  veinMix: 0.06, eyeMix: 0.95, eyeGrad: 1.00, eyePow: 3.00, rimMix: 1.00, rimLow: -0.45,
+  rimW: 0.18, bractMix: 0.60, bractOverEye: 0.70, soft: 3.00, jit: 0.80, lipMix: 0.10, lipH: 0.15,
   roughGold: 0.34, roughEye: 0.36, roughBract: 0.45, eyeH: 0.80, bractH: 0.25, thornH: 2.20,
   thornW: 0.05, thornLen: 0.50, gold: [0.5000, 0.4200, 0.1000],
   goldGreen: [0.4200, 0.4000, 0.0900], vein: [0.2400, 0.1400, 0.0500],
-  eyeGreen: [0.1200, 0.2200, 0.0400], eyeYellow: [0.5200, 0.4400, 0.1100],
-  rim: [0.0150, 0.0350, 0.0040], tan: [0.4200, 0.3400, 0.1500], thorn: [0.5000, 0.4500, 0.3600],
+  eyeGreen: [0.1300, 0.2300, 0.0450], eyeYellow: [0.5200, 0.4400, 0.1100],
+  rim: [0.0230, 0.0470, 0.0060], tan: [0.4200, 0.3400, 0.1500], thorn: [0.5000, 0.4500, 0.3600],
   creaseC: [0.0500, 0.0650, 0.0180],
 };
 // fruitlets around the barrel — a JS constant (cellPt's wrap), not a uniform
@@ -4007,10 +4007,13 @@ def({
         // at its centre (the photo's eyes are a green GRADIENT, not a flat disc)
         const eyeCol = (q) => mix(PINE.eyeGreen, PINE.eyeYellow, q.core.pow(PINE.eyePow).mul(PINE.eyeGrad).add(q.stria.mul(0.25)).clamp(0.0, 1.0));
         // the row below's eyes first (their tops rise into this cell), then our own
+        // r47k: BOTH interiors first, THEN both rings — with the eyes taller
+        // than their cells, this cell's interior used to paint over the ring
+        // of the eye below, so the dark green only survived in the gaps
+        // between circles ("small triangles or diamonds"). A ring is on top.
         const alb = mix(gold, eyeCol(e.below), e.below.eye.mul(PINE.eyeMix)).toVar();
-        alb.assign(mix(alb, PINE.rim, e.below.rim.mul(PINE.rimMix)));
         alb.assign(mix(alb, eyeCol(e), e.eye.mul(PINE.eyeMix)));
-        alb.assign(mix(alb, PINE.rim, e.rim.mul(PINE.rimMix)));
+        alb.assign(mix(alb, PINE.rim, max(e.below.rim, e.rim).mul(PINE.rimMix)));
         // the sheath over the top: tan, drier and lighter at the lip and thorn
         // dry, fibrous: fine ridge veins run up the sheath, darker brown
         const tan = PINE.tan.mul(grain(f, u, 18.0).mul(0.18).add(0.91))
