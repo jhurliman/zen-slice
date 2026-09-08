@@ -55,6 +55,7 @@ export function createEngine() {
 
   let pianoPool = [], shhkPool = [], thumpPool = [];
   let pianoCap = 16;
+  eng.steals = 0;   // r46: piano voice steals, for the probe and ?debug
   // r30: wetBase 0.35 → 0.4725 — the owner's device tuning (?tune space
   // 1.35) baked in. Every baked value below keeps the tuner macro at 1 ==
   // this new shipped baseline, so future tuning stays relative.
@@ -213,7 +214,8 @@ export function createEngine() {
     // background bass/motif/echo voices from the same pool — 16 guaranteed
     // steals in the run's second half. Idle voices are 4 silent nodes each;
     // 8 more is noise in the node budget, silence in the mix.
-    pianoPool = []; for (let i = 0; i < 24; i++) pianoPool.push(mkPiano());
+    // r46: 24 → 32 — see audio.js quality(): a flourish alone is 22 notes now
+    pianoPool = []; for (let i = 0; i < 32; i++) pianoPool.push(mkPiano());
     shhkPool = []; for (let i = 0; i < 6; i++) shhkPool.push(mkSwish());
     // r20: the pool doubles — the contact tick and the wet thump both play
     // through it, per fruit, so a 3-fruit combo is six one-shots in one tick
@@ -236,6 +238,7 @@ export function createEngine() {
     // r38h: the flag playPiano needs to actually HONOR this fade — see there
     v.stolen = !free && !!v.src;
     if (v.stolen) {
+      if (pool === pianoPool) eng.steals++;
       // click-free steal: yank the envelope down, stop the old source
       // (τ FADE*0.25: ≈98% faded by the stop — 0.35 left 5.7%, a tickable
       // residual once playPiano stopped snapping over the top of it)
@@ -324,6 +327,31 @@ export function createEngine() {
     src.stop(t + dur + 0.02);
     v.src = src; v.until = t + dur;
   };
+
+  /**
+   * r46: record the post-ceiling mix — the exact signal the hardware gets —
+   * for `seconds`, as mono Float32. A ScriptProcessor tap after eng.clip
+   * (kept alive through a silent gain into the destination, which is what
+   * makes Chromium pull it). Harness only; never called in play.
+   */
+  eng.record = (seconds) => new Promise((resolve) => {
+    const actx = eng.actx;
+    const sp = actx.createScriptProcessor(4096, 1, 1);
+    const sink = actx.createGain(); sink.gain.value = 0;
+    const chunks = []; let got = 0; const want = Math.ceil(seconds * actx.sampleRate);
+    sp.onaudioprocess = (e) => {
+      if (got >= want) return;
+      chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      got += e.inputBuffer.length;
+      if (got >= want) {
+        try { eng.clip.disconnect(sp); sp.disconnect(); sink.disconnect(); } catch (_) { /* */ }
+        const out = new Float32Array(got); let o = 0;
+        for (const c of chunks) { out.set(c, o); o += c.length; }
+        resolve(out);
+      }
+    };
+    eng.clip.connect(sp); sp.connect(sink); sink.connect(actx.destination);
+  });
 
   /** Diagnostic: seconds of remaining life per piano voice (negative = idle). */
   eng.voiceDebug = () => {

@@ -71,7 +71,7 @@ export function createAudio() {
   // old-chord tone across a chord change for a full second
   const humQ = [];             // { at, id, pan }
   const HUM_Q_MAX = 8;
-  let lastShimmer = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9, lastHum = -1e9;
+  let lastShimmer = -1e9, lastRun = -1e9, lastRiser = -1e9, lastSigh = -1e9, lastSwish = -1e9, lastHum = -1e9;
   let lastWatchdog = 0, swishCount = 0;
   // r36: zombie-context detection — see the watchdog in api.frame().
   let lastCT = -1, frozenSecs = 0, recoveries = 0;
@@ -318,8 +318,17 @@ export function createAudio() {
     // an ugly sound" (tanh saturation instead of DAC wrap — better, still
     // wrong). The oomph moves to CONTRAST: the notes come down a few dB and
     // the bed ducks deeper and FASTER under them (see duckBed's new attack).
+    // r46: at 4+ the foundation and the sweep carry the size, so the anchor
+    // and strums step back ~1 dB (r38g's principle: contrast, not force)
+    // (measured post-ceiling: with the chord voiced across the keyboard the
+    // bass-register buffers ring louder and longer than the treble ones the
+    // old stack used, and a FLOURISH sat ~2 dB hotter for its whole ring —
+    // 0.8 brings the whole reward moment back under the ceiling's knee)
+    const big = n >= 4 ? 0.8 : 1;
+    // NB `big` multiplies AFTER the velocity clamp — a fast swipe sits at
+    // v = 1, where a factor inside Math.min(1, …) is a no-op
     const accent = n >= 3 ? Math.min(1.12, 1 + 0.05 * (n - 2)) : 1;
-    const av = Math.min(1, first.v * accent);
+    const av = Math.min(1, first.v * accent) * big;
     playNote(semis[0], av, panOf(first.x), t, brightOf(av), wetOf(first.y));
     if (echoes.has(0)) conductor.echo(semis[0], first.v, panOf(first.x));
 
@@ -339,7 +348,7 @@ export function createAudio() {
         const i = order[k];
         const p = pending[i];
         const taper = 1 - (k + 1) * 0.04;   // the first note holds roll position 0
-        const bv = Math.min(1, p.v * boost) * taper;
+        const bv = Math.min(1, p.v * boost) * taper * big;
         playNote(semis[i], bv, panOf(p.x), t + (k + 1) * STRUM, brightOf(bv), wetOf(p.y));
         if (echoes.has(i)) conductor.echo(semis[i], p.v * taper, panOf(p.x));
       }
@@ -349,12 +358,22 @@ export function createAudio() {
       // transposes it to a different note (an A1 bottom would gain a G#),
       // which is an off-chord semitone at the exact reward moment.
       if (n >= 3) {
-        const sub = semis[byPitch[byPitch.length - 1]] - 12;
-        // r34: the foundation grows a step with the stroke; r38g trims it
-        // (0.5/0.55/0.6 → 0.42/0.46/0.5) — the sub-octave is the single
-        // biggest energy block in the stack and the least missed 2 dB
-        const subG = 0.42 + 0.04 * Math.min(2, n - 3);
-        if (sub >= -25) playNote(sub, Math.min(1, first.v * boost) * subG, 0, t, 900, 0.45);
+        // r46: the foundation is the chord's BASS in the A1–E2 octave (and
+        // the fifth over the root at 4+), not the lowest voice dropped an
+        // octave — which on an inversion put a third in the bass and on a
+        // high-voiced stroke never reached the bass at all. The player:
+        // "I want some bass notes in there too." Dark, centered, dry-ish;
+        // the fifth lands a strum-step behind the root so it reads as a
+        // left hand, not a doubled thump. Level as r38g's sub (0.42–0.5):
+        // it is still the biggest energy block in the stack.
+        const found = harmony.foundationNotes(n);
+        // (0.36 base, not r38g's 0.42: two low notes now, and the register-
+        // weighted kit keeps bass at full level — measured post-ceiling, a
+        // FLOURISH at 0.42 rode the tanh shoulder; at 0.36 it stays under)
+        const subG = 0.28 + 0.03 * Math.min(2, n - 3);
+        const fv = Math.min(1, first.v * boost) * big;
+        playNote(found[0], fv * subG, 0, t, 900, 0.4);
+        if (found.length > 1) playNote(found[1], fv * subG * 0.7, 0.06, t + STRUM, 1100, 0.4);
         // r34: the mix breathes for a TRIAD too — a light one-beat dip (the
         // 4+ duck below is the deep one). Oomph by making room, not loudness.
         // r38g: deeper (0.78 → 0.68) and fast-attack, so the room exists
@@ -374,17 +393,33 @@ export function createAudio() {
         // fast-attack, and held a hair longer — the loudness that came out of
         // the notes goes back in as contrast)
         engine.duckBed(0.42, 0.55, 2.4, 0.03);
-        const run = harmony.runNotes(n >= 5 ? 3 : 2);
+        // r46: the sweep starts in the BASS. A CHORD runs three octaves up
+        // from C3 (floor −10); a FLOURISH runs four and a half from the
+        // bottom of the kit (floor −22, ≈ A1) to the crown at the top key —
+        // the whole keyboard, not the top third of it. The contour is an
+        // ARCH, not a ramp: the old 0.18→0.30 velocity + 3.0→5.6 kHz
+        // brightness both peaked on the highest notes, so the loudest,
+        // brightest thing in a flourish was its shrillest register (the
+        // "ping"). Now the middle of the sweep is the loudest, the top
+        // note is a crown, not a spike, and the filter never opens past
+        // 4 kHz on the way up.
+        const run = harmony.runNotes(n >= 5 ? 4 : 3, n >= 5 ? -22 : -10);
         const t0 = t + 0.10 + (order.length + 1) * STRUM;
         const last = run.length - 1;
+        lastRun = t0;
         for (let k = 0; k < run.length; k++) {
           const u = last > 0 ? k / last : 1;
-          // r34 rang the crown prouder (0.52); r38g returns it to r26's 0.46
-          // and eases the ramp — twelve notes over a ducked-to-0.42 bed read
-          // bigger than they did over a full one at any gain
-          const gv = (k === last ? 0.46 : 0.18 + 0.12 * u);
-          playNote(run[k], gv, (u - 0.5) * 0.9, t0 + k * 0.052,
-            3000 + 2600 * u, 0.8);
+          // register taper: the bass end of the sweep rings for seconds and
+          // the kit keeps bass at full level, so ten low notes at the mid
+          // velocity summed into the tanh shoulder (measured: the peak of a
+          // flourish moved from the anchor to 0.6–1.6 s, i.e. the run).
+          // Felt, not stacked: the low half sits ~4 dB under the middle.
+          const gv = (k === last ? 0.38 : (0.12 + 0.12 * Math.sin(Math.PI * u)) * (0.4 + 0.6 * u));
+          // and the reverb send follows the register: bass into the open-air
+          // IR for seconds is where the RMS went (the mixer's rule: high-pass
+          // the send). The treble end keeps r26's 0.8.
+          playNote(run[k], gv, (u - 0.5) * 0.9, t0 + k * 0.05,
+            1500 + 2500 * u, 0.3 + 0.5 * u);
         }
       }
     }
@@ -397,7 +432,9 @@ export function createAudio() {
     if (!engine.ready || !api.enabled) return;
     if (e.peak) conductor.onComboPeak();
     const t = engine.now();
-    if (e.count >= 3 && t - lastShimmer > 0.8) {
+    // r46: no shimmer on top of a run — the two high answers (D5/E6-ish at
+    // 3.8 kHz) were the last thing a flourish needed more of
+    if (e.count >= 3 && t - lastShimmer > 0.8 && t - lastRun > 1.5) {
       lastShimmer = t;
       const a = harmony.noteFor('kiwi', 2);
       const b = harmony.noteFor('strawberry', 1);
@@ -541,12 +578,18 @@ export function createAudio() {
 
   api.quality = (q) => {
     caps = q.tier <= 0
-      ? { background: false, arps: false, voices: 8, wet: 0.5 }
+      ? { background: false, arps: false, voices: 12, wet: 0.5 }
       : q.tier === 1
-        ? { background: true, arps: false, voices: 14, wet: 0.8 }
+        ? { background: true, arps: false, voices: 26, wet: 0.8 }
         // r38h: 16 → 22 — a flourish is ~18 pitched notes; at 16 the run's
-        // second half was guaranteed voice-stealing (the chirps)
-        : { background: true, arps: true, voices: 22, wet: 1.0 };
+        // second half was guaranteed voice-stealing (the chirps).
+        // r46: 22 → 30 (pool 32). A flourish is now anchor + 4 strums + 2
+        // foundation + a 15-note sweep = 22 pitched notes by itself, over
+        // the background bass/motif/echo voices from the same pool; and the
+        // governor drops a ProMotion phone to tier 1 exactly when five fruit
+        // are on screen, so the MED cap matters as much as the HIGH one.
+        // Idle voices are four silent nodes each.
+        : { background: true, arps: true, voices: 30, wet: 1.0 };
     if (!started) return;
     conductor.setCaps(caps);
     engine.setPianoCap(caps.voices);
@@ -574,12 +617,19 @@ export function createAudio() {
     intensity: Math.round(conductor.intensity * 100) / 100,
     bloom: Math.round(conductor.bloom * 100) / 100,
     voicesActive: engine.ready ? engine.voicesActive() : 0,
+    // r46: piano voices stolen so far — a steal is a 10 ms fade on a ringing
+    // note, audible as a tick in a run; the probe asserts a flourish needs none
+    steals: engine.ready ? engine.steals : 0,
     nodesCreated: engine.nodesCreated,
     pending: pending.length,
     voiceDebug: engine.ready ? engine.voiceDebug() : [],
     swishes: swishCount,
     errors: api.errors,
   });
+
+  /** r46 harness: record `seconds` of the post-ceiling mix (what the DAC
+   *  gets) as mono Float32 samples — the probe listens instead of guessing. */
+  api.record = (seconds) => engine.record(seconds);
 
   api.dispose = () => { engine.dispose(); };
 

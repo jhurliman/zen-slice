@@ -147,9 +147,19 @@ bus (the breathing filter and duck apply); grains enter post-filter so a
 | stroke size | callout | sound |
 |---|---|---|
 | 2 | DYAD | rolled dyad |
-| 3 | TRIAD | accented anchor + chord + sub-octave foundation + a light bed dip |
-| 4 | CHORD | all of the above, deeper sidechain, the **grand run** (2 octaves) |
-| 5+ | FLOURISH | grand run across 3 octaves, crowned |
+| 3 | TRIAD | accented anchor + chord + the chord's bass in the A1–E2 octave (the **foundation**) + a light bed dip |
+| 4 | CHORD | all of the above, the foundation gains the fifth, deeper sidechain, the **sweep**: every chord tone ascending 3 octaves from C3, crowned |
+| 5+ | FLOURISH | the sweep runs 4½ octaves from the bottom of the kit (A1) to the crown at the top key |
+
+r46 rewrote the reward stack after the player heard a flourish as "all very
+high notes … a ping or chirp" and asked for bass: chord voices resolve
+collisions in both directions inside the kit's span (five strawberries used
+to voice E5…E9), the per-cut climb tops out an octave above a role's home,
+the sweep starts in the bass with an arched velocity contour and a register-
+following reverb send, the anchor and strums step back 2 dB at 4+ so the
+stack stays under the ceiling's knee, and the piano pool grew to 32 (caps
+30/26/12) so a flourish never steals a voice. `tools/flourishrec.mjs` records
+the post-ceiling mix of a staged flourish to a WAV — listen before shipping.
 
 The anchor note of a 3+ stroke carries a size-scaled velocity accent; the
 pad bed ducks (`engine.duckBed`) to make room and swells back while the run

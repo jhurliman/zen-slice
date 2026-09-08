@@ -113,7 +113,7 @@ ok(TEXTURES[0] === null, 'L0 texture must be null — Still Water is silence');
       // r26 grand run: in-chord, in-range, strictly ascending, both spans
       for (const span of [2, 3]) {
         const run = h.runNotes(span);
-        ok(run.length >= 5 && run.length <= 12, `L${level} ${chord.name}: runNotes(${span}) length ${run.length}`);
+        ok(run.length >= 5 && run.length <= 15, `L${level} ${chord.name}: runNotes(${span}) length ${run.length}`);
         for (let i = 0; i < run.length; i++) {
           const n = run[i];
           ok(legal.has(((n % 12) + 12) % 12), `L${level} ${chord.name}: run note ${n} off-chord`);
@@ -122,6 +122,35 @@ ok(TEXTURES[0] === null, 'L0 texture must be null — Still Water is silence');
         }
       }
       for (const n of h.padNotes(5)) ok(n >= -25 && n <= 31, `L${level} ${chord.name}: pad note ${n} out of range`);
+      // r46: the sweep from the bass — in-chord, in-range, ascending, ≤ 15,
+      // and it really starts down there (a FLOURISH floor of −22 must put
+      // its first note under E2); the foundation is the chord's bass in the
+      // A1–E2 octave and, at 4+, the fifth over the root a P5 above it
+      for (const [span, floor] of [[3, -10], [4, -22]]) {
+        const run = h.runNotes(span, floor);
+        ok(run.length >= 5 && run.length <= 15, `L${level} ${chord.name}: runNotes(${span},${floor}) length ${run.length}`);
+        ok(run[0] <= floor + 6, `L${level} ${chord.name}: runNotes(${span},${floor}) starts at ${run[0]}, not near the floor`);
+        for (let i = 0; i < run.length; i++) {
+          ok(legal.has(((run[i] % 12) + 12) % 12), `L${level} ${chord.name}: sweep note ${run[i]} off-chord`);
+          ok(run[i] >= -25 && run[i] <= 31, `L${level} ${chord.name}: sweep note ${run[i]} out of range`);
+          if (i > 0) ok(run[i] > run[i - 1], `L${level} ${chord.name}: sweep not ascending at ${i} [${run}]`);
+        }
+      }
+      for (const n of [3, 4, 5]) {
+        const f = h.foundationNotes(n);
+        ok(f.length === (n >= 4 ? 2 : 1), `L${level} ${chord.name}: foundationNotes(${n}) has ${f.length} notes`);
+        ok(f[0] >= -25 && f[0] <= -13, `L${level} ${chord.name}: foundation bass ${f[0]} not in the A1–E2 octave`);
+        ok(((f[0] % 12) + 12) % 12 === chord.bass, `L${level} ${chord.name}: foundation ${f[0]} is not the chord's bass`);
+        if (f.length > 1) ok(f[1] - f[0] >= ((f[0] < E2 || f[1] < E2) ? 7 : 3) && f[1] <= -3, `L${level} ${chord.name}: foundation fifth ${f[1]} too close to bass ${f[0]}`);
+      }
+      // r46: a five-fruit stroke of ANY species mix stays inside the kit —
+      // the old lift-only collision rule voiced five strawberries E5…E9
+      for (let trial = 0; trial < 12; trial++) {
+        const entries = [];
+        for (let i = 0; i < 5; i++) entries.push({ id: SPECIES[(trial * 7 + i * 5 + level) % SPECIES.length], climb: i });
+        const out = h.voiceChord(entries);
+        for (const v of out) ok(v >= -25 && v <= 31, `L${level} ${chord.name}: 5-fruit voice ${v} outside the kit (${entries.map((e) => e.id)})`);
+      }
       // every level-motif entry voices in-chord and in-range in this chord
       for (const m of MOTIFS[level]) {
         const n = h.melNote(m.d, m.o);
@@ -432,6 +461,47 @@ const out = {
 console.log(JSON.stringify(out, null, 2));
 const jf = arg('json', null);
 if (jf) writeFileSync(join(root, jf), JSON.stringify(out, null, 2));
+
+// ── r46: the FLOURISH, listened to ──────────────────────────────────────────
+// Five fruit in a row, swept at their projected screen row (the ?debug strip's
+// combo trigger, verbatim), with the post-ceiling mix RECORDED through
+// ZS.audio.record(). Asserts what the player heard and reported: no voice
+// steals (the chirps), every chord voice inside the kit, and the whole
+// reward moment under the ceiling's knee (−6 dBFS post-tanh = no saturation
+// at all; −4.5 allowed for grid-phase variance).
+const flourish = await page.evaluate(async () => {
+  const ZS = window.ZS; const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  ZS.clear();
+  const kinds = ['orange', 'apple', 'kiwi', 'strawberry', 'pineapple'];
+  const staged = [];
+  for (let i = 0; i < 5; i++) { const f = ZS.spawn(kinds[i]); f.pos.set(-1.5 + i * 0.75, 0.3, 0); f.vel.set(0, 1.0, 0); staged.push(f); }
+  ZS.step(1 / 120, 6, true); await sleep(60);
+  const harm = []; ZS.bus.on('harmony', (h) => harm.push(h.size));
+  const steals0 = ZS.audio.state().steals;
+  const recP = ZS.audio.record(1.8);
+  await sleep(80);
+  const alive = staged.filter((f) => f && !f.dead); let y = 0;
+  for (const f of alive) y += f.pos.clone().project(ZS.ctx.camera).y; y /= Math.max(1, alive.length);
+  ZS.newStroke(); ZS.swipe(-0.85, y, 0.85, y, 12, 6.0);
+  let peakVoices = 0;
+  for (let i = 0; i < 40; i++) { ZS.step(1 / 120, 1, false); peakVoices = Math.max(peakVoices, ZS.audio.state().voicesActive); await sleep(10); }
+  for (let i = 0; i < 20; i++) { peakVoices = Math.max(peakVoices, ZS.audio.state().voicesActive); await sleep(40); }
+  const pcm = await recP;
+  let peak = 0, over = 0; for (let i = 0; i < pcm.length; i++) { const a = Math.abs(pcm[i]); if (a > peak) peak = a; if (a > 0.5) over++; }
+  return { harm, peakVoices, steals: ZS.audio.state().steals - steals0, peakDb: 20 * Math.log10(Math.max(1e-9, peak)), shoulder: over, samples: pcm.length };
+});
+ok(flourish.samples > 48000, `flourish: record() returned ${flourish.samples} samples`);
+if (flourish.harm.length === 1 && flourish.harm[0] >= 5) {
+  ok(flourish.steals === 0, `flourish: ${flourish.steals} piano voices stolen (the chirps)`);
+  ok(flourish.peakDb <= -4.5, `flourish: post-ceiling peak ${flourish.peakDb.toFixed(1)} dBFS — the reward stack is in the tanh shoulder`);
+  ok(flourish.peakVoices >= 18, `flourish: only ${flourish.peakVoices} voices at peak — did the sweep play?`);
+  console.error(`[flourish] size ${flourish.harm[0]}, ${flourish.peakVoices} voices, ${flourish.steals} steals, peak ${flourish.peakDb.toFixed(1)} dBFS, ${flourish.shoulder} shoulder samples`);
+} else {
+  // the gather window is real-time; a slow machine can split the stroke.
+  // Grouping is asserted by the chord probe above; here we only note it.
+  console.error(`[flourish] stroke grouped as ${JSON.stringify(flourish.harm)} — flourish assertions skipped`);
+}
+
 await browser.close();
 server.close();
 process.exit(failures.length === 0 ? 0 : 1);
