@@ -2309,11 +2309,15 @@ function skinMaterial(sp, body, o = {}) {
   }
   // r48: the same for SHEEN — the pineapple's gold sheen on its leaves read as
   // a yellow glint where the reference crown has a grey-white bloom
+  // (r48f: sheenNode is the sheen COLOUR × amount as a vec3 — a scalar here
+  // made every sheened skin's sheen WHITE, which turned the kiwi's brown fuzz
+  // white-grey. It carries the material's own sheenColor now.)
   if ((o.mat && o.mat.sheen) > 0) {
     const sh0 = o.mat.sheen;
+    const sc = o.mat.sheenColor || new THREE.Color(1, 1, 1);
     m.sheenNode = Fn(() => {
       const a = appendage();
-      return float(sh0).mul(max(a.leafy, a.wood).mul(0.9).oneMinus());
+      return vec3(sc.r, sc.g, sc.b).mul(sh0).mul(max(a.leafy, a.wood).mul(0.9).oneMinus());
     })();
   }
 
