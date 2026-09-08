@@ -3859,15 +3859,18 @@ def({
 // them at runtime (window.__zsPine.set(name, value) in the harness) and the
 // shipped defaults below are what that loop settled on. Colours are linear.
 const PINE_DEFAULTS = {
-  rows: 2.50, eyeY: 0.06, eyeR: 0.40, eyeAspect: 1.15, tipY: 0.34, bractW: 0.50, bractCurve: 1.00,
-  spread: 0.45, grain: 0.22, veinMix: 0.22, eyeMix: 0.85, rimMix: 0.80, bractMix: 0.70,
-  bractOverEye: 0.92, soft: 3.00, jit: 0.50, lipMix: 0.12, lipH: 0.15, roughGold: 0.55,
-  roughEye: 0.45, roughBract: 0.25, eyeH: 0.80, bractH: 0.25, thornH: 1.30, thornW: 0.05,
-  thornLen: 0.36, gold: [0.3500, 0.2150, 0.0350], goldGreen: [0.3000, 0.2700, 0.0500],
-  vein: [0.2400, 0.1200, 0.0400], eyeGreen: [0.2200, 0.3000, 0.0450],
-  eyeYellow: [0.3400, 0.2900, 0.0500], rim: [0.1000, 0.1800, 0.0200],
-  tan: [0.3100, 0.1900, 0.0750], thorn: [0.3700, 0.3100, 0.2000],
+  rows: 2.30, eyeY: 0.02, eyeR: 0.50, eyeAspect: 0.95, tipY: 0.34, bractW: 0.50, bractCurve: 1.00,
+  spread: 0.50, grain: 0.22, veinMix: 0.25, eyeMix: 0.95, eyeGrad: 1.00, eyePow: 2.20,
+  rimMix: 0.90, rimLow: -0.55, rimW: 0.26, bractMix: 0.85, bractOverEye: 0.70, soft: 3.00,
+  jit: 0.80, lipMix: 0.50, lipH: 0.15, roughGold: 0.55, roughEye: 0.45, roughBract: 0.25,
+  eyeH: 0.80, bractH: 0.25, thornH: 2.00, thornW: 0.16, thornLen: 0.46,
+  gold: [0.3600, 0.2500, 0.0450], goldGreen: [0.3000, 0.2700, 0.0500],
+  vein: [0.2400, 0.1200, 0.0400], eyeGreen: [0.0800, 0.1700, 0.0200],
+  eyeYellow: [0.3600, 0.3000, 0.0600], rim: [0.0450, 0.0900, 0.0120],
+  tan: [0.2700, 0.1700, 0.0700], thorn: [0.3100, 0.2100, 0.1000],
 };
+// fruitlets around the barrel — a JS constant (cellPt's wrap), not a uniform
+const PINE_AROUND = 12;
 let _pine = null;
 function pineTune() {
   if (_pine) return _pine;
@@ -3924,16 +3927,16 @@ def({
       const v = P.y;
       const row = v.mul(PINE.rows).add(50.0).toVar();       // positive, for floor/mod
       const shift = floor(row).mod(2.0).mul(0.5);
-      const p = vec2(lon.div(Math.PI * 2).add(0.5).mul(14.0).add(shift), row).toVar();
-      const c = cellPt(p, 5.0, 1.0, 14, 0.44);
+      const p = vec2(lon.div(Math.PI * 2).add(0.5).mul(PINE_AROUND).add(shift), row).toVar();
+      const c = cellPt(p, 5.0, 1.0, PINE_AROUND, 0.44);
       const ox = abs(c.off.x), oy = c.off.y;
       // the eye: a rounded disc a little above the cell centre
       const ey = oy.sub(PINE.eyeY);
       const ed = length(vec2(ox, ey.mul(PINE.eyeAspect))).toVar();
       const eye = ss(PINE.eyeR, PINE.eyeR.sub(PINE.soft.mul(0.10)), ed).toVar();
       const rim = ss(PINE.eyeR.add(0.06), PINE.eyeR.sub(0.04), ed)
-        .mul(ss(PINE.eyeR.sub(0.16), PINE.eyeR.sub(0.05), ed))
-        .mul(ss(-0.10, 0.12, ey)).toVar();                   // upper edge only
+        .mul(ss(PINE.eyeR.sub(PINE.rimW), PINE.eyeR.sub(PINE.rimW.mul(0.35)), ed))
+        .mul(ss(PINE.rimLow, PINE.rimLow.add(0.22), ey)).toVar();   // fades out toward the sheath
       const ang = atan(ey, c.off.x);
       const stria = sin(ang.mul(22.0)).mul(0.5).add(0.5).mul(ss(0.04, 0.16, ed)).toVar();
       // the bract sheath: a triangle from the cell's lower edge (full width)
@@ -3952,7 +3955,8 @@ def({
       const tw = PINE.thornW.mul(tu.oneMinus().mul(0.85).add(0.15));
       const thorn = ss(sw.mul(0.03), sw.mul(-0.005), ox.sub(tw)).mul(ss(tBot.sub(0.03), tBot.add(0.03), oy)).mul(ss(tTop.add(0.02), tTop.sub(0.02), oy)).toVar();
       const lip = inside.mul(ss(0.0, sw.mul(0.05), ox.sub(halfW).abs())).oneMinus().mul(inside).toVar();
-      return { eye, rim, stria, bract: inside, thorn, lip, id: c.id, fade: cellFade(p).toVar(), v, p };
+      const core = ss(PINE.eyeR, 0.04, ed).toVar();             // 1 at the eye's centre
+      return { eye, rim, stria, core, bract: inside, thorn, lip, id: c.id, fade: cellFade(p).toVar(), v, p };
     };
     const grain = (f, u, k) => fbm2(vec2(f.P.x.add(f.P.y), f.P.z.sub(f.P.y)).mul(k), 2, u.detail);
     return skinMaterial(this, {
@@ -3966,7 +3970,9 @@ def({
         // faint brown veins across the gold
         gold.assign(mix(gold, PINE.vein, rdg2(vec2(f.P.x.mul(6.0), f.P.y.mul(14.0)), 2).mul(PINE.veinMix)));
         // the eye: green-yellow, yellow toward its centre, striated, dark rim above
-        const eyeC = mix(PINE.eyeGreen, PINE.eyeYellow, e.stria.mul(0.35)).toVar();
+        // the eye grades from the rim's dark green through mid green to yellow
+        // at its centre (the photo's eyes are a green GRADIENT, not a flat disc)
+        const eyeC = mix(PINE.eyeGreen, PINE.eyeYellow, e.core.pow(PINE.eyePow).mul(PINE.eyeGrad).add(e.stria.mul(0.25)).clamp(0.0, 1.0)).toVar();
         const alb = mix(gold, eyeC, e.eye.mul(PINE.eyeMix)).toVar();
         alb.assign(mix(alb, PINE.rim, e.rim.mul(PINE.rimMix)));
         // the sheath over the top: tan, drier and lighter at the lip and thorn
