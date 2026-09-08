@@ -2025,7 +2025,7 @@ export const SHAPE_VARIANTS = {
         // under the blades. The body crown is deleted.
         crown: null,
         leaves: {
-          rootR: 0.2, rootLift: 0.03,
+          rootR: 0.24, rootLift: 0.03,
           whorls: [
             { n: 12, beta: 0.06, len: 2.170, width: 0.51, thick: 0.06, droop: 0.22, kick: 0.05, cup: 0.45, jitPhi: 0.1, jitBeta: 0.05, jitLen: 0.1 },
             { n: 14, beta: 0.18, len: 2.450, width: 0.6, thick: 0.06, droop: 0.42, kick: 0.12, cup: 0.45, phase: 0.5, jitPhi: 0.1, jitBeta: 0.08, jitLen: 0.12 },

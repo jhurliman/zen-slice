@@ -2190,6 +2190,21 @@ function skinMaterial(sp, body, o = {}) {
   // brighter, more saturated foliage than plate-01's grey-green crown.
   const A_FOLF = fromKeyLit(0.0560, 0.1240, 0.0510);
 
+  // r48b: the leaf options are UNIFORMS (tunable at runtime through
+  // window.__zsLeaf for the pineapple), defaults from `o`
+  const LU = {
+    tint: uniform(new THREE.Vector3(...(o.leafTint || [1, 1, 1]))),
+    bloom: uniform(o.leafBloom || 0), bloomSpan: uniform(o.leafBloomSpan ?? 0.55),
+    bloomColor: uniform(new THREE.Vector3(...(o.leafBloomColor || [0.11, 0.125, 0.105]))),
+    mottle: uniform(o.leafMottle || 0), glow: uniform(o.leafGlow || 0),
+  };
+  m.userData.leafU = LU;
+  if (typeof window !== 'undefined' && sp.id === 'pineapple') {
+    window.__zsLeaf = {
+      set(k, v) { const x = LU[k]; if (!x) return false; if (Array.isArray(v)) x.value.set(v[0], v[1], v[2]); else x.value = v; return true; },
+      get: () => Object.fromEntries(Object.entries(LU).map(([k, x]) => [k, x.value.isVector3 ? [x.value.x, x.value.y, x.value.z] : x.value])),
+    };
+  }
   m.colorNode = Fn(() => {
     const f = frame();
     // r47o `o.capK`: a per-material ceiling factor (skins have no floor, so
@@ -2206,7 +2221,7 @@ function skinMaterial(sp, body, o = {}) {
     // r47c `o.leafTint`: a per-material multiplier on the foliage colour —
     // the pineapple crown on the reference is a brighter, greyer green than
     // plate-01's, and its blades are broad enough to want it
-    const tintV = o.leafTint ? vec3(o.leafTint[0], o.leafTint[1], o.leafTint[2]) : vec3(1.0, 1.0, 1.0);
+    const tintV = LU.tint;
     const leafC = (o.leafFresh
       // fresh: green from the root, no die-back straw at the tip
       ? mix(A_ROOT, A_FOLF, ss(1.030, 1.200, a.y)).mul(vary.mul(0.20).add(1.0))
@@ -2222,10 +2237,16 @@ function skinMaterial(sp, body, o = {}) {
     // `o.leafBloomSpan` (r48): how far up the blade the bloom reaches — 0.55
     // is the root-only bloom of r47e; the pineapple's crown is waxy grey-green
     // to the tips on the reference, so it runs the whole blade (1.0)
-    const bloomed = o.leafBloom
-      ? mix(leafC.mul(tintV), o.leafBloomColor ? fromKeyLit(o.leafBloomColor[0], o.leafBloomColor[1], o.leafBloomColor[2]) : fromKeyLit(0.1100, 0.1250, 0.1050),
-          ss(o.leafBloomSpan ?? 0.55, 0.05, a.bh).mul(o.leafBloom))
-      : leafC.mul(tintV);
+    // `o.leafMottle` (r48b): the bloom is UNEVEN — on the reference crown the
+    // wax sits in pale grey patches, thins to mid grey-green, and the leaf
+    // margins stay a darker green. A low-frequency field over position drives
+    // the bloom amount and darkens the leaf where the bloom thins, so the
+    // rosette is three greens instead of one.
+    const mott = fbm2(vec2(f.P.x.mul(2.6).add(f.P.z.mul(1.9)), f.P.y.mul(1.7).add(f.P.z.mul(0.8))), 2, float(1.0)).mul(0.5).add(0.5).toVar();
+    const bloomAmt = LU.bloom.mul(mott.mul(LU.mottle).add(float(1.0).sub(LU.mottle.mul(0.5))));
+    const leafBase = leafC.mul(tintV).mul(float(1.0).sub(mott.oneMinus().mul(LU.mottle).mul(0.45)));
+    const E = vec3(E_KEY[0], E_KEY[1], E_KEY[2]);
+    const bloomed = mix(leafBase, LU.bloomColor.div(E), ss(LU.bloomSpan, 0.05, a.bh).mul(bloomAmt).clamp(0.0, 1.0));
     alb.assign(mix(alb, bloomed, a.leafy));
     alb.assign(mix(alb, woodC, a.wood));
     return alb;
@@ -2270,8 +2291,7 @@ function skinMaterial(sp, body, o = {}) {
       const f = frame();
       const vary = ringN(f.lon, 11.0, a.y.mul(2.2));
       const base = o.leafFresh ? A_FOLF : A_FOL;
-      const tintV2 = o.leafTint ? vec3(o.leafTint[0], o.leafTint[1], o.leafTint[2]) : vec3(1.0, 1.0, 1.0);
-      return base.mul(tintV2).mul(vary.mul(0.15).add(1.0)).mul(a.leafy.mul(o.leafGlow));
+      return base.mul(LU.tint).mul(vary.mul(0.15).add(1.0)).mul(a.leafy.mul(LU.glow));
     })();
   }
   // r48: the same for SHEEN — the pineapple's gold sheen on its leaves read as
@@ -4098,8 +4118,8 @@ def({
       // r48: real leaves (geometry.js buildLeafCrown) — green from the root
       // like the strawberry's calyx; the shared brown-root ramp painted most
       // of a real blade brown, since its uv band starts at 1.0 at the hub
-      leafFresh: true, leafTint: [1.60, 1.60, 1.55], rib: 0.5,
-      leafBloom: 0.75, leafBloomSpan: 1.0, leafBloomColor: [0.1700, 0.1950, 0.1600], leafGlow: 0.35, capK: 1.12,
+      leafFresh: true, leafTint: [1.62, 1.60, 1.78], rib: 0.5,
+      leafBloom: 0.95, leafBloomSpan: 1.0, leafBloomColor: [0.2300, 0.2400, 0.2250], leafMottle: 1.0, leafGlow: 0.30, capK: 1.12,
       // r47i: the shell GLINTS — a waxed rind under the key. Clearcoat and
       // specular up (the player: "I want light to really glint off this")
       mat: {
