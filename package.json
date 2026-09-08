@@ -1,6 +1,6 @@
 {
   "name": "chord-cut",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A zen fruit-slicing game where the cut is the note. WebGPU, one HTML file, everything procedural.",
   "main": "index.js",
   "scripts": {
