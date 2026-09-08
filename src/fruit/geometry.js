@@ -2025,12 +2025,13 @@ export const SHAPE_VARIANTS = {
         // under the blades. The body crown is deleted.
         crown: null,
         leaves: {
-          rootR: 0.24, rootLift: 0.03,
+          rootR: 0.36, rootLift: 0.03,
           whorls: [
-            { n: 12, beta: 0.06, len: 2.170, width: 0.51, thick: 0.06, droop: 0.22, kick: 0.05, cup: 0.45, jitPhi: 0.1, jitBeta: 0.05, jitLen: 0.1 },
-            { n: 14, beta: 0.18, len: 2.450, width: 0.6, thick: 0.06, droop: 0.42, kick: 0.12, cup: 0.45, phase: 0.5, jitPhi: 0.1, jitBeta: 0.08, jitLen: 0.12 },
-            { n: 16, beta: 0.34, len: 2.310, width: 0.63, thick: 0.06, droop: 0.62, kick: 0.22, cup: 0.45, phase: 0.25, jitPhi: 0.1, jitBeta: 0.1, jitLen: 0.12 },
-            { n: 16, beta: 0.55, len: 1.820, width: 0.63, thick: 0.06, droop: 0.85, kick: 0.3, cup: 0.45, phase: 0.75, jitPhi: 0.12, jitBeta: 0.12, jitLen: 0.14 },
+            { n: 12, beta: 0.03, len: 2.17, width: 0.51, thick: 0.06, droop: 0.15, kick: 0.03, cup: 0.45, jitPhi: 0.1, jitBeta: 0.05, jitLen: 0.25 },
+            { n: 14, beta: 0.18, len: 2.45, width: 0.6, thick: 0.06, droop: 0.42, kick: 0.12, cup: 0.45, phase: 0.5, jitPhi: 0.1, jitBeta: 0.08, jitLen: 0.25 },
+            { n: 16, beta: 0.34, len: 2.31, width: 0.724, thick: 0.06, droop: 0.62, kick: 0.22, cup: 0.45, phase: 0.25, jitPhi: 0.1, jitBeta: 0.1, jitLen: 0.25 },
+            { n: 16, beta: 0.55, len: 1.82, width: 0.724, thick: 0.06, droop: 1.2, kick: 0.4, cup: 0.45, phase: 0.75, jitPhi: 0.12, jitBeta: 0.12, jitLen: 0.25 },
+            { n: 22, beta: 1.05, len: 0.42, width: 0.34, thick: 0.06, droop: 0.45, kick: 0.15, cup: 0.35, phase: 0.35, jitPhi: 0.14, jitBeta: 0.18, jitLen: 0.3 },
           ],
         },
       },
