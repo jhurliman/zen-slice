@@ -152,16 +152,24 @@ export function createSlicer() {
       if (f.lastStroke === strokeId) continue;
 
       const d = plane.signed(f.pos);
-      // ══ r48j: THE HIT TEST IS THE FRUIT'S BOX, NOT ITS GIRTH ═══════════════
+      // ══ r48k: THE HIT TEST IS AN ELLIPSOID, NOT A SPHERE OF THE GIRTH ═══════
       // `f.radius` is the species' girth. The pineapple is 1.42× taller than
       // it is wide and wears a crown on top, so the top of its body and the
       // whole crown sat outside the old sphere: "you swipe through the top
-      // and it just doesn't register — it feels like a bug." Test the plane
-      // against the geometry's LOCAL bounding box instead (which the crown
-      // is part of): rotate the plane normal into the fruit's frame and
-      // compare the plane's offset at the box centre with the box's support
-      // along it. A plane that passes the box but misses the mesh is a
-      // graze, handled in cut() — and it no longer spends the stroke stamp.
+      // and it just doesn't register — it feels like a bug." r48j tried the
+      // geometry's bounding BOX and the player caught it: a box admits a
+      // plane up to √3× the half-extent away along a diagonal — 73% past a
+      // round fruit's surface — and every one of those is a wasted ~3 ms
+      // mesh cut inside a pointer handler.
+      //
+      // So: an ELLIPSOID with the box's half-extents as semi-axes, centred
+      // at the box centre (the crown lifts the pineapple's centre; a fruit-
+      // origin ellipsoid would reach as far below as above). Plane-vs-
+      // ellipsoid is exact: rotate the normal into the fruit's frame and the
+      // support along it is √Σ(axis·n)². For a round fruit (equal axes) it is
+      // the old sphere test, at the same 0.92, to within the 1% between the
+      // species radius and the built geometry. A plane inside the ellipsoid
+      // that still misses the mesh is a graze, handled in cut().
       const g = f.mesh.geometry;
       if (!g.boundingBox) g.computeBoundingBox();
       const bb = g.boundingBox;
@@ -170,8 +178,9 @@ export function createSlicer() {
       const bcx = (bb.min.x + bb.max.x) * 0.5, bcy = (bb.min.y + bb.max.y) * 0.5, bcz = (bb.min.z + bb.max.z) * 0.5;
       const bhx = (bb.max.x - bb.min.x) * 0.5, bhy = (bb.max.y - bb.min.y) * 0.5, bhz = (bb.max.z - bb.min.z) * 0.5;
       const dc = _nl.x * bcx + _nl.y * bcy + _nl.z * bcz + d;
-      const ext = Math.abs(_nl.x) * bhx + Math.abs(_nl.y) * bhy + Math.abs(_nl.z) * bhz;
-      if (Math.abs(dc) > ext * 0.95) continue;
+      const sx = _nl.x * bhx, sy = _nl.y * bhy, sz = _nl.z * bhz;
+      const support = Math.sqrt(sx * sx + sy * sy + sz * sz);
+      if (Math.abs(dc) > support * 0.92) continue;
 
       // did the *segment* (not the infinite line) actually pass over it?
       _screen.copy(f.pos).project(cam);
@@ -266,8 +275,16 @@ export function createSlicer() {
     if (CP) CP.geom.push(performance.now() - t0);
     // r48j: a graze gives the once-per-stroke stamp back, so a later segment
     // of the same stroke (through the body, say, after one through a gap in
-    // the crown) can still cut this fruit
-    if (!res || !res.pos || !res.neg) { api.grazes++; f.lastStroke = prevStroke; return; }
+    // the crown) can still cut this fruit. r48k: at most TWICE per stroke —
+    // a swipe skimming a fruit must not re-run a ~3 ms mesh cut on every
+    // one of its segments.
+    if (!res || !res.pos || !res.neg) {
+      api.grazes++;
+      const sid = f.lastStroke;
+      if (f.grazeStroke !== sid) { f.grazeStroke = sid; f.grazeCount = 0; }
+      if (++f.grazeCount <= 2) f.lastStroke = prevStroke;
+      return;
+    }
 
     const halves = [];
     // ══ r14: THE CUT WAS THROWING THE HALVES OFF SCREEN ══════════════════════
