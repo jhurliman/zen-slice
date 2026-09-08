@@ -120,10 +120,12 @@ const ROLES = {
  *  the playable range (G#1 … D#6+1 — the piano kit's comfortable span). The
  *  low clamp is -25, not -24: E/G#'s bass belongs at G#1, a major 7th under
  *  the drone's static A2 partial; G#2 would beat against it at a semitone. */
+// the kit's span (G#1 … E6) as named walls — see place() for why LOW is -25
+const LOW = -25, TOP = 31;
 function place(pc, center) {
   let n = pc + 12 * Math.round((center - pc) / 12);
-  while (n < -25) n += 12;
-  while (n > 31) n -= 12;
+  while (n < LOW) n += 12;
+  while (n > TOP) n -= 12;
   return n;
 }
 
@@ -192,7 +194,11 @@ export function createHarmony() {
       const n = chord.tones.length;
       const slot = role.slot + c;
       const pc = chord.tones[slot % n];
-      return place(pc, role.center + Math.floor(slot / n) * 12);
+      // r46: the walk up the chord tops out ONE octave above the role's home.
+      // It used to keep climbing (+24, +36 …) with every cut of a combo, which
+      // is how a five-fruit stroke voiced kiwi at F6 and strawberry at E9 —
+      // pitches the kit can't even render without speeding a sample up.
+      return place(pc, role.center + Math.min(1, Math.floor(slot / n)) * 12);
     },
 
     /**
@@ -207,13 +213,51 @@ export function createHarmony() {
       for (let i = 0; i < entries.length; i++) {
         out[i] = api.noteFor(entries[i].id, entries[i].climb);
       }
-      // resolve bottom-up so lifted notes re-check against the ones above
+      // r46: collisions resolve in BOTH directions, inside the kit's span.
+      // The r-early rule lifted a colliding voice +12 and only +12, with no
+      // wall: five strawberries came out E5 E6 E7 E8 E9, a mixed five-fruit
+      // stroke put 11% of its voices above the top key (measured across all
+      // palettes), and a "full" chord read as a chirp. Now each voice, lowest
+      // first, takes the nearest free octave — up first (the old lift), then
+      // down — and the stroke spreads across the keyboard instead of off it.
+      // The low-register law survives: below E2 only wide intervals (≥ P5).
       const order = out.map((n, i) => i).sort((a, b) => out[a] - out[b]);
-      for (let k = 1; k < order.length; k++) {
-        const i = order[k], j = order[k - 1];
-        const minGap = out[order[k - 1]] < E2 || out[i] < E2 ? 7 : 3;
-        let guard = 0;
-        while (out[i] - out[j] < minGap && guard++ < 4) out[i] += 12;
+      const placed = [];
+      const gapOk = (n) => placed.every((m) => Math.abs(n - m) >= ((n < E2 || m < E2) ? 7 : 3));
+      for (const i of order) {
+        const n = out[i];
+        let pick = n;
+        for (const c of [n, n + 12, n - 12, n + 24, n - 24, n - 36, n - 48]) {
+          if (c < LOW || c > TOP) continue;
+          if (gapOk(c)) { pick = c; break; }
+        }
+        out[i] = pick;
+        placed.push(pick);
+      }
+      return out;
+    },
+
+    /**
+     * r46: the FOUNDATION under a 3+ stroke — the chord's written bass in the
+     * A1–E2 octave, joined by the fifth above the ROOT for 4+. This is what
+     * the player asked for by name ("I want some bass notes in there too"):
+     * the old foundation was the lowest chord voice dropped an octave, which
+     * on an inverted chord is a third or a fifth in the bass, and on a stroke
+     * voiced high it never reached the bass register at all. Root and fifth
+     * a P5 apart obey the low-register law by construction.
+     */
+    foundationNotes(n) {
+      const chord = palette[idx];
+      const b = place(chord.bass, -22);
+      const out = [b];
+      if (n >= 4) {
+        // the fifth over the ROOT (in every palette chord — the probe holds
+        // that), placed above the bass by a wide interval: on an inversion
+        // the nearest realization can fall under the bass or a third over
+        // it, and below E2 only P5-or-wider survives
+        let f = place((chord.tones[0] + 7) % 12, b + 7);
+        while (f - b < ((b < E2 || f < E2) ? 7 : 3)) f += 12;
+        out.push(f);
       }
       return out;
     },
@@ -258,20 +302,29 @@ export function createHarmony() {
      * wider than glissNotes (which stays as the arp pool). Deduped and
      * sorted; every note in-chord and inside the kit's span by place().
      */
-    runNotes(spanOct = 3) {
+    runNotes(spanOct = 3, floor = -2) {
       const chord = palette[idx];
       const seen = new Set();
       const notes = [];
       for (let oct = 0; oct < spanOct; oct++) {
         for (const pc of chord.tones) {
-          const n = place(pc, -2 + oct * 12);
+          const n = place(pc, floor + oct * 12);
+          if (n < floor - 6) continue;   // place() folded it under the floor
           if (!seen.has(n)) { seen.add(n); notes.push(n); }
         }
       }
-      const crown = place(chord.color, -2 + spanOct * 12);
+      // r46: the crown is the color tone above the top of the sweep — but the
+      // sweep now starts in the bass (audio.js passes floor −22 for a
+      // FLOURISH, −10 for a CHORD: "the flourish should span a large range on
+      // the keyboard, not just go up up up"), so the crown is placed against
+      // the kit's top, never above it, and a run is at most 15 notes.
+      const crown = place(chord.color, Math.min(TOP - 2, floor + spanOct * 12));
       if (!seen.has(crown)) notes.push(crown);
       notes.sort((a, b) => a - b);
-      return notes.slice(0, 12);
+      // over budget (four-tone chords over 4 octaves): thin the MIDDLE of the
+      // sweep, never its ends — the bass floor and the crown are the point
+      while (notes.length > 15) notes.splice((notes.length >> 1) - 1, 1);
+      return notes;
     },
 
     /** Pad voicing: `count` voices, root+fifth low then upper tones/color,
