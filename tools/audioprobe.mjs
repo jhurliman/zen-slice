@@ -350,12 +350,37 @@ ok(rockProbe.hits === 1, `rock swipe fired ${rockProbe.hits} rockhits, expected 
 ok(rockProbe.slices === 0 && rockProbe.juices === 0,
   `rock emitted slice=${rockProbe.slices} juice=${rockProbe.juices} — a rock must never cut or spray`);
 ok(rockProbe.penalties === 1, `rock fired ${rockProbe.penalties} penalties, expected 1`);
-// r36: the rock resets the STREAK — the whole score, not r20's −25 sting
-ok(rockProbe.score === 0, `score after rock: ${rockProbe.score}, expected 0 (r36: the streak resets)`);
+// r49: the rock takes everything since the last page turn — on Still Water
+// nothing is banked, so a rock still zeroes the score
+ok(rockProbe.score === 0, `score after rock: ${rockProbe.score}, expected 0 (nothing banked on level 0)`);
 ok(rockProbe.combo === 0, `combo after rock: ${rockProbe.combo}, expected 0`);
 ok(rockProbe.damage === 1, `rock damage is ${rockProbe.damage}, expected 1`);
 ok(rockProbe.dead === false, 'the rock was removed/cut by the stroke');
 ok(rockProbe.errors.length === 0, `audio errors after rockhit: ${JSON.stringify(rockProbe.errors)}`);
+
+// ── r49: with a bank, the rock drops the score TO the bank and reports the difference ──
+const bankProbe = await page.evaluate(async () => {
+  const ZS = window.ZS, ctx = ZS.ctx;
+  ZS.clear();
+  ZS.score.banked = 60;
+  ZS.score.score = 100;
+  ZS.score.combo = 3;
+  const r = ZS.spawn('rock');
+  r.pos.set(0, 0.2, 0); r.vel.set(0, 0.5, 0);
+  await new Promise((res) => setTimeout(res, 60));
+  const pens = [];
+  const off = ctx.bus.on('penalty', (e) => pens.push({ taken: e.taken, banked: e.banked }));
+  ZS.newStroke();
+  ZS.swipe(-0.8, 0.03, 0.8, 0.03, 12, 6.0);
+  ZS.step(1 / 120, 6, false);
+  ZS.resume();
+  off();
+  return { pens, score: ZS.score.score, combo: ZS.score.combo, banked: ZS.score.banked };
+});
+ok(bankProbe.pens.length === 1 && bankProbe.pens[0].taken === 40 && bankProbe.pens[0].banked === 60,
+  `banked rock penalty: ${JSON.stringify(bankProbe.pens)}, expected one of taken 40 / banked 60`);
+ok(bankProbe.score === 60, `score after a banked rock: ${bankProbe.score}, expected 60 (the bank)`);
+ok(bankProbe.combo === 0 && bankProbe.banked === 60, `combo ${bankProbe.combo} / bank ${bankProbe.banked} after rock, expected 0 / 60`);
 
 // ── a scripted session: rhythmic slicing, tempo bounds, zero errors ──
 const session = await page.evaluate(async () => {

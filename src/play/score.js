@@ -1,8 +1,9 @@
 /**
- * score.js — deliberately shallow progression. Combo, streak, zen level.
+ * score.js — deliberately shallow progression. Combo, banked score, zen level.
  *
- * No fail state, no bombs, no timer. The only pressure is the gentle pull of a
- * combo window that rewards slicing two or three things in one arc.
+ * No fail state, no bombs, no timer. The only pressures are the gentle pull of
+ * a combo window that rewards slicing two or three things in one arc, and the
+ * river stone, which takes what you earned since the last page turn (r49).
  *
  * ⚠ NO TIME DILATION, EVER. r11 removed a per-cut slow-mo reward after the
  * player called it out ("it slows down every time i slice… get rid of it") —
@@ -52,16 +53,32 @@ export function createScore() {
   // r44: `peak` is the best the streak reached THIS session — the journey's
   // best, which a rock cannot take (score resets, peak stays). Shown at the
   // arrival beside the all-time best, which is `bestScore` below.
-  const api = { score: 0, combo: 0, best: 0, total: 0, level: 0, levelName: 'Still Water', bestScore: 0, peak: 0 };
+  const api = { score: 0, combo: 0, best: 0, total: 0, level: 0, levelName: 'Still Water', bestScore: 0, peak: 0, banked: 0 };
   let ctx, lastSliceT = -1e9;
-  // r36: THE SCORE IS THE STREAK. A rock resets it to zero (see the rockhit
-  // handler), so `score` now measures how far a run has come since the last
-  // stone — and `bestScore` (the peak ever reached, already tracked below)
-  // becomes the best streak, not a monotonic function of time played.
-  // Entering the coda FREEZES it: Deep Calm is rock-free and endless, so the
-  // score you arrive with is the run's final word — the coda is the victory
-  // lap, not a farm.
+  // ══ r49: THE PAGE TURN BANKS THE SCORE ══════════════════════════════════
+  // r36 made the score BE the streak: a stone took all of it. Every player
+  // who wrote in said the same thing — a zeroed score makes you want to
+  // restart, not play on — and once the number is zero, restarting IS the
+  // rational move: the rest of the run can no longer beat a fresh one. So
+  // the score is a run total with SAFE HAVENS: each page turn banks what
+  // you have (`banked`), and a stone drops you to the bank, not to zero.
+  // The cost is bounded by one level's earnings and the journey bar reads
+  // as a ladder of checkpoints (Millionaire's safe havens; Tony Hawk's
+  // unbanked trick line; Fruit Ninja Arcade's flat −10 in place of Classic's
+  // game-over). Keep the bank, break the momentum: the combo still dies, the
+  // music still dims (conductor.js), and the STONE callout shows the true
+  // cost. `bestScore` is therefore the best run total, no longer the best
+  // streak; the Game Center board (chordcut.best) inherits that meaning.
+  // Entering the coda FREEZES the score: Deep Calm is rock-free and endless,
+  // so the score you arrive with is the run's final word — the coda is the
+  // victory lap, not a farm.
   let frozen = false;
+  // r49: the bank settles on the first scored cut AFTER a 'level' (or the
+  // next frame if none follows) — the same arm/settle shape as `arriving`
+  // below, for the same reason: on a natural page turn the 'level' event
+  // arrives before the turning cut is scored, and that cut belongs in the
+  // bank, not at risk.
+  let bankPending = false;
   let blissed = false;   // r44: the journey bonus is paid once per session
   // r44b: the coda ARMS on its 'level' event and SETTLES (freeze + bonus) on
   // the next scored slice, or on the next frame if none follows. See the
@@ -129,8 +146,10 @@ export function createScore() {
       const gain = frozen ? 0 : Math.round(base * mult);
       api.score += gain;
       if (api.score > api.peak) api.peak = api.score;
-      // r44b: the cut that turned the page is scored above, THEN the coda
-      // settles — its gain is in the streak the bonus is paid on
+      // r49: the cut that turned the page is scored above, THEN it is banked
+      if (bankPending) settleBank();
+      // r44b: likewise the coda settles after the arriving cut — its gain is
+      // in the streak the bonus is paid on
       if (arriving) settleArrival();
 
       if (api.score >= BEST_FLOOR && api.score > api.bestScore) {
@@ -181,7 +200,7 @@ export function createScore() {
       // it, so frame() settles it on the next tick instead. Either way the
       // freeze and the bonus land together, on the complete streak.
       if (e.coda) { arriving = true; }
-      else { arriving = false; frozen = false; }
+      else { arriving = false; frozen = false; bankPending = true; }   // r49: a page turn is a safe haven
     });
 
     // the rate-limited save above can be up to 5 s stale — flush it when the
@@ -197,36 +216,41 @@ export function createScore() {
     // session-scoped goes back to zero; the persisted bestScore survives, and
     // a fresh run may whisper 'personal best' again when it passes it.
     c.bus.on('reset', () => {
-      api.score = 0; api.combo = 0; api.best = 0; api.total = 0; api.peak = 0;
+      api.score = 0; api.combo = 0; api.best = 0; api.total = 0; api.peak = 0; api.banked = 0;
       api.level = 0; api.levelName = 'Still Water';
       lastSliceT = -1e9;
       announcedBest = false;
-      frozen = false; blissed = false; arriving = false;
+      frozen = false; blissed = false; arriving = false; bankPending = false;
       // discard (not flush) any open harmony group — a reset mid-stroke
       // must not emit a callout into the fresh session
       hStrokeId = -1; hSize = 0; hGain = 0; hAt = null; hCloseT = -1e9;
     });
 
-    // ══ r20→r36: THE ROCK RESETS THE STREAK ═════════════════════════════════
-    // r20's −25 was a mosquito bite: at any depth into a run it cost one good
-    // cut, so the rock read as flavor, not stakes. r36 makes the score BE the
-    // streak — a struck stone takes all of it, the way a phrase ends when you
-    // miss the beat. The stakes now scale with how far you've come, which is
-    // exactly the tension a zen game can afford: nothing is lost but the
-    // number, the music and the level keep going, and bestScore (the peak,
-    // persisted) is the memory of your deepest run. The combo chain breaks
-    // too (lastSliceT → −∞ so the next slice starts fresh), and the
-    // 'penalty' event carries what was actually taken — the HUD already
-    // refuses to show a number when nothing was (taken 0 = STONE alone).
-    // In the coda there are no rocks by design; the frozen score is safe.
+    // ══ r20→r36→r49: THE ROCK TAKES THE LEVEL, NOT THE RUN ══════════════════
+    // r20's −25 was a mosquito bite (one good cut, flavor not stakes); r36
+    // took the whole score and players wanted to restart on the spot. r49:
+    // a struck stone takes everything earned since the last page turn —
+    // bounded, predictable, and the rest of the run is always worth more
+    // than starting over (see the `banked` note at the top). The combo chain
+    // breaks too (lastSliceT → −∞ so the next slice starts fresh), and the
+    // 'penalty' event carries what was actually taken — the HUD refuses to
+    // show a number when nothing was (a stone right after a page turn is
+    // STONE alone). In the coda there are no rocks by design; the frozen
+    // score is safe.
     c.bus.on('rockhit', (e) => {
       api.combo = 0;
       lastSliceT = -1e9;
-      const pen = api.score;
-      api.score = 0;
-      c.bus.emit('penalty', { amount: pen, taken: pen, at: e.at.clone() });
+      const pen = Math.max(0, api.score - api.banked);
+      api.score = api.banked;
+      c.bus.emit('penalty', { amount: pen, taken: pen, banked: api.banked, at: e.at.clone() });
     });
   };
+
+  /** r49: the safe haven — everything up to and including the turning cut. */
+  function settleBank() {
+    bankPending = false;
+    api.banked = api.score;
+  }
 
   /**
    * ══ r44: THE ARRIVAL ═══════════════════════════════════════════════════
@@ -265,8 +289,9 @@ export function createScore() {
   }
 
   api.frame = () => {
-    // r44b: a coda reached with no slice behind it (the ?debug remote)
+    // r44b/r49: a level reached with no slice behind it (the ?debug remote)
     // settles here, one tick later
+    if (bankPending) settleBank();
     if (arriving) settleArrival();
     const now = nowSec();
     if (api.combo && now - lastSliceT > api.comboWindow()) {
