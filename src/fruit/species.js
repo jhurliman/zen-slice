@@ -2213,7 +2213,12 @@ function skinMaterial(sp, body, o = {}) {
     const woodC = mix(A_WUD, A_WTIP, a.sh.mul(a.sh))
       .mul(ringN(f.lon, 17.0, a.y.mul(9.0)).mul(0.22).add(1.0))
       .toVar();
-    alb.assign(mix(alb, leafC.mul(tintV), a.leafy));
+    // r47e `o.leafBloom`: a waxy grey-white bloom over the lower blade, as
+    // on a pineapple crown's rosette — strongest at the root, gone by mid-blade
+    const bloomed = o.leafBloom
+      ? mix(leafC.mul(tintV), fromKeyLit(0.1100, 0.1250, 0.1050), ss(0.55, 0.05, a.bh).mul(o.leafBloom))
+      : leafC.mul(tintV);
+    alb.assign(mix(alb, bloomed, a.leafy));
     alb.assign(mix(alb, woodC, a.wood));
     return alb;
   })();
@@ -3859,15 +3864,15 @@ def({
 // them at runtime (window.__zsPine.set(name, value) in the harness) and the
 // shipped defaults below are what that loop settled on. Colours are linear.
 const PINE_DEFAULTS = {
-  rows: 2.30, skew: 0.42, eyeY: 0.02, eyeR: 0.52, eyeAspect: 0.95, tipY: 0.36, bractW: 0.50,
-  bractCurve: 1.00, spread: 0.50, grain: 0.12, veinMix: 0.25, eyeMix: 0.95, eyeGrad: 1.00,
-  eyePow: 3.50, rimMix: 0.95, rimLow: -0.55, rimW: 0.22, bractMix: 0.85, bractOverEye: 0.55,
-  soft: 3.00, jit: 0.80, lipMix: 0.40, lipH: 0.15, roughGold: 0.36, roughEye: 0.32,
-  roughBract: 0.45, eyeH: 0.80, bractH: 0.25, thornH: 1.80, thornW: 0.07, thornLen: 0.46,
-  gold: [0.4100, 0.3100, 0.0700], goldGreen: [0.3400, 0.3000, 0.0600],
-  vein: [0.2400, 0.1200, 0.0400], eyeGreen: [0.0800, 0.1900, 0.0250],
-  eyeYellow: [0.4200, 0.3300, 0.0800], rim: [0.0300, 0.0650, 0.0080],
-  tan: [0.2800, 0.1800, 0.0800], thorn: [0.3900, 0.3300, 0.2300],
+  rows: 2.30, skew: 0.42, sheathVein: 0.50, blemMix: 0.35, eyeY: 0.02, eyeR: 0.52,
+  eyeAspect: 0.95, tipY: 0.44, bractW: 0.62, bractCurve: 0.85, spread: 0.50, grain: 0.12,
+  veinMix: 0.25, eyeMix: 0.95, eyeGrad: 1.00, eyePow: 4.50, rimMix: 0.95, rimLow: -0.30,
+  rimW: 0.22, bractMix: 0.95, bractOverEye: 0.88, soft: 3.00, jit: 0.80, lipMix: 0.20, lipH: 0.15,
+  roughGold: 0.36, roughEye: 0.40, roughBract: 0.45, eyeH: 0.80, bractH: 0.25, thornH: 1.80,
+  thornW: 0.06, thornLen: 0.50, gold: [0.4100, 0.3100, 0.0700],
+  goldGreen: [0.3400, 0.3000, 0.0600], vein: [0.2400, 0.1200, 0.0400],
+  eyeGreen: [0.0700, 0.1600, 0.0200], eyeYellow: [0.4200, 0.3300, 0.0800],
+  rim: [0.0280, 0.0600, 0.0070], tan: [0.2600, 0.1650, 0.0700], thorn: [0.3900, 0.3300, 0.2300],
 };
 // fruitlets around the barrel — a JS constant (cellPt's wrap), not a uniform
 const PINE_AROUND = 12;
@@ -3978,11 +3983,16 @@ def({
         const alb = mix(gold, eyeC, e.eye.mul(PINE.eyeMix)).toVar();
         alb.assign(mix(alb, PINE.rim, e.rim.mul(PINE.rimMix)));
         // the sheath over the top: tan, drier and lighter at the lip and thorn
-        const tan = PINE.tan.mul(grain(f, u, 18.0).mul(0.18).add(0.91)).toVar();
+        // dry, fibrous: fine ridge veins run up the sheath, darker brown
+        const tan = PINE.tan.mul(grain(f, u, 18.0).mul(0.18).add(0.91))
+          .mul(rdg2(vec2(f.P.x.mul(30.0).add(f.P.z.mul(30.0)), f.P.y.mul(9.0)), 2).mul(PINE.sheathVein).oneMinus()).toVar();
         // the sheath is opaque where it lies over the eye (only the eye's upper
         // crescent shows, as in the photo) and subtler over the gold
         alb.assign(mix(alb, tan, e.bract.mul(mix(PINE.bractMix, PINE.bractOverEye, e.eye))));
         alb.assign(mix(alb, PINE.thorn, max(e.thorn, e.lip.mul(PINE.lipMix)).mul(0.9)));
+        // scuffs and blemishes: sparse low-frequency brown patches on the flats
+        const blem = ss(0.55, 0.85, fbm2(vec2(f.P.x.mul(2.2).add(f.P.z.mul(1.7)), f.P.y.mul(2.6)), 2, u.detail).mul(0.5).add(0.5)).mul(e.eye.oneMinus()).toVar();
+        alb.assign(mix(alb, PINE.vein.mul(0.8), blem.mul(PINE.blemMix)));
         return mix(mix(gold, PINE.tan, 0.35), alb, e.fade);
       },
       rough: (f) => { const e = eyes(f); return mix(PINE.roughGold, PINE.roughEye, e.eye).add(e.bract.mul(PINE.roughBract)); },
@@ -3996,7 +4006,7 @@ def({
       bump: 0.0220,
       // the crown: brighter grey-green, calmer ribs (the 26-per-turn rib ran
       // as striping on the device)
-      leafTint: [1.30, 1.28, 1.22], rib: 0.6,
+      leafTint: [1.30, 1.28, 1.22], rib: 0.6, leafBloom: 0.55,
       mat: {
         roughness: 0.58, sheen: 0.30, sheenColor: C('#c8a45a'), sheenRoughness: 0.6,
         clearcoat: 0.18, clearcoatRoughness: 0.5, specularIntensity: 0.5,
