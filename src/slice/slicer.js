@@ -311,8 +311,13 @@ export function createSlicer() {
     const capR = res.ring
       ? res.ring.reduce((m, p) => Math.max(m, p.length()), 0.2)
       : f.radius * 0.8;
+    // r48i: scaled by how much of the exposed face is flesh, and SKIPPED when
+    // there is (almost) none — a swipe through the pineapple's crown alone
+    // cuts leaves, not fruit, and a leaf does not spray juice. cutter.js
+    // measures it as the cap's non-leaf area fraction.
+    const fleshFrac = res.fleshFrac ?? 1;
     const amount = f.species.juiciness * (f.generation === 0 ? 1.0 : 0.5)
-      * clamp(0.55 + stroke.speed * 0.03, 0.6, 1.5);
+      * clamp(0.55 + stroke.speed * 0.03, 0.6, 1.5) * fleshFrac;
     // ══ r14b: `faceVel` — STOP fluid.js RE-DERIVING THIS FROM THE CONSTANTS ══
     // The `cling` class is foam sitting ON a cut face, so it has to travel with
     // the half that carries that face. It was riding a SECOND COPY of the
@@ -332,7 +337,7 @@ export function createSlicer() {
     // loop uses, so index i is the half whose exposed face this burst is on.
     // This is the r3 lesson (`geometry.js` encoded a contract in a comment and
     // `species.js` did not honour it) with the fix applied for once.
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < (fleshFrac < 0.05 ? 0 : 2); i++) {
       const sign = i === 0 ? +1 : -1;
       ctx.bus.emit('juice', {
         stroke, species: f.species, at: stroke.at.clone(),
@@ -364,7 +369,7 @@ export function createSlicer() {
     // the module-level counter may have advanced by the time a queued cut
     // drains, so this is the only value that correctly groups a stroke's cuts.
     // score.js gathers slices by it into the HARMONY (one stroke, one chord).
-    ctx.bus.emit('slice', { stroke, fruit: f, halves, strokeId: f.lastStroke });
+    ctx.bus.emit('slice', { stroke, fruit: f, halves, strokeId: f.lastStroke, fleshFrac });
   }
 
   return api;
