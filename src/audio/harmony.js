@@ -227,9 +227,13 @@ export function createHarmony() {
       for (const i of order) {
         const n = out[i];
         let pick = n;
-        for (const c of [n, n + 12, n - 12, n + 24, n - 24, n - 36, n - 48]) {
-          if (c < LOW || c > TOP) continue;
-          if (gapOk(c)) { pick = c; break; }
+        // every octave the kit has, nearest first (up before down at equal
+        // distance) — a fixed short list ran dry on five same-role bass
+        // fruit over an inversion and accepted a collision (Codex on #40)
+        for (let d = 0; d <= 60; d += 12) {
+          const c1 = n + d, c2 = n - d;
+          if (c1 >= LOW && c1 <= TOP && gapOk(c1)) { pick = c1; break; }
+          if (d > 0 && c2 >= LOW && c2 <= TOP && gapOk(c2)) { pick = c2; break; }
         }
         out[i] = pick;
         placed.push(pick);
