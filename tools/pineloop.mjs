@@ -9,7 +9,7 @@
  * two; saturation and value do not (SwiftShader, no tonemapping match), so
  * judge those by eye against a device capture.
  *
- *   node tools/pineloop.mjs --cands cands.json --out /tmp [--view front|tilt]
+ *   node tools/pineloop.mjs --cands cands.json --out /tmp [--view front|tilt] [--dist dist]
  *   cands.json: { "name": { "gold": [r,g,b], "eyeR": 0.4, ... }, ... }
  *   Unknown keys are reported; PINE_DEFAULTS in species.js lists them all.
  */
@@ -20,7 +20,7 @@ import { resolveChrome } from './chromepath.mjs';
 const argv = process.argv.slice(2); const arg = (k, d) => { const i = argv.indexOf('--' + k); return i < 0 ? d : argv[i + 1]; };
 const cands = JSON.parse(readFileSync(arg('cands'), 'utf8'));   // { name: {param: value, ...}, ... }
 const out = arg('out', '/tmp');
-const html = readFileSync('dist/index.html');
+const html = readFileSync(arg('dist', 'dist') + '/index.html');
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); });
 await new Promise((r) => server.listen(0, r)); const PORT = server.address().port;
 const browser = await chromium.launch({ executablePath: resolveChrome(), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'] });

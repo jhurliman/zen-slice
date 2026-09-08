@@ -2219,8 +2219,12 @@ function skinMaterial(sp, body, o = {}) {
       .toVar();
     // r47e `o.leafBloom`: a waxy grey-white bloom over the lower blade, as
     // on a pineapple crown's rosette — strongest at the root, gone by mid-blade
+    // `o.leafBloomSpan` (r48): how far up the blade the bloom reaches — 0.55
+    // is the root-only bloom of r47e; the pineapple's crown is waxy grey-green
+    // to the tips on the reference, so it runs the whole blade (1.0)
     const bloomed = o.leafBloom
-      ? mix(leafC.mul(tintV), fromKeyLit(0.1100, 0.1250, 0.1050), ss(0.55, 0.05, a.bh).mul(o.leafBloom))
+      ? mix(leafC.mul(tintV), o.leafBloomColor ? fromKeyLit(o.leafBloomColor[0], o.leafBloomColor[1], o.leafBloomColor[2]) : fromKeyLit(0.1100, 0.1250, 0.1050),
+          ss(o.leafBloomSpan ?? 0.55, 0.05, a.bh).mul(o.leafBloom))
       : leafC.mul(tintV);
     alb.assign(mix(alb, bloomed, a.leafy));
     alb.assign(mix(alb, woodC, a.wood));
@@ -2254,6 +2258,29 @@ function skinMaterial(sp, body, o = {}) {
     m.clearcoatNode = Fn(() => {
       const a = appendage();
       return float(cc0).mul(max(a.leafy, a.wood).mul(0.88).oneMinus());
+    })();
+  }
+  // r48 `o.leafGlow`: a faint self-lit term on foliage only — a stand-in for a
+  // thin leaf's translucency. The pineapple's recurving outer leaves show the
+  // camera their UNDERSIDES, which face away from the key over a black void
+  // and rendered as black spikes; a real crown's undersides are lit through.
+  if (o.leafGlow > 0) {
+    m.emissiveNode = Fn(() => {
+      const a = appendage();
+      const f = frame();
+      const vary = ringN(f.lon, 11.0, a.y.mul(2.2));
+      const base = o.leafFresh ? A_FOLF : A_FOL;
+      const tintV2 = o.leafTint ? vec3(o.leafTint[0], o.leafTint[1], o.leafTint[2]) : vec3(1.0, 1.0, 1.0);
+      return base.mul(tintV2).mul(vary.mul(0.15).add(1.0)).mul(a.leafy.mul(o.leafGlow));
+    })();
+  }
+  // r48: the same for SHEEN — the pineapple's gold sheen on its leaves read as
+  // a yellow glint where the reference crown has a grey-white bloom
+  if ((o.mat && o.mat.sheen) > 0) {
+    const sh0 = o.mat.sheen;
+    m.sheenNode = Fn(() => {
+      const a = appendage();
+      return float(sh0).mul(max(a.leafy, a.wood).mul(0.9).oneMinus());
     })();
   }
 
@@ -4068,7 +4095,11 @@ def({
       bump: 0.0220,
       // the crown: brighter grey-green, calmer ribs (the 26-per-turn rib ran
       // as striping on the device)
-      leafTint: [1.30, 1.28, 1.22], rib: 0.6, leafBloom: 0.55, capK: 1.12,
+      // r48: real leaves (geometry.js buildLeafCrown) — green from the root
+      // like the strawberry's calyx; the shared brown-root ramp painted most
+      // of a real blade brown, since its uv band starts at 1.0 at the hub
+      leafFresh: true, leafTint: [1.60, 1.60, 1.55], rib: 0.5,
+      leafBloom: 0.75, leafBloomSpan: 1.0, leafBloomColor: [0.1700, 0.1950, 0.1600], leafGlow: 0.35, capK: 1.12,
       // r47i: the shell GLINTS — a waxed rind under the key. Clearcoat and
       // specular up (the player: "I want light to really glint off this")
       mat: {
