@@ -3864,15 +3864,17 @@ def({
 // them at runtime (window.__zsPine.set(name, value) in the harness) and the
 // shipped defaults below are what that loop settled on. Colours are linear.
 const PINE_DEFAULTS = {
-  rows: 2.30, skew: 0.42, sheathVein: 0.40, blemMix: 0.20, sheathV: 0.60, eyeY: 0.04, eyeR: 0.60,
-  eyeAspect: 0.72, tipY: 0.44, bractW: 0.60, bractCurve: 0.85, spread: 0.50, grain: 0.12,
-  veinMix: 0.18, eyeMix: 0.95, eyeGrad: 1.00, eyePow: 4.00, rimMix: 0.95, rimLow: -0.25,
-  rimW: 0.22, bractMix: 0.90, bractOverEye: 0.88, soft: 3.00, jit: 0.80, lipMix: 0.20, lipH: 0.15,
-  roughGold: 0.36, roughEye: 0.40, roughBract: 0.45, eyeH: 0.80, bractH: 0.25, thornH: 1.80,
-  thornW: 0.06, thornLen: 0.50, gold: [0.4000, 0.3300, 0.0800],
-  goldGreen: [0.3400, 0.3200, 0.0700], vein: [0.2400, 0.1400, 0.0500],
-  eyeGreen: [0.0700, 0.1600, 0.0200], eyeYellow: [0.4200, 0.3400, 0.0900],
-  rim: [0.0280, 0.0600, 0.0070], tan: [0.3400, 0.2500, 0.1000], thorn: [0.4000, 0.3400, 0.2400],
+  rows: 2.50, skew: 0.42, sheathVein: 0.40, blemMix: 0.15, sheathV: 0.60, creaseMix: 0.30,
+  creaseH: 0.35, roughThorn: 0.25, creaseW: 0.36, eyeY: 0.04, eyeR: 0.62, eyeAspect: 0.66,
+  tipY: 0.44, bractW: 0.60, bractCurve: 0.85, spread: 0.50, grain: 0.10, veinMix: 0.12,
+  eyeMix: 0.95, eyeGrad: 1.00, eyePow: 4.00, rimMix: 1.00, rimLow: -0.25, rimW: 0.22,
+  bractMix: 0.90, bractOverEye: 0.88, soft: 3.00, jit: 0.80, lipMix: 0.20, lipH: 0.15,
+  roughGold: 0.30, roughEye: 0.40, roughBract: 0.45, eyeH: 0.80, bractH: 0.25, thornH: 2.20,
+  thornW: 0.05, thornLen: 0.50, gold: [0.4400, 0.3700, 0.0900],
+  goldGreen: [0.3700, 0.3500, 0.0800], vein: [0.2400, 0.1400, 0.0500],
+  eyeGreen: [0.0600, 0.1500, 0.0180], eyeYellow: [0.4600, 0.3800, 0.1000],
+  rim: [0.0180, 0.0450, 0.0050], tan: [0.3400, 0.2500, 0.1000], thorn: [0.4400, 0.3800, 0.2800],
+  creaseC: [0.0500, 0.0650, 0.0180],
 };
 // fruitlets around the barrel — a JS constant (cellPt's wrap), not a uniform
 const PINE_AROUND = 12;
@@ -3981,8 +3983,12 @@ def({
       const tw = PINE.thornW.mul(tu.oneMinus().mul(0.85).add(0.15));
       const thorn = ss(sw.mul(0.03), sw.mul(-0.005), ox.sub(tw)).mul(ss(tBot.sub(0.03), tBot.add(0.03), oy)).mul(ss(tTop.add(0.02), tTop.sub(0.02), oy)).toVar();
       const lip = inside.mul(ss(0.0, sw.mul(0.05), ox.sub(halfW).abs())).oneMinus().mul(inside).toVar();
+      // the crease: a dark horizontal line from the thorn's base out to the
+      // cell's sides, where the sheath folds over the fruitlet (the player:
+      // "touching the top of the adjacent hexes from the lower row")
+      const crease = ss(0.045, 0.012, oy.sub(tBot).abs()).mul(ss(PINE.creaseW, PINE.creaseW.mul(0.5), ox)).toVar();
       return { eye: own.eye, rim: own.rim, stria: own.stria, core: own.core, below,
-        bract: inside, thorn, lip, id: c.id, fade: cellFade(p).toVar(), v, p };
+        bract: inside, thorn, lip, crease, id: c.id, fade: cellFade(p).toVar(), v, p };
     };
     const grain = (f, u, k) => fbm2(vec2(f.P.x.add(f.P.y), f.P.z.sub(f.P.y)).mul(k), 2, u.detail);
     return skinMaterial(this, {
@@ -4011,17 +4017,19 @@ def({
         // the sheath is opaque where it lies over the eye (only the eye's upper
         // crescent shows, as in the photo) and subtler over the gold
         alb.assign(mix(alb, tan, e.bract.mul(mix(PINE.bractMix, PINE.bractOverEye, e.eye))));
+        alb.assign(mix(alb, PINE.creaseC, e.crease.mul(PINE.creaseMix)));
         alb.assign(mix(alb, PINE.thorn, max(e.thorn, e.lip.mul(PINE.lipMix)).mul(0.9)));
         // scuffs and blemishes: sparse low-frequency brown patches on the flats
         const blem = ss(0.55, 0.85, fbm2(vec2(f.P.x.mul(2.2).add(f.P.z.mul(1.7)), f.P.y.mul(2.6)), 2, u.detail).mul(0.5).add(0.5)).mul(max(e.eye, e.below.eye).oneMinus()).toVar();
         alb.assign(mix(alb, PINE.vein.mul(0.8), blem.mul(PINE.blemMix)));
         return mix(mix(gold, PINE.tan, 0.35), alb, e.fade);
       },
-      rough: (f) => { const e = eyes(f); return mix(PINE.roughGold, PINE.roughEye, max(e.eye, e.below.eye)).add(e.bract.mul(PINE.roughBract)); },
+      rough: (f) => { const e = eyes(f); return mix(mix(PINE.roughGold, PINE.roughEye, max(e.eye, e.below.eye)).add(e.bract.mul(PINE.roughBract)), PINE.roughThorn, e.thorn); },
       relief: (f, u) => {
         const e = eyes(f);
         return max(e.eye, e.below.eye).mul(PINE.eyeH).sub(max(e.rim, e.below.rim).mul(0.2)).add(e.stria.mul(0.12))
           .add(e.bract.mul(PINE.bractH)).add(e.lip.mul(PINE.lipH)).add(e.thorn.mul(PINE.thornH))
+          .sub(e.crease.mul(PINE.creaseH))
           .mul(e.fade).add(grain(f, u, 20.0).mul(0.2));
       },
     }, {
