@@ -163,6 +163,24 @@ check('the next qualifying cut turns the page to level 3', G.level === 3 && G.de
 check('no page errors', page.__errs.length === 0, page.__errs.join(' | '));
 await page.close();
 
+// the ?debug level remote respects the gate while the day is not owned
+page = await open(ctxA, { entitled: false, price: '$2.99', purchase: 'ok' });
+await page.evaluate(() => { localStorage.removeItem('zs-prefs'); });
+await page.close();
+page = await open(ctxA, { entitled: false, price: '$2.99', purchase: 'ok' });
+R = await page.evaluate(() => {
+  const ZS = window.ZS; let de = 0; ZS.bus.on('demoend', () => de++);
+  ZS.director.jumpLevel(5); ZS.step(1 / 120, 3, false);
+  const a = { level: ZS.director.level, demoend: de, veil: !!document.querySelector('.zs-demo') };
+  ZS.director.jumpLevel(7);
+  const b = { level: ZS.director.level, demoend: de };
+  window.__tap('.zs-demo-buy');
+  return new Promise((res) => setTimeout(() => { ZS.director.jumpLevel(5); res({ a, b, c: { level: ZS.director.level, entitled: ZS.ctx.store.entitled } }); }, 60));
+});
+check('the level remote stops at level 2 and raises the veil while not owned (once)', R.a.level === 2 && R.a.demoend === 1 && R.a.veil && R.b.level === 2 && R.b.demoend === 1, JSON.stringify(R));
+check('…and jumps freely once the day is owned', R.c.entitled === true && R.c.level === 5, JSON.stringify(R.c));
+await page.close();
+
 // ── 2. same install, relaunched with StoreKit silent: the cache stands ──
 console.log('\n── the cache ──');
 page = await open(ctxA, { entitled: false, price: '$2.99', hang: true });

@@ -796,7 +796,16 @@ export function createDirector({ seed = 20260806 } = {}) {
   /** r20, for the ?debug overlay: jump straight to a level. Emits the same
    *  'level' event a natural advance does, so audio/hud react identically. */
   api.jumpLevel = (n) => {
-    const l = Math.max(0, Math.min(LEVELS.length - 1, n | 0));
+    let l = Math.max(0, Math.min(LEVELS.length - 1, n | 0));
+    // 1.2: the remote respects the gate — while the first day is not owned
+    // it stops at level 2 and raises the veil, so the "end of the free
+    // levels" can be reached from the debug strip without playing four
+    // minutes (the player tried exactly that and "it happily skipped
+    // forward to every level").
+    if (l >= 3 && ctx.store && !ctx.store.entitled) {
+      l = 2;
+      if (!demoEnded) { demoEnded = true; ctx.bus.emit('demoend', {}); }
+    }
     api.level = l; api.sliced = 0; levelT = 0;
     api.progress = journeyProgress();
     ctx.bus.emit('level', { level: l, name: LEVELS[l].name, coda: !isFinite(LEVELS[l].dur) });
