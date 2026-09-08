@@ -206,7 +206,19 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
 
 3. **1.2 — free download + $2.99 unlock, due Thu 2026-10-01 (submit by Tue 9/22).**
    The featuring nomination (filed 9/7) names 10/1 as the update's release
-   date, so this is a dated deliverable. Scope, in build order:
+   date, so this is a dated deliverable. **Status 2026-09-08: the code is
+   built** (branch v1.2-unlock → PR): `StoreKitPlugin.swift` (+ pbxproj,
+   GameViewController registration, `Products.storekit`), `src/core/store.js`,
+   the gate in director.js now reads `ctx.store.entitled` (DEMO=1 pins it
+   false; outside the shell it is true), the veil in hud.js has its shell face
+   (price from StoreKit, restore line, thank-you on entitlement) plus an
+   "unlock the full game" settings row, prefs carry `entitled`,
+   `tools/storeprobe.mjs` (27 checks, mocked bridge). PAID_THROUGH_BUILD = 5
+   (1.1's build; re-pin if 1.1 is resubmitted). Still to do: device
+   verification (sandbox buy with debug on, offline relaunch, delete +
+   reinstall + restore), the ASC IAP + review screenshot, version 1.2 (6),
+   privacy label, the 10/1 sequencing and public copy below. Scope, in build
+   order:
    - **StoreKit plugin.** `ios/App/App/StoreKitPlugin.swift`, same shape as
      `GameCenterPlugin.swift` (a `CAPPlugin` registered in the shell, called
      from JS via `window.Capacitor.Plugins.StoreKit`). StoreKit 2 only:

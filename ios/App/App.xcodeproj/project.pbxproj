@@ -17,6 +17,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		5A11C0DE2FE900010000A002 /* GameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A11C0DE2FE900010000A001 /* GameViewController.swift */; };
 		5A11C0DE2FE900010000A004 /* GameCenterPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A11C0DE2FE900010000A003 /* GameCenterPlugin.swift */; };
+		5A11C0DE2FE900010000A007 /* StoreKitPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A11C0DE2FE900010000A006 /* StoreKitPlugin.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 /* End PBXBuildFile section */
 
@@ -32,6 +33,7 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		5A11C0DE2FE900010000A001 /* GameViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameViewController.swift; sourceTree = "<group>"; };
 		5A11C0DE2FE900010000A003 /* GameCenterPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameCenterPlugin.swift; sourceTree = "<group>"; };
+		5A11C0DE2FE900010000A006 /* StoreKitPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitPlugin.swift; sourceTree = "<group>"; };
 		5A11C0DE2FE900010000A005 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
@@ -74,6 +76,7 @@
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				5A11C0DE2FE900010000A001 /* GameViewController.swift */,
 				5A11C0DE2FE900010000A003 /* GameCenterPlugin.swift */,
+				5A11C0DE2FE900010000A006 /* StoreKitPlugin.swift */,
 				5A11C0DE2FE900010000A005 /* App.entitlements */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -170,6 +173,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				5A11C0DE2FE900010000A002 /* GameViewController.swift in Sources */,
 				5A11C0DE2FE900010000A004 /* GameCenterPlugin.swift in Sources */,
+				5A11C0DE2FE900010000A007 /* StoreKitPlugin.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

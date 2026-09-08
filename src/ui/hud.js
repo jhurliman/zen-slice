@@ -381,6 +381,9 @@ export function createHud() {
         // DEBUG_UI_ALLOWED above); note `=== true` — debug defaults OFF
         + (DEBUG_UI_ALLOWED ? `<button data-k="debug">debug ${p.debug === true ? 'on' : 'off'}</button>` : '')
         + `<button data-k="again">begin again</button>`
+        // 1.2: the way back to the veil after "keep slicing" — only in the
+        // shell, only while the day is not yet owned; removed on entitlement
+        + (ctx.store?.native && !ctx.store.entitled ? `<button data-k="unlock">unlock the full game</button>` : '')
         // r36: the best streak, readable where the player already looks —
         // a non-interactive line in the panel's own voice, no new screen.
         // Refreshed at open (togglePanel), hidden entirely until a best exists.
@@ -396,6 +399,7 @@ export function createHud() {
         const b = ev.target && ev.target.closest ? ev.target.closest('button[data-k]') : null;
         if (!b) return;
         const k = b.dataset.k;
+        if (k === 'unlock') { togglePanel(false); gearEl.classList.remove('show'); idleT = 0; showVeil(); return; }
         if (k === 'again') {
           ctx.fruits?.reset?.();
           // re-announce the first level so the name plays its fade and the
@@ -428,30 +432,80 @@ export function createHud() {
       });
     }
 
-    // ══ THE DEMO VEIL (web demo build only) ═════════════════════════════
-    // director.js emits 'demoend' once, at the page-turn the demo withholds.
-    // Same voice as the title: a veil, not a wall — the world keeps playing
-    // and "keep slicing" lifts it. The CTA link needs pointer-events while
-    // the veil itself takes none, so the blade keeps working underneath.
-    c.bus.on('demoend', () => {
+    // ══ THE VEIL ═══════════════════════════════════════════════════════════
+    // director.js emits 'demoend' once per session, at the page-turn it
+    // withholds while the day is not owned. Same voice as the title: a veil,
+    // not a wall — the world keeps playing and "keep slicing" lifts it. The
+    // CTA needs pointer-events while the veil itself takes none, so the
+    // blade keeps working underneath. Two faces of the same element:
+    //   - the web demo: a link to the App Store (or "coming soon");
+    //   - the shell (1.2): "unlock the full game · $2.99" (StoreKit's
+    //     localized price string) and the "restore purchase" link Apple
+    //     requires on any paywall. Both call store.js, and the veil listens
+    //     for 'entitlement' to change its mind while it is up: a purchase or
+    //     restore turns it into a thank-you that lifts itself; a cancel puts
+    //     the button back; "pending" (Ask to Buy) says so.
+    let veilEl = null;
+    const showVeil = () => {
+      if (veilEl) return;
+      const S = ctx.store;
+      const shell = !!(S && S.native);
       const url = (typeof __ZS_APPSTORE_URL__ !== 'undefined' && __ZS_APPSTORE_URL__) || '';
       const el = document.createElement('div');
       el.className = 'zs-title zs-demo';
+      const buyLabel = () => `unlock the full game${S && S.price ? ` · ${S.price}` : ''}`;
       el.innerHTML =
         `<div class="zs-title-word">The orchard continues</div>`
-        + `<div class="zs-title-sub"><span>you have played three levels of ten — the rest of the day,`
-        + ` game center streaks and haptics live in the iOS app</span></div>`
-        + (url
-          ? `<a class="zs-demo-cta" href="${url}" rel="noopener">get chord cut on the app store</a>`
-          : `<div class="zs-demo-cta zs-demo-soon">coming soon to the app store</div>`)
+        + (shell
+          ? `<div class="zs-title-sub"><span>you have played three levels of ten — unlock the rest of the day,`
+            + ` once: no ads, no accounts, no tracking</span></div>`
+            + `<div class="zs-demo-cta zs-demo-buy">${buyLabel()}</div>`
+            + `<div class="zs-demo-restore">restore purchase</div>`
+          : `<div class="zs-title-sub"><span>you have played three levels of ten — the rest of the day,`
+            + ` game center streaks and haptics live in the iOS app</span></div>`
+            + (url
+              ? `<a class="zs-demo-cta" href="${url}" rel="noopener">get chord cut on the app store</a>`
+              : `<div class="zs-demo-cta zs-demo-soon">coming soon to the app store</div>`))
         + `<div class="zs-title-go zs-demo-stay">keep slicing</div>`;
       document.body.appendChild(el);
+      veilEl = el;
+      const lift = (delay) => {
+        if (veilEl !== el) return;
+        veilEl = null;
+        el.classList.add('out');
+        setTimeout(() => el.remove(), delay);
+      };
       el.querySelector('.zs-demo-stay').addEventListener('pointerdown', (ev) => {
         ev.stopPropagation();
-        el.classList.add('out');
-        setTimeout(() => el.remove(), 1000);
+        lift(1000);
       });
-    });
+      if (!shell) return;
+      const buy = el.querySelector('.zs-demo-buy');
+      const restore = el.querySelector('.zs-demo-restore');
+      const sub = el.querySelector('.zs-title-sub span');
+      buy.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); S.purchase(); });
+      restore.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); S.restore(); });
+      const off = c.bus.on('entitlement', (e) => {
+        if (veilEl !== el) { off(); return; }
+        if (e.entitled) {
+          el.querySelector('.zs-title-word').textContent = 'The whole day is yours';
+          sub.textContent = 'thank you — the orchard continues';
+          buy.remove(); restore.remove();
+          el.querySelector('.zs-demo-stay').textContent = 'keep slicing';
+          off();
+          setTimeout(() => lift(1000), 1600);
+          return;
+        }
+        if (e.busy) { buy.textContent = '…'; return; }
+        buy.textContent = buyLabel();
+        if (e.outcome === 'pending') sub.textContent = 'waiting for approval — the orchard will open when it arrives';
+        else if (e.outcome === 'restored') sub.textContent = 'no purchase found for this apple id';
+        else if (e.outcome === 'unavailable' || e.outcome === 'error') sub.textContent = 'the app store did not answer — try again in a moment';
+      });
+    };
+    c.bus.on('demoend', showVeil);
+    // the settings row goes away the moment the day is owned
+    c.bus.on('entitlement', (e) => { if (e.entitled) panelEl?.querySelector('button[data-k="unlock"]')?.remove(); });
 
     // ══ r21: THE PERSONAL-BEST WHISPER ═══════════════════════════════════════
     // Once per session, the moment the stored best is passed: thin text under
