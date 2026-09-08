@@ -380,11 +380,38 @@ export function cutGeometry(geom, plane, rindThickness = 0.055, _retry = 0) {
   }
 
   const src = { pos, nor, uvs };
+  const posG = buildGeometry(P, src), negG = buildGeometry(N, src);
   return {
-    pos: buildGeometry(P, src),
-    neg: buildGeometry(N, src),
+    pos: posG,
+    neg: negG,
     ring: ring ? ring.map((p) => new THREE.Vector3(p[0], p[1], p[2])) : null,
+    // r48i: how much of the exposed face is FLESH — cap area not carrying the
+    // dry-leaf flag (u ≥ 8) over all cap area. A swipe through the pineapple's
+    // crown alone cuts real geometry (two halves, a cap) but exposes no
+    // flesh; slicer.js scales its juice by this and skips it near zero.
+    fleshFrac: capFleshFraction(posG),
   };
+}
+
+/** Area-weighted fraction of a half's cap (group 1) whose triangles are not
+ *  leaf cross-sections (cap u < 8). 1 when there is no cap. */
+function capFleshFraction(geom) {
+  if (!geom) return 1;
+  const cap = geom.groups && geom.groups.find((g) => g.materialIndex === 1);
+  if (!cap || cap.count < 3) return 1;
+  const P = geom.getAttribute('position').array, U = geom.getAttribute('uv').array;
+  let flesh = 0, total = 0;
+  for (let i = cap.start; i + 2 < cap.start + cap.count; i += 3) {
+    const a = i * 3, b = a + 3, c = a + 6;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+    const area = Math.sqrt(cx * cx + cy * cy + cz * cz);
+    total += area;
+    const leaf = U[i * 2] >= 8 || U[(i + 1) * 2] >= 8 || U[(i + 2) * 2] >= 8;
+    if (!leaf) flesh += area;
+  }
+  return total > 0 ? flesh / total : 1;
 }
 
 /**
