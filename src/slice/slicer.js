@@ -37,6 +37,7 @@ export function createSlicer() {
   const _screen = new THREE.Vector3();
   const _localPlaneN = new THREE.Vector3();
   const _m = new THREE.Matrix4();
+  const _nl = new THREE.Vector3(), _ql = new THREE.Quaternion();   // r48j hit test
 
   /** Drain at most ONE queued cut per RENDERED FRAME, and reopen the budget for
    *  the next one.
@@ -69,7 +70,7 @@ export function createSlicer() {
         job.stroke.at.copy(job.f.pos).addScaledVector(job.stroke.plane.n, -job.off);
       }
       cutsThisTick++;
-      cut(job.f, job.stroke);
+      cut(job.f, job.stroke, job.prev);
       break;
     }
   };
@@ -151,7 +152,26 @@ export function createSlicer() {
       if (f.lastStroke === strokeId) continue;
 
       const d = plane.signed(f.pos);
-      if (Math.abs(d) > f.radius * 0.92) continue;
+      // ══ r48j: THE HIT TEST IS THE FRUIT'S BOX, NOT ITS GIRTH ═══════════════
+      // `f.radius` is the species' girth. The pineapple is 1.42× taller than
+      // it is wide and wears a crown on top, so the top of its body and the
+      // whole crown sat outside the old sphere: "you swipe through the top
+      // and it just doesn't register — it feels like a bug." Test the plane
+      // against the geometry's LOCAL bounding box instead (which the crown
+      // is part of): rotate the plane normal into the fruit's frame and
+      // compare the plane's offset at the box centre with the box's support
+      // along it. A plane that passes the box but misses the mesh is a
+      // graze, handled in cut() — and it no longer spends the stroke stamp.
+      const g = f.mesh.geometry;
+      if (!g.boundingBox) g.computeBoundingBox();
+      const bb = g.boundingBox;
+      _ql.copy(f.quat).invert();
+      _nl.copy(plane.n).applyQuaternion(_ql);
+      const bcx = (bb.min.x + bb.max.x) * 0.5, bcy = (bb.min.y + bb.max.y) * 0.5, bcz = (bb.min.z + bb.max.z) * 0.5;
+      const bhx = (bb.max.x - bb.min.x) * 0.5, bhy = (bb.max.y - bb.min.y) * 0.5, bhz = (bb.max.z - bb.min.z) * 0.5;
+      const dc = _nl.x * bcx + _nl.y * bcy + _nl.z * bcz + d;
+      const ext = Math.abs(_nl.x) * bhx + Math.abs(_nl.y) * bhy + Math.abs(_nl.z) * bhz;
+      if (Math.abs(dc) > ext * 0.95) continue;
 
       // did the *segment* (not the infinite line) actually pass over it?
       _screen.copy(f.pos).project(cam);
@@ -165,6 +185,7 @@ export function createSlicer() {
       const margin = 0.75;
       if (tt < -margin || tt > 1 + margin) continue;
 
+      const prevStroke = f.lastStroke;   // r48j: given back if the cut grazes
       f.lastStroke = strokeId;
       const at = new THREE.Vector3().copy(f.pos).addScaledVector(plane.n, -d);
       const worldSpeed = sw.speedNdc * _e.distanceTo(f.pos) * axisScale;
@@ -210,12 +231,12 @@ export function createSlicer() {
       // cut" of a deep flourish on a janky frame. The drain re-anchors the
       // plane to the fruit at the SAME offset — the cut the player earned,
       // where the fruit is now.
-      if (cutsThisTick === 0) { cutsThisTick++; cut(f, stroke); }
-      else pending.push({ f, stroke, off: d });
+      if (cutsThisTick === 0) { cutsThisTick++; cut(f, stroke, prevStroke); }
+      else pending.push({ f, stroke, off: d, prev: prevStroke });
     }
   }
 
-  function cut(f, stroke) {
+  function cut(f, stroke, prevStroke = -1) {
     // plane -> fruit local space
     _m.copy(f.mesh.matrixWorld).invert();
     const nLocal = _localPlaneN.copy(stroke.plane.n).transformDirection(_m).normalize();
@@ -243,7 +264,10 @@ export function createSlicer() {
       return;
     }
     if (CP) CP.geom.push(performance.now() - t0);
-    if (!res || !res.pos || !res.neg) { api.grazes++; return; }
+    // r48j: a graze gives the once-per-stroke stamp back, so a later segment
+    // of the same stroke (through the body, say, after one through a gap in
+    // the crown) can still cut this fruit
+    if (!res || !res.pos || !res.neg) { api.grazes++; f.lastStroke = prevStroke; return; }
 
     const halves = [];
     // ══ r14: THE CUT WAS THROWING THE HALVES OFF SCREEN ══════════════════════
