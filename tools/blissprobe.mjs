@@ -143,6 +143,9 @@ const R = await page.evaluate(() => {
   out.numStale = num();                      // r44b: must snap to 9000, not pin the stale 0
   step(1.0);
   out.abortBefore = { hold: !!ctx.blissHold, col: !!col() };
+  // r49: this run ended AT its highest (9000 → 9450, no stone), so the
+  // journey row has nothing to add and must not render
+  out.rowsRun2 = Array.from(document.querySelectorAll('.zs-bliss-row')).map((r) => r.className.replace('zs-bliss-row', '').trim().split(' ')[0]);
   ZS.clear(); step(3 * DT);
   out.abortAfter = { hold: !!ctx.blissHold, col: !!col(), bg: !!ctx.scene.backgroundNode };
 
@@ -258,6 +261,7 @@ check('…and THAT cut is in the streak the bonus is paid on (PR #32 review)',
 console.log('\n── the hold and the column (hud.js / director.js) ──');
 check('blissHold is up the moment the facts land', R.holdAtArrival);
 check('the column exists, three rows, none shown yet', R.colAtArrival && R.rowsAtArrival.join(',') === '-,-,-', R.rowsAtArrival.join(','));
+check('r49: the journey row shows only when a late stone left the final below the peak (run 1: 2100 < 4084 → shown; run 2: 9450 = peak → hidden)', R.rowsRun2.join(',') === 'bonus,alltime', R.rowsRun2.join(','));
 check('nothing is tossed under the hold', R.spawnsHeld === 0, `${R.spawnsHeld} spawns during ${R.t.on}s`);
 check('no arrival (nosound) → the sequence starts at the 6 s cap', R.t.on >= 5.9 && R.t.on <= 6.2, `${R.t.on}s`);
 // run 1 on/off · run 2's abort · run 3's page-turn aborted by run 4's clear · run 4 on/off

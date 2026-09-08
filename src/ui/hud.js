@@ -499,12 +499,16 @@ export function createHud() {
       `<div class="zs-bliss-row ${cls}"><div class="zs-bliss-k">${label}</div>`
       + `<div class="zs-bliss-v">${value}${mark ? `<span class="zs-bliss-new">${mark}</span>` : ''}</div></div>`;
     // never fabricate: no bonus row at +0 (a stone on the last slice), no
-    // all-time row before a best exists (BEST_FLOOR, score.js) — the journey
-    // row is the one line that is always true
+    // all-time row before a best exists (BEST_FLOOR, score.js). r49: with
+    // the score banked at every page turn the journey's best equals the
+    // final score unless a stone struck on the last page, so the journey
+    // row appears only when it has something to say — the higher number a
+    // late stone took (the player: "hide it when it equals the final score,
+    // keep it exactly as is when you ended lower than your highest")
     el.innerHTML =
       `<div class="zs-bliss-name">${ctx.score?.levelName || 'Dreaming of Bliss'}</div>`
       + (e.bonus > 0 ? row('bonus', 'journey bonus · 5%', `+${e.bonus}`) : '')
-      + row('journey', 'best this journey', e.journeyBest | 0)
+      + ((e.journeyBest | 0) > (e.score | 0) ? row('journey', 'best this journey', e.journeyBest | 0) : '')
       + (e.allTimeBest > 0 ? row('alltime', 'best of all time', e.allTimeBest | 0, e.newBest ? 'new' : '') : '');
     root.appendChild(el);
     const rows = Array.from(el.querySelectorAll('.zs-bliss-row'));
