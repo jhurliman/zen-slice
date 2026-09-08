@@ -4175,65 +4175,60 @@ def({
     // hook: no foam, no juice pool, no wet gloss on a leaf (matte 0.82), and
     // the sss transmission is gated below for the same reason.
     const crownCut = () => step(8.0, uv().x);
+    // r48h: where on the fruit this rim sits — the cutter writes the rim's
+    // source skin uv.y into the cap's u (0.02 bottom … 0.98 top). The rind
+    // ends at the crown base instead of crossing under the crown.
+    const topOfFruit = () => ss(0.84, 0.94, fract(uv().x));
     return fleshMaterial(this, {
       dry: () => crownCut(),
       albedo: (cc, u) => {
         const { ang, rad, q } = cc;
-        const fib = ringN(ang, 18.0, rad.mul(2.6).add(2.0)).mul(ss(0.05, 0.30, rad))
-          .add(ringN(ang, 38.0, rad.mul(4.2).add(9.0)).mul(0.6)
-            .mul(ss(0.26, 0.60, rad)).mul(u.detail)).toVar();
-        const gr = fbm2(q.mul(28.0), 2, u.detail).toVar();
-
-        // ROUND 4, case A. The fib/gr tail peaks at 1.20, so the base's budget
-        // is 0.90/1.20 = 0.75; 0.67 leaves the peak at 0.582 scene-linear.
-        // ROUND 5, case B, x0.44: 0.582 was the peak at N.L = 0.49 and 1.29 at
-        // N.L = 1. Now 0.546 at N.L = 1, and the soft ceiling in fleshMaterial
-        // takes the very top of the fib tail rather than letting it clip.
-        // r48g: cream-yellow, not gold — the reference flesh is pale and its
-        // fibres are soft (fib 0.42 → 0.22, grain 0.18 → 0.10)
-        // cream: G near R and B lifted — the flesh cap's ceiling squeezes R
-        // hardest (0.364 at this floor's k), so a cream has to be authored
-        // with G and B carrying the paleness
-        const alb = vec3(0.4000, 0.3800, 0.1700)
-          .mul(fib.mul(0.18).add(gr.mul(0.08)).add(0.88)).toVar();
-        // eye pockets: darker fibrous nodes in concentric arcs
-        alb.assign(mix(alb, vec3(0.0900, 0.0500, 0.0100), pockets(cc).mul(0.85)));
-
         const L = paLayers(cc);
         const kr = capKey();
-        alb.assign(mix(alb, vec3(0.4200, 0.4100, 0.2800)
-          .mul(rdg2(vec2(ang.mul(10.0), rad.mul(22.0)), 2).mul(0.14).add(0.92)), L.core.mul(0.85)));
-        // the rind: a yellow-green inner edge, then dark green skin (was a
-        // brown shell band under a wide darkening ring the reference lacks)
-        alb.assign(mix(alb, vec3(0.2200, 0.2400, 0.0600), L.rindEdge.mul(0.9)));
-        alb.assign(mix(alb, vec3(0.0500, 0.0900, 0.0200).mul(kr), L.shell));
-        // leaf interior: the crown's own grey-green (the skin's bract tint,
-        // shaded a touch darker — an interior face sees less light), with a
-        // little fbm so a wide blade cross-section is not a flat decal
+        // r48h, from the reference cut: the centre half is a rich juicy
+        // yellow; toward the rind it goes whiter and finely fibrous. No
+        // spokes, no star — the fibres are fine radial lines at low
+        // contrast, denser near the edge.
+        const toEdge = ss(0.35, 0.95, rad);
+        const fine = ringN(ang, 64.0, rad.mul(5.0)).mul(0.5).add(0.5)
+          .mul(ss(0.30, 0.80, rad)).mul(u.detail);
+        const gr = fbm2(q.mul(14.0), 2, u.detail).mul(0.5).add(0.5);
+        const rich = vec3(0.4700, 0.3600, 0.0900), cream = vec3(0.4300, 0.4000, 0.1900);
+        const alb = mix(rich, cream, toEdge).mul(gr.mul(0.06).add(0.97)).toVar();
+        alb.assign(mix(alb, cream.mul(1.04), fine.mul(0.35)));
+        // the core: a soft pale disc, no striations
+        alb.assign(mix(alb, vec3(0.4300, 0.4100, 0.2600), L.core.mul(0.6)));
+        // the rind: a yellow-green inner edge, then dark green skin — ending
+        // where the rim is the fruit's top (the crown base)
+        const notTop = topOfFruit().oneMinus();
+        alb.assign(mix(alb, vec3(0.0900, 0.0500, 0.0100), pockets(cc).mul(0.85).mul(notTop)));
+        alb.assign(mix(alb, vec3(0.2200, 0.2400, 0.0600), L.rindEdge.mul(0.9).mul(notTop)));
+        alb.assign(mix(alb, vec3(0.0500, 0.0900, 0.0200).mul(kr), L.shell.mul(notTop)));
+        // leaf interior: the crown's own grey-green, shaded a touch darker
         const leaf = vec3(0.1050, 0.1480, 0.0330)
           .mul(fbm2(q.mul(16.0), 2, u.detail).mul(0.30).add(0.85)).toVar();
         alb.assign(mix(alb, leaf, crownCut()));
         return alb;
       },
       relief: (cc, u) => {
-        const L = paLayers(cc);
-        // leaves are smooth inside: fade the fibre rings out across the gate
-        return ringN(cc.ang, 18.0, cc.rad.mul(2.6).add(2.0)).mul(0.85)
-          .add(fbm2(cc.q.mul(28.0), 2, u.detail).mul(0.4))
-          .sub(pockets(cc).mul(0.8)).add(L.core.mul(0.45))
+        // smooth and wet: fine fibres only, a little grain, nothing lumpy
+        return ringN(cc.ang, 64.0, cc.rad.mul(5.0)).mul(0.30).mul(ss(0.30, 0.80, cc.rad))
+          .add(fbm2(cc.q.mul(14.0), 2, u.detail).mul(0.15))
           .mul(crownCut().mul(0.85).oneMinus());
       },
       rough: (cc, u) => {
         const L = paLayers(cc);
-        return mix(u.rough, float(0.55), L.core).add(L.shell.mul(0.25));
+        // as wet as it goes: a juice-slick face, the core a touch drier,
+        // the rind matte
+        return mix(u.rough, float(0.30), L.core).add(L.shell.mul(0.35));
       },
       sssMask: (cc) => {
         const L = paLayers(cc);
         // a leaf does not glow with transmitted juice light
-        return L.shell.oneMinus().mul(L.core.mul(0.7).oneMinus())
+        return L.shell.oneMinus().mul(L.core.mul(0.6).oneMinus())
           .mul(crownCut().oneMinus());
       },
-    }, { rough: 0.50, wet: 0.45, bump: 0.0200, floor: [0.1300, 0.0770, 0.0110] });
+    }, { rough: 0.16, wet: 1.0, bump: 0.0120, floor: [0.1300, 0.0770, 0.0110] });
   },
 });
 

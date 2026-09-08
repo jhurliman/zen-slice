@@ -1014,7 +1014,10 @@ function addCap(side, R, sign) {
     const g = (m * N + i) * 3, a = B ? NB : NA;
     cP[o] = G[g]; cP[o + 1] = G[g + 1]; cP[o + 2] = G[g + 2];
     cN[o] = a[g]; cN[o + 1] = a[g + 1]; cN[o + 2] = a[g + 2];
-    cU[ou] = S.uA[i] + uOffAt(i); cU[ou + 1] = RV[m];
+    // r48h: the cap's u carries the rim's SOURCE skin uv.y (body 0.02–0.98,
+    // bottom → top; leaves > 1) plus the dry flag — no material derives the
+    // cap angle from u, so the pineapple can end its rind at the crown base
+    cU[ou] = S.uy[i] + uOffAt(i); cU[ou + 1] = RV[m];
   }
   /** same, into the skin buffer; always group B */
   function ws(m, i) {
