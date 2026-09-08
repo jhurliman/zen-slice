@@ -2246,7 +2246,10 @@ function skinMaterial(sp, body, o = {}) {
     const bloomAmt = LU.bloom.mul(mott.mul(LU.mottle).add(float(1.0).sub(LU.mottle.mul(0.5))));
     const leafBase = leafC.mul(tintV).mul(float(1.0).sub(mott.oneMinus().mul(LU.mottle).mul(0.45)));
     const E = vec3(E_KEY[0], E_KEY[1], E_KEY[2]);
-    const bloomed = mix(leafBase, LU.bloomColor.div(E), ss(LU.bloomSpan, 0.05, a.bh).mul(bloomAmt).clamp(0.0, 1.0));
+    // bloom mask: full below `span − 0.3`, fading out by `span + 0.3` (r48c —
+    // the old ss(span, 0.05, bh) faded to ZERO at the tip, so "span 1.0"
+    // half-bloomed the blade and no bloom colour could read as pale)
+    const bloomed = mix(leafBase, LU.bloomColor.div(E), ss(LU.bloomSpan.add(0.3), LU.bloomSpan.sub(0.3), a.bh).mul(bloomAmt).clamp(0.0, 1.0));
     alb.assign(mix(alb, bloomed, a.leafy));
     alb.assign(mix(alb, woodC, a.wood));
     return alb;
@@ -4118,8 +4121,8 @@ def({
       // r48: real leaves (geometry.js buildLeafCrown) — green from the root
       // like the strawberry's calyx; the shared brown-root ramp painted most
       // of a real blade brown, since its uv band starts at 1.0 at the hub
-      leafFresh: true, leafTint: [1.62, 1.60, 1.78], rib: 0.5,
-      leafBloom: 0.95, leafBloomSpan: 1.0, leafBloomColor: [0.2300, 0.2400, 0.2250], leafMottle: 1.0, leafGlow: 0.30, capK: 1.12,
+      leafFresh: true, leafTint: [1.50, 1.62, 1.42], rib: 0.5,
+      leafBloom: 0.90, leafBloomSpan: 1.0, leafBloomColor: [0.3800, 0.4500, 0.3600], leafMottle: 1.0, leafGlow: 0.30, capK: 1.12,
       // r47i: the shell GLINTS — a waxed rind under the key. Clearcoat and
       // specular up (the player: "I want light to really glint off this")
       mat: {
