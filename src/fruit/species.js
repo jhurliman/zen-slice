@@ -3859,15 +3859,15 @@ def({
 // them at runtime (window.__zsPine.set(name, value) in the harness) and the
 // shipped defaults below are what that loop settled on. Colours are linear.
 const PINE_DEFAULTS = {
-  rows: 2.30, eyeY: 0.02, eyeR: 0.50, eyeAspect: 0.95, tipY: 0.34, bractW: 0.50, bractCurve: 1.00,
-  spread: 0.50, grain: 0.22, veinMix: 0.25, eyeMix: 0.95, eyeGrad: 1.00, eyePow: 2.20,
-  rimMix: 0.90, rimLow: -0.55, rimW: 0.26, bractMix: 0.85, bractOverEye: 0.70, soft: 3.00,
-  jit: 0.80, lipMix: 0.50, lipH: 0.15, roughGold: 0.55, roughEye: 0.45, roughBract: 0.25,
-  eyeH: 0.80, bractH: 0.25, thornH: 2.00, thornW: 0.16, thornLen: 0.46,
-  gold: [0.3600, 0.2500, 0.0450], goldGreen: [0.3000, 0.2700, 0.0500],
-  vein: [0.2400, 0.1200, 0.0400], eyeGreen: [0.0800, 0.1700, 0.0200],
-  eyeYellow: [0.3600, 0.3000, 0.0600], rim: [0.0450, 0.0900, 0.0120],
-  tan: [0.2700, 0.1700, 0.0700], thorn: [0.3100, 0.2100, 0.1000],
+  rows: 2.30, skew: 0.42, eyeY: 0.02, eyeR: 0.52, eyeAspect: 0.95, tipY: 0.36, bractW: 0.50,
+  bractCurve: 1.00, spread: 0.50, grain: 0.12, veinMix: 0.25, eyeMix: 0.95, eyeGrad: 1.00,
+  eyePow: 3.50, rimMix: 0.95, rimLow: -0.55, rimW: 0.22, bractMix: 0.85, bractOverEye: 0.55,
+  soft: 3.00, jit: 0.80, lipMix: 0.40, lipH: 0.15, roughGold: 0.36, roughEye: 0.32,
+  roughBract: 0.45, eyeH: 0.80, bractH: 0.25, thornH: 1.80, thornW: 0.07, thornLen: 0.46,
+  gold: [0.4100, 0.3100, 0.0700], goldGreen: [0.3400, 0.3000, 0.0600],
+  vein: [0.2400, 0.1200, 0.0400], eyeGreen: [0.0800, 0.1900, 0.0250],
+  eyeYellow: [0.4200, 0.3300, 0.0800], rim: [0.0300, 0.0650, 0.0080],
+  tan: [0.2800, 0.1800, 0.0800], thorn: [0.3900, 0.3300, 0.2300],
 };
 // fruitlets around the barrel — a JS constant (cellPt's wrap), not a uniform
 const PINE_AROUND = 12;
@@ -3926,7 +3926,9 @@ def({
     const eyes = ({ P, lon }) => {
       const v = P.y;
       const row = v.mul(PINE.rows).add(50.0).toVar();       // positive, for floor/mod
-      const shift = floor(row).mod(2.0).mul(0.5);
+      // rows offset by `skew` cells each: 0.5 = plain hex packing, ~0.38 = the
+      // parastichy spirals a real pineapple runs on (phyllotaxis, 8/13)
+      const shift = floor(row).mul(PINE.skew);
       const p = vec2(lon.div(Math.PI * 2).add(0.5).mul(PINE_AROUND).add(shift), row).toVar();
       const c = cellPt(p, 5.0, 1.0, PINE_AROUND, 0.44);
       const ox = abs(c.off.x), oy = c.off.y;
