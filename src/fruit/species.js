@@ -2197,6 +2197,12 @@ function skinMaterial(sp, body, o = {}) {
     bloom: uniform(o.leafBloom || 0), bloomSpan: uniform(o.leafBloomSpan ?? 0.55),
     bloomColor: uniform(new THREE.Vector3(...(o.leafBloomColor || [0.11, 0.125, 0.105]))),
     mottle: uniform(o.leafMottle || 0), glow: uniform(o.leafGlow || 0),
+    // r48d: the range's two ends and its per-leaf spread — how dark the
+    // un-bloomed green goes (mottleDark), how far the bloom amount swings
+    // (mottleRange), per-blade variation from the blade's own uv.x (leafVar),
+    // and a darkening toward the hub that reads as occlusion (leafAO)
+    mottleDark: uniform(o.leafMottleDark ?? 0.45), mottleRange: uniform(o.leafMottleRange ?? 0.5),
+    leafVar: uniform(o.leafVar ?? 0.0), leafAO: uniform(o.leafAO ?? 0.0),
   };
   m.userData.leafU = LU;
   if (typeof window !== 'undefined' && sp.id === 'pineapple') {
@@ -2242,14 +2248,18 @@ function skinMaterial(sp, body, o = {}) {
     // margins stay a darker green. A low-frequency field over position drives
     // the bloom amount and darkens the leaf where the bloom thins, so the
     // rosette is three greens instead of one.
-    const mott = fbm2(vec2(f.P.x.mul(2.6).add(f.P.z.mul(1.9)), f.P.y.mul(1.7).add(f.P.z.mul(0.8))), 2, float(1.0)).mul(0.5).add(0.5).toVar();
-    const bloomAmt = LU.bloom.mul(mott.mul(LU.mottle).add(float(1.0).sub(LU.mottle.mul(0.5))));
-    const leafBase = leafC.mul(tintV).mul(float(1.0).sub(mott.oneMinus().mul(LU.mottle).mul(0.45)));
+    const field = fbm2(vec2(f.P.x.mul(2.6).add(f.P.z.mul(1.9)), f.P.y.mul(1.7).add(f.P.z.mul(0.8))), 2, float(1.0)).mul(0.5).add(0.5);
+    // per-blade: a hash of the blade's uv.x (constant along a real leaf)
+    const perLeaf = fract(sin(uv().x.mul(537.13).add(11.7)).mul(43758.5453));
+    const mott = mix(field, perLeaf, LU.leafVar).toVar();
+    const bloomAmt = LU.bloom.mul(mott.mul(LU.mottle).mul(LU.mottleRange.mul(2.0)).add(float(1.0).sub(LU.mottle.mul(LU.mottleRange))));
+    const ao = float(1.0).sub(ss(0.45, 0.0, a.bh).mul(LU.leafAO));
+    const leafBase = leafC.mul(tintV).mul(float(1.0).sub(mott.oneMinus().mul(LU.mottle).mul(LU.mottleDark))).mul(ao);
     const E = vec3(E_KEY[0], E_KEY[1], E_KEY[2]);
     // bloom mask: full below `span − 0.3`, fading out by `span + 0.3` (r48c —
     // the old ss(span, 0.05, bh) faded to ZERO at the tip, so "span 1.0"
     // half-bloomed the blade and no bloom colour could read as pale)
-    const bloomed = mix(leafBase, LU.bloomColor.div(E), ss(LU.bloomSpan.add(0.3), LU.bloomSpan.sub(0.3), a.bh).mul(bloomAmt).clamp(0.0, 1.0));
+    const bloomed = mix(leafBase, LU.bloomColor.div(E).mul(ao), ss(LU.bloomSpan.add(0.3), LU.bloomSpan.sub(0.3), a.bh).mul(bloomAmt).clamp(0.0, 1.0));
     alb.assign(mix(alb, bloomed, a.leafy));
     alb.assign(mix(alb, woodC, a.wood));
     return alb;
@@ -4122,7 +4132,8 @@ def({
       // like the strawberry's calyx; the shared brown-root ramp painted most
       // of a real blade brown, since its uv band starts at 1.0 at the hub
       leafFresh: true, leafTint: [1.50, 1.62, 1.42], rib: 0.5,
-      leafBloom: 0.90, leafBloomSpan: 1.0, leafBloomColor: [0.3800, 0.4500, 0.3600], leafMottle: 1.0, leafGlow: 0.30, capK: 1.12,
+      leafBloom: 0.90, leafBloomSpan: 1.0, leafBloomColor: [0.3600, 0.4600, 0.3400], leafMottle: 1.0, leafGlow: 0.30,
+      leafMottleDark: 0.80, leafMottleRange: 0.90, leafVar: 0.55, leafAO: 0.40, capK: 1.12,
       // r47i: the shell GLINTS — a waxed rind under the key. Clearcoat and
       // specular up (the player: "I want light to really glint off this")
       mat: {
