@@ -2192,7 +2192,11 @@ function skinMaterial(sp, body, o = {}) {
 
   m.colorNode = Fn(() => {
     const f = frame();
-    const alb = capBudget(body.albedo(f, u)).toVar();
+    // r47o `o.capK`: a per-material ceiling factor (skins have no floor, so
+    // 1 is the contract; the pineapple runs 1.12 — its yellow is the point of
+    // the fruit, and the cap squeezed R harder than G, turning every brighter
+    // gold GREENER instead of brighter)
+    const alb = capBudget(body.albedo(f, u), o.capK).toVar();
     const a = appendage();
     // per-blade value spread. `lon` is the across-blade coordinate (blades are
     // radial about +Y, so a blade occupies a narrow arc of longitude); the
@@ -3860,6 +3864,11 @@ def({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// r47o: the gold/eye colours are authored PRE-cap. capBudget's Reinhard
+// shoulder (k = 1.12 for this skin) compresses R far more than G, so a gold
+// written as (0.66, 0.335, 0.07) leaves the cap as (0.43, 0.335, 0.07) —
+// a golden yellow — where the same post-cap target authored naively came out
+// green. Invert the shoulder (see r47o) before changing these by eye.
 // r47c: the pineapple shell's tunables. Uniforms, so a tuning loop can set
 // them at runtime (window.__zsPine.set(name, value) in the harness) and the
 // shipped defaults below are what that loop settled on. Colours are linear.
@@ -3868,14 +3877,14 @@ const PINE_DEFAULTS = {
   rustC: [0.2800, 0.1000, 0.0300], rimEdge: 0.500, rows: 2.600, skew: 0.420, sheathVein: 0.200,
   blemMix: 0.080, sheathV: 0.600, creaseMix: 0.150, creaseH: 0.200, roughThorn: 0.450,
   creaseW: 0.360, eyeY: 0.040, eyeR: 0.600, eyeAspect: 0.900, tipY: 0.440, bractW: 0.600,
-  bractCurve: 0.850, spread: 0.500, grain: 0.080, veinMix: 0.060, eyeMix: 0.950, eyeGrad: 1.000,
-  eyePow: 1.300, rimMix: 1.000, rimLow: -0.450, rimW: 0.131, bractMix: 0.600, bractOverEye: 0.700,
+  bractCurve: 0.850, spread: 0.300, grain: 0.080, veinMix: 0.060, eyeMix: 0.950, eyeGrad: 1.000,
+  eyePow: 1.100, rimMix: 1.000, rimLow: -0.450, rimW: 0.131, bractMix: 0.600, bractOverEye: 0.700,
   soft: 3.000, jit: 0.800, lipMix: 0.100, lipH: 0.150, roughGold: 0.340, roughEye: 0.360,
   roughBract: 0.450, eyeH: 0.800, bractH: 0.250, thornH: 2.200, thornW: 0.050, thornLen: 0.678,
-  gold: [0.5400, 0.4600, 0.1200], goldGreen: [0.4700, 0.4400, 0.1100],
-  vein: [0.2400, 0.1400, 0.0500], eyeGreen: [0.2400, 0.3100, 0.0700],
-  eyeYellow: [0.7000, 0.6000, 0.1500], rim: [0.0393, 0.0751, 0.0113],
-  tan: [0.4200, 0.3400, 0.1500], thorn: [0.5000, 0.4500, 0.3600],
+  gold: [0.6600, 0.3350, 0.0700], goldGreen: [0.4000, 0.3300, 0.0800],
+  vein: [0.2400, 0.1400, 0.0500], eyeGreen: [0.3000, 0.3000, 0.0700],
+  eyeYellow: [1.1600, 0.3600, 0.0800], rim: [0.0393, 0.0751, 0.0113],
+  tan: [0.4600, 0.3200, 0.1500], thorn: [0.5600, 0.3800, 0.3000],
   creaseC: [0.0500, 0.0650, 0.0180],
 };
 // fruitlets around the barrel — a JS constant (cellPt's wrap), not a uniform
@@ -4059,7 +4068,7 @@ def({
       bump: 0.0220,
       // the crown: brighter grey-green, calmer ribs (the 26-per-turn rib ran
       // as striping on the device)
-      leafTint: [1.30, 1.28, 1.22], rib: 0.6, leafBloom: 0.55,
+      leafTint: [1.30, 1.28, 1.22], rib: 0.6, leafBloom: 0.55, capK: 1.12,
       // r47i: the shell GLINTS — a waxed rind under the key. Clearcoat and
       // specular up (the player: "I want light to really glint off this")
       mat: {
