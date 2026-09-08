@@ -214,10 +214,18 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    (price from StoreKit, restore line, thank-you on entitlement) plus an
    "unlock the first day" settings row, prefs carry `entitled`,
    `tools/storeprobe.mjs` (27 checks, mocked bridge). PAID_THROUGH_BUILD = 5
-   (1.1's build; re-pin if 1.1 is resubmitted). Still to do: device
-   verification (sandbox buy with debug on, offline relaunch, delete +
-   reinstall + restore), the ASC IAP + review screenshot, version 1.2 (6),
-   privacy label, the 10/1 sequencing and public copy below. Scope, in build
+   (1.1's build; re-pin if 1.1 is resubmitted). ASC IAP CREATED 9/8: Apple ID 6809980225, `org.jhurliman.chordcut.album1`,
+   "The First Day" / "Seven more levels: the rest of the day, yours to keep.",
+   $2.99 tier in 175 regions, FAMILY SHARING ON (irreversible; John's call —
+   StoreKit 2's currentEntitlements already includes family-shared
+   transactions), review notes + veil screenshot attached, status Prepare
+   for Submission — it is submitted WITH the 1.2 version ("Add for Review"
+   on the IAP page once the 1.2 version exists). The veil holds the pointer
+   (1.2e) and the ?debug level remote stops at the gate (1.2d). Still to do:
+   device verification (sandbox buy with debug on — the product now exists,
+   so the sandbox can answer; offline relaunch; delete + reinstall +
+   restore), version 1.2 (6), privacy label, the 10/1 sequencing and public
+   copy below. Scope, in build
    order:
    - **StoreKit plugin.** `ios/App/App/StoreKitPlugin.swift`, same shape as
      `GameCenterPlugin.swift` (a `CAPPlugin` registered in the shell, called
