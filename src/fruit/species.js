@@ -3874,15 +3874,15 @@ def({
 // shipped defaults below are what that loop settled on. Colours are linear.
 const PINE_DEFAULTS = {
   rustMix: 0.850, rustBottom: 0.620, rustTop: 0.080, rustR: 0.600,
-  rustC: [0.2800, 0.1000, 0.0300], rimEdge: 0.500, rows: 2.600, skew: 0.420, sheathVein: 0.200,
+  rustC: [0.2800, 0.1000, 0.0300], rimEdge: 1.000, rows: 2.600, skew: 0.420, sheathVein: 0.200,
   blemMix: 0.080, sheathV: 0.600, creaseMix: 0.150, creaseH: 0.200, roughThorn: 0.450,
   creaseW: 0.360, eyeY: 0.040, eyeR: 0.600, eyeAspect: 0.900, tipY: 0.440, bractW: 0.600,
   bractCurve: 0.850, spread: 0.300, grain: 0.080, veinMix: 0.060, eyeMix: 0.950, eyeGrad: 1.000,
-  eyePow: 1.100, rimMix: 1.000, rimLow: -0.450, rimW: 0.131, bractMix: 0.600, bractOverEye: 0.700,
+  eyePow: 1.800, rimMix: 1.000, rimLow: -0.450, rimW: 0.131, bractMix: 0.600, bractOverEye: 0.700,
   soft: 3.000, jit: 0.800, lipMix: 0.100, lipH: 0.150, roughGold: 0.340, roughEye: 0.360,
   roughBract: 0.450, eyeH: 0.800, bractH: 0.250, thornH: 2.200, thornW: 0.050, thornLen: 0.678,
   gold: [0.6600, 0.3350, 0.0700], goldGreen: [0.4000, 0.3300, 0.0800],
-  vein: [0.2400, 0.1400, 0.0500], eyeGreen: [0.3000, 0.3000, 0.0700],
+  vein: [0.2400, 0.1400, 0.0500], eyeGreen: [0.2200, 0.3300, 0.0700],
   eyeYellow: [1.1600, 0.3600, 0.0800], rim: [0.0393, 0.0751, 0.0113],
   tan: [0.4600, 0.3200, 0.1500], thorn: [0.5600, 0.3800, 0.3000],
   creaseC: [0.0500, 0.0650, 0.0180],
