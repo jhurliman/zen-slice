@@ -127,6 +127,22 @@ than G, so a naive "brighter yellow" comes out greener; the pineapple runs
 `capK: 1.12` and its colours are written by inverting the shoulder (see the
 r47o note in species.js).
 
+**The crown (r48)** is real leaves — `buildLeafCrown`, the strawberry's calyx
+builder — on a hub at the pole: six whorls of closed pillow leaves whose
+spines droop outward, about 45% of body height by design. Whorls are
+compile-time (`geometry.js`, the D variant's pineapple entry); the leaf
+shading is runtime — `window.__zsLeaf`, or `leaf.tint` / `leaf.bloom` /
+`leaf.mottle` … keys in `tools/pineloop.mjs`. Every leaf triangle is checked
+against its sheet normal at build time: on a drooping spine the strip's
+handedness flips and unverified winding leaves black culled strips.
+
+**The cut face (r48g–h).** Leaf crossings chain separately from the body's in
+`cutter.js` — a lengthwise cut grazes the leaves lying in its plane, and
+counting those open runs against the body's coverage sent every crown cut to
+the soup cap. The cap's `u` carries the rim's source skin `uv.y` (plus the
++16 dry-leaf flag), which is how the pineapple ends its rind at the crown
+base; no material derives the cap angle from `u`.
+
 ## Cutting (`src/slice/cutter.js`, `src/slice/slicer.js`)
 
 `cutGeometry(geom, plane, rindThickness)` splits a closed solid into two
