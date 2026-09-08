@@ -36,7 +36,7 @@ he plays a build, sends notes, a round ships fixes as one PR.
 **1.0 is live** (released 2026-09-05, build 3, $2.99): App Store, plus the
 web demo on GitHub Pages and itch.io. **1.1** is a minor paid release — the
 r45 journey bar (TestFlight build 4) plus quality fixes — going out in the
-launch window. **1.2 is due 2026-10-01** and changes the model — free
+launch window. **1.2 is due Thu 2026-10-01** and changes the model — free
 download, levels 1–3 free, one $2.99 non-consumable IAP unlocks the rest,
 earlier buyers grandfathered — because the App Store featuring nomination
 was filed against that update (open item 6.3). Build numbers keep counting
@@ -204,7 +204,7 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    shipped — gather-flush timing and the r38g mix — reads good; closed, the
    grid-quantization idea is not pursued.
 
-3. **1.2 — free download + $2.99 unlock, due Wed 2026-10-01 (submit by Mon 9/22).**
+3. **1.2 — free download + $2.99 unlock, due Thu 2026-10-01 (submit by Tue 9/22).**
    The featuring nomination (filed 9/7) names 10/1 as the update's release
    date, so this is a dated deliverable. Scope, in build order:
    - **StoreKit plugin.** `ios/App/App/StoreKitPlugin.swift`, same shape as
@@ -214,11 +214,24 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
      `AppStore.sync()` for Restore. One non-consumable, id
      `org.jhurliman.chordcut.full`. Methods: `status()` →
      `{entitled, price, reason}`, `purchase()`, `restore()`.
-   - **Grandfathering.** `AppTransaction.shared` → `originalAppVersion` is
-     the *build number* (CFBundleVersion) of the first install. Every build up to and including 1.1's was a paid install → entitled,
-     no purchase needed. Pin the constant (`PAID_THROUGH_BUILD`) to 1.1's
-     final build number when 1.1 ships; 1.2's first build must be strictly
-     greater. ⚠ In sandbox and
+   - **Grandfathering.** Two independent tests, either one entitles:
+     1. `AppTransaction.shared.originalAppVersion` — on iOS this is the
+        original install's *build number* (CFBundleVersion; on macOS it
+        would be the marketing version, per Apple's docs). Every build up to
+        and including 1.1's was a paid install. Pin `PAID_THROUGH_BUILD` to
+        1.1's final build number when 1.1 ships; 1.2's first build must be
+        strictly greater. Parse defensively: if the string contains a `.`
+        treat it as a marketing version and compare `< 1.2`; otherwise
+        parse the integer.
+     2. `AppTransaction.shared.originalPurchaseDate < FREE_SWITCH` where
+        `FREE_SWITCH` = 2026-10-01T00:00:00Z, the moment the ASC price
+        change is scheduled for. This closes the window Codex flagged on
+        #38: someone who pays $2.99 after 1.2 is live but before the Free
+        price propagates would otherwise carry 1.2's build number and be
+        asked to pay again. Date wins over build.
+     ⚠ In sandbox and TestFlight `originalAppVersion` is always `"1.0"` and
+     `originalPurchaseDate` is synthetic, so both branches must be tested
+     with an Xcode StoreKit configuration file, not on TestFlight. ⚠ In sandbox and
      TestFlight `originalAppVersion` is always `"1.0"`, so this branch must
      be tested with an Xcode StoreKit configuration file (set the app
      version there), not on TestFlight. Compare as an integer, not a string.
@@ -241,9 +254,12 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
      "Full Game", description, review screenshot of the veil), attach it to
      the 1.1 submission, add review notes: "Paid app transitioning to free
      with unlock; previous purchasers are entitled via
-     AppTransaction.originalAppVersion ≤ <1.1's build>." Manual release. On 10/1
-     release the build FIRST, then change the price to Free — the other
-     order gives the full game away and mis-grandfathers those installs.
+     AppTransaction.originalAppVersion ≤ <1.1's build> or originalPurchaseDate
+     before 2026-10-01." Manual release. Sequencing on 10/1: **schedule the
+     price change to Free in ASC for 00:00 10/1**, then release 1.2 the
+     next morning after confirming the listing shows Free. The reverse
+     order (build first, price second) is the one that charges people twice;
+     a few hours of the full 1.1 at $0 is the cheaper failure.
    - **Verify on device before submitting:** buy in sandbox, kill the app,
      relaunch offline (entitled), delete + reinstall + Restore, and the
      Reduce Motion clause the press kit makes (untested on the iPhone build
