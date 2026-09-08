@@ -105,6 +105,28 @@ units** and carves real relief at the seams. Rocks are a `noCut` species with
 a per-instance crack uniform (`_zsDamage`) — their per-instance materials are
 disposed on retirement.
 
+### The pineapple shell (r47)
+
+Rebuilt against a reference photo through a render-and-measure loop. Each
+fruitlet is an **eye** (a rounded disc with a dark green ring, radial
+striations, and a green-to-gold gradient to its centre) under a **bract
+sheath** (a tan diamond rising to a pale thorn); the row below's eyes are
+evaluated too, so they rise into each cell's corners like scales; rows run
+on a parastichy spiral; per-cell rust stains grow denser toward the base.
+Every colour and shape is a uniform (`PINE_DEFAULTS` / `window.__zsPine`):
+
+```sh
+node tools/pineloop.mjs --cands cands.json --out /tmp    # render candidates, no rebuild
+python3 tools/pngstats.py /tmp/pine-x.png 0.30 0.75 dark # shell hue / sat / value
+```
+
+Two things to know before tuning it by eye. The rings are composited
+**above** both eye interiors, or overlapping eyes erase them. And the gold is
+authored **pre-cap**: `capBudget`'s per-channel shoulder squeezes R harder
+than G, so a naive "brighter yellow" comes out greener; the pineapple runs
+`capK: 1.12` and its colours are written by inverting the shoulder (see the
+r47o note in species.js).
+
 ## Cutting (`src/slice/cutter.js`, `src/slice/slicer.js`)
 
 `cutGeometry(geom, plane, rindThickness)` splits a closed solid into two
