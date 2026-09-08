@@ -3975,9 +3975,12 @@ function pineTune() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function paLayers(cc) {
+  // r48g, from the reference cut: a paler core to ~0.28 of the radius, a
+  // thin DARK GREEN rind (~4% of the radius) with a yellow-green inner edge
   return {
-    core: ss(0.24, 0.06, cc.rad).toVar(),
-    shell: ss(0.930, 0.985, cc.rad),
+    core: ss(0.30, 0.10, cc.rad).toVar(),
+    shell: ss(0.945, 0.965, cc.rad),
+    rindEdge: ss(0.905, 0.925, cc.rad).mul(ss(0.965, 0.945, cc.rad)),
   };
 }
 
@@ -4155,7 +4158,8 @@ def({
     const pockets = (cc) => {
       const p = vec2(cc.aN.mul(14.0), cc.rad.mul(4.5)).toVar();
       const c = cellPt(p, 7.0, 0.8, 14);
-      const band = ss(0.22, 0.34, cc.rad).mul(ss(0.78, 0.90, cc.rad).oneMinus());
+      // r48g: the pits sit along the RIND on the reference, not mid-flesh
+      const band = ss(0.84, 0.90, cc.rad).mul(ss(0.99, 0.95, cc.rad));
       return blob(c.d, 0.20, 0.40).mul(step(0.30, c.id)).mul(band).mul(cellFade(p)).toVar();
     };
     // r37 — THE CROWN CUT. A lengthwise slice runs through the crown, and the
@@ -4185,18 +4189,24 @@ def({
         // ROUND 5, case B, x0.44: 0.582 was the peak at N.L = 0.49 and 1.29 at
         // N.L = 1. Now 0.546 at N.L = 1, and the soft ceiling in fleshMaterial
         // takes the very top of the fib tail rather than letting it clip.
-        const alb = vec3(0.2948, 0.1989, 0.0286)
-          .mul(fib.mul(0.42).add(gr.mul(0.18)).add(0.80)).toVar();
+        // r48g: cream-yellow, not gold — the reference flesh is pale and its
+        // fibres are soft (fib 0.42 → 0.22, grain 0.18 → 0.10)
+        // cream: G near R and B lifted — the flesh cap's ceiling squeezes R
+        // hardest (0.364 at this floor's k), so a cream has to be authored
+        // with G and B carrying the paleness
+        const alb = vec3(0.4000, 0.3800, 0.1700)
+          .mul(fib.mul(0.18).add(gr.mul(0.08)).add(0.88)).toVar();
         // eye pockets: darker fibrous nodes in concentric arcs
-        alb.assign(mix(alb, vec3(0.1232, 0.0616, 0.0092), pockets(cc).mul(0.80)));
+        alb.assign(mix(alb, vec3(0.0900, 0.0500, 0.0100), pockets(cc).mul(0.85)));
 
         const L = paLayers(cc);
         const kr = capKey();
-        alb.assign(mix(alb, vec3(0.3080, 0.2825, 0.1668)
-          .mul(rdg2(vec2(ang.mul(10.0), rad.mul(22.0)), 2).mul(0.26).add(0.86)), L.core.mul(0.90)));
-        alb.mulAssign(ss(0.790, 0.872, rad).mul(ss(0.872, 0.930, rad).oneMinus())
-          .mul(0.44).oneMinus());
-        alb.assign(mix(alb, vec3(0.1452, 0.0792, 0.0132).mul(kr), L.shell));
+        alb.assign(mix(alb, vec3(0.4200, 0.4100, 0.2800)
+          .mul(rdg2(vec2(ang.mul(10.0), rad.mul(22.0)), 2).mul(0.14).add(0.92)), L.core.mul(0.85)));
+        // the rind: a yellow-green inner edge, then dark green skin (was a
+        // brown shell band under a wide darkening ring the reference lacks)
+        alb.assign(mix(alb, vec3(0.2200, 0.2400, 0.0600), L.rindEdge.mul(0.9)));
+        alb.assign(mix(alb, vec3(0.0500, 0.0900, 0.0200).mul(kr), L.shell));
         // leaf interior: the crown's own grey-green (the skin's bract tint,
         // shaded a touch darker — an interior face sees less light), with a
         // little fbm so a wide blade cross-section is not a flat decal
@@ -4223,7 +4233,7 @@ def({
         return L.shell.oneMinus().mul(L.core.mul(0.7).oneMinus())
           .mul(crownCut().oneMinus());
       },
-    }, { rough: 0.32, wet: 0.95, bump: 0.0298, floor: [0.1300, 0.0770, 0.0110] });
+    }, { rough: 0.50, wet: 0.45, bump: 0.0200, floor: [0.1300, 0.0770, 0.0110] });
   },
 });
 
