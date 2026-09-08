@@ -3864,6 +3864,7 @@ def({
 // them at runtime (window.__zsPine.set(name, value) in the harness) and the
 // shipped defaults below are what that loop settled on. Colours are linear.
 const PINE_DEFAULTS = {
+  rustMix: 0.85, rustBottom: 0.62, rustTop: 0.08, rustR: 0.60, rustC: [0.2800, 0.1000, 0.0300],
   rimEdge: 0.50, rows: 2.60, skew: 0.42, sheathVein: 0.20, blemMix: 0.08, sheathV: 0.60,
   creaseMix: 0.15, creaseH: 0.20, roughThorn: 0.45, creaseW: 0.36, eyeY: 0.04, eyeR: 0.60,
   eyeAspect: 0.90, tipY: 0.44, bractW: 0.60, bractCurve: 0.85, spread: 0.50, grain: 0.08,
@@ -3873,7 +3874,7 @@ const PINE_DEFAULTS = {
   thornW: 0.05, thornLen: 0.50, gold: [0.5000, 0.4200, 0.1000],
   goldGreen: [0.4200, 0.4000, 0.0900], vein: [0.2400, 0.1400, 0.0500],
   eyeGreen: [0.1300, 0.2300, 0.0450], eyeYellow: [0.5200, 0.4400, 0.1100],
-  rim: [0.0230, 0.0470, 0.0060], tan: [0.4200, 0.3400, 0.1500], thorn: [0.5000, 0.4500, 0.3600],
+  rim: [0.0320, 0.0620, 0.0090], tan: [0.4200, 0.3400, 0.1500], thorn: [0.5000, 0.4500, 0.3600],
   creaseC: [0.0500, 0.0650, 0.0180],
 };
 // fruitlets around the barrel — a JS constant (cellPt's wrap), not a uniform
@@ -3988,8 +3989,21 @@ def({
       // cell's sides, where the sheath folds over the fruitlet (the player:
       // "touching the top of the adjacent hexes from the lower row")
       const crease = ss(0.045, 0.012, oy.sub(tBot).abs()).mul(ss(PINE.creaseW, PINE.creaseW.mul(0.5), ox)).toVar();
+      // r47l: RUST. Some cells carry a rich reddish-brown patch — scuffing,
+      // damage, ripening — more of them toward the base of the fruit. A
+      // per-cell coin flip against a chance that rises bottom-up, and inside
+      // a hit cell a soft blob offset from the centre by another hash,
+      // mottled by fbm so it is a stain, not a disc. This is what breaks the
+      // "perfect geometry" read of a tiled shell.
+      const t0 = v.mul(0.26).add(0.5).clamp(0.0, 1.0);
+      const pr = fract(c.id.mul(13.71).add(0.37));
+      const chance = mix(PINE.rustBottom, PINE.rustTop, t0);
+      const hit = ss(chance.add(0.06), chance.sub(0.06), pr).toVar();
+      const rx = fract(c.id.mul(5.17)).sub(0.5).mul(0.5), ry = fract(c.id.mul(9.31)).sub(0.5).mul(0.5);
+      const blob = ss(PINE.rustR, PINE.rustR.mul(0.3), length(vec2(c.off.x.sub(rx), oy.sub(ry).mul(1.2)))).toVar();
+      const rust = hit.mul(blob).toVar();
       return { eye: own.eye, rim: own.rim, stria: own.stria, core: own.core, below,
-        bract: inside, thorn, lip, crease, id: c.id, fade: cellFade(p).toVar(), v, p };
+        bract: inside, thorn, lip, crease, rust, id: c.id, fade: cellFade(p).toVar(), v, p };
     };
     const grain = (f, u, k) => fbm2(vec2(f.P.x.add(f.P.y), f.P.z.sub(f.P.y)).mul(k), 2, u.detail);
     return skinMaterial(this, {
@@ -4023,12 +4037,16 @@ def({
         alb.assign(mix(alb, tan, e.bract.mul(mix(PINE.bractMix, PINE.bractOverEye, e.eye))));
         alb.assign(mix(alb, PINE.creaseC, e.crease.mul(PINE.creaseMix)));
         alb.assign(mix(alb, PINE.thorn, max(e.thorn, e.lip.mul(PINE.lipMix)).mul(0.9)));
+        // rust stains ON TOP of eye, flat and sheath alike (the sheath used to
+        // paint over them — the reference's brown patches sit on the bracts too)
+        const mott = fbm2(vec2(f.P.x.mul(7.0).add(f.P.z.mul(5.0)), f.P.y.mul(9.0)), 2, u.detail).mul(0.5).add(0.5);
+        alb.assign(mix(alb, PINE.rustC.mul(mott.mul(0.5).add(0.6)), e.rust.mul(PINE.rustMix).mul(mott.mul(0.6).add(0.55)).mul(e.thorn.oneMinus())));
         // scuffs and blemishes: sparse low-frequency brown patches on the flats
         const blem = ss(0.55, 0.85, fbm2(vec2(f.P.x.mul(2.2).add(f.P.z.mul(1.7)), f.P.y.mul(2.6)), 2, u.detail).mul(0.5).add(0.5)).mul(max(e.eye, e.below.eye).oneMinus()).toVar();
         alb.assign(mix(alb, PINE.vein.mul(0.8), blem.mul(PINE.blemMix)));
         return mix(mix(gold, PINE.tan, 0.35), alb, e.fade);
       },
-      rough: (f) => { const e = eyes(f); return mix(mix(PINE.roughGold, PINE.roughEye, max(e.eye, e.below.eye)).add(e.bract.mul(PINE.roughBract)), PINE.roughThorn, e.thorn); },
+      rough: (f) => { const e = eyes(f); return mix(mix(PINE.roughGold, PINE.roughEye, max(e.eye, e.below.eye)).add(e.bract.mul(PINE.roughBract)).add(e.rust.mul(0.25)), PINE.roughThorn, e.thorn); },
       relief: (f, u) => {
         const e = eyes(f);
         return max(e.eye, e.below.eye).mul(PINE.eyeH).sub(max(e.rim, e.below.rim).mul(0.2)).add(e.stria.mul(0.12))
