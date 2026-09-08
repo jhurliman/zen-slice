@@ -2199,6 +2199,10 @@ function skinMaterial(sp, body, o = {}) {
     // second argument drifts with height so one blade is not a constant stripe.
     // ringN is angle-periodic, so there is no seam at +-PI on the crown either.
     const vary = ringN(f.lon, 11.0, a.y.mul(2.2)).toVar();
+    // r47c `o.leafTint`: a per-material multiplier on the foliage colour —
+    // the pineapple crown on the reference is a brighter, greyer green than
+    // plate-01's, and its blades are broad enough to want it
+    const tintV = o.leafTint ? vec3(o.leafTint[0], o.leafTint[1], o.leafTint[2]) : vec3(1.0, 1.0, 1.0);
     const leafC = (o.leafFresh
       // fresh: green from the root, no die-back straw at the tip
       ? mix(A_ROOT, A_FOLF, ss(1.030, 1.200, a.y)).mul(vary.mul(0.20).add(1.0))
@@ -2209,7 +2213,7 @@ function skinMaterial(sp, body, o = {}) {
     const woodC = mix(A_WUD, A_WTIP, a.sh.mul(a.sh))
       .mul(ringN(f.lon, 17.0, a.y.mul(9.0)).mul(0.22).add(1.0))
       .toVar();
-    alb.assign(mix(alb, leafC, a.leafy));
+    alb.assign(mix(alb, leafC.mul(tintV), a.leafy));
     alb.assign(mix(alb, woodC, a.wood));
     return alb;
   })();
@@ -2230,7 +2234,7 @@ function skinMaterial(sp, body, o = {}) {
     // the appendage, which is the direction real leaf veins and wood fibre run.
     const app = max(a.leafy, a.wood).toVar();
     const rib = mix(ringN(f.lon, 26.0, a.y.mul(5.0)), ringN(f.lon, 15.0, a.y.mul(11.0)), a.wood);
-    const h = mix(body.relief(f, u), rib.mul(1.35).sub(a.bh.mul(0.30)), app);
+    const h = mix(body.relief(f, u), rib.mul(1.35 * (o.rib ?? 1.0)).sub(a.bh.mul(0.30)), app);
     return zsBump(normalView, positionView, h.mul(u.bump));
   })();
   // A leaf and a dead stem have no fruit wax on them. Every skin that carries a
@@ -3851,6 +3855,37 @@ def({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// r47c: the pineapple shell's tunables. Uniforms, so a tuning loop can set
+// them at runtime (window.__zsPine.set(name, value) in the harness) and the
+// shipped defaults below are what that loop settled on. Colours are linear.
+const PINE_DEFAULTS = {
+  rows: 2.50, eyeY: 0.06, eyeR: 0.40, eyeAspect: 1.15, tipY: 0.34, bractW: 0.50, bractCurve: 1.00,
+  spread: 0.45, grain: 0.22, veinMix: 0.22, eyeMix: 0.85, rimMix: 0.80, bractMix: 0.70,
+  bractOverEye: 0.92, soft: 3.00, jit: 0.50, lipMix: 0.12, lipH: 0.15, roughGold: 0.55,
+  roughEye: 0.45, roughBract: 0.25, eyeH: 0.80, bractH: 0.25, thornH: 1.30, thornW: 0.05,
+  thornLen: 0.36, gold: [0.3500, 0.2150, 0.0350], goldGreen: [0.3000, 0.2700, 0.0500],
+  vein: [0.2400, 0.1200, 0.0400], eyeGreen: [0.2200, 0.3000, 0.0450],
+  eyeYellow: [0.3400, 0.2900, 0.0500], rim: [0.1000, 0.1800, 0.0200],
+  tan: [0.3100, 0.1900, 0.0750], thorn: [0.3700, 0.3100, 0.2000],
+};
+let _pine = null;
+function pineTune() {
+  if (_pine) return _pine;
+  const u = {};
+  for (const [k, v] of Object.entries(PINE_DEFAULTS)) {
+    u[k] = Array.isArray(v) ? uniform(new THREE.Vector3(v[0], v[1], v[2])) : uniform(v);
+  }
+  _pine = u;
+  if (typeof window !== 'undefined') {
+    window.__zsPine = {
+      set(k, v) { const x = u[k]; if (!x) return false; if (Array.isArray(v)) x.value.set(v[0], v[1], v[2]); else x.value = v; return true; },
+      get: () => Object.fromEntries(Object.entries(u).map(([k, x]) => [k, x.value.isVector3 ? [x.value.x, x.value.y, x.value.z] : x.value])),
+      defaults: PINE_DEFAULTS,
+    };
+  }
+  return u;
+}
+
 // PINEAPPLE — hexagonal eyes on the shell, fibrous rayed flesh, hard pale core.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3869,90 +3904,94 @@ def({
   shape: { squash: 1.35, lumps: 0.045, freq: 6.5 },
 
   makeSkinMaterial() {
-    // r47 — THE SHELL IS PLATES, NOT PITS. The r3 eyes were a product of two
-    // sines (8 around), which tiles the barrel in a coarse DIAMOND quilt of
-    // dark dents: the player's "visual fidelity of pineapples" complaint,
-    // and on the render it read as a corn cob. A pineapple shell is the
-    // inverse: RAISED hexagonal plates (the fruitlets), each with a flat
-    // waxy crown and a small dark bract spike at its centre, separated by
-    // narrow dark brown-green grooves — and it ripens from the base up, so
-    // the bottom is golden-orange and only the shoulder under the crown
-    // stays green. Twelve plates around, alternate rows offset half a cell
-    // (a hex packing), one-tap cellPt with a wide margin so the packing is
-    // regular-with-a-wobble rather than jittered.
-    // r47b — NOT A HONEYCOMB. The first r47 pass drew the fruitlets as hex
-    // plates with a groove network and the player's device capture read as
-    // "too geometric, not organic". His close-up of the reference says what
-    // a fruitlet actually is: the UPPER half is a soft green cushion ringed
-    // by a darker green band (halfway between a circle and a hexagon); the
-    // LOWER half is pale yellow-green and simply flows into its neighbours —
-    // there is no groove and no edge anywhere; and a dry cream bract stands
-    // up from the eye at the centre, its base flaring into a soft pale star.
-    // So: cushions and bracts on a continuous skin, every edge a gradient.
+    // r47c — THE FRUITLET, READ OFF THE REFERENCE AT FULL ZOOM. Two passes
+    // (hex plates, then soft cushions) both read as "warty" on the device,
+    // because both drew the fruitlet as a BUMP. It is not a bump. In the
+    // photo each cell is:
+    //   · a broad TAN PAPERY BRACT SHEATH covering the lower half of the cell,
+    //     spanning its full width, rising to a sharp pale thorn above the
+    //     centre — dry, fibrous, faintly veined;
+    //   · behind it the EYE: a green-yellow rounded fruitlet with fine radial
+    //     striations and a dark green rim along its upper edge, of which only
+    //     the upper crescent and shoulders show above the sheath;
+    //   · GOLD everywhere else. The whole shell is gold (reference hue median
+    //     43°, sat 0.67); green lives only in the eyes.
+    // Every colour and shape below is a UNIFORM (PINE), so tools/pineloop
+    // renders candidates without a rebuild; the defaults are the shipped
+    // values, baked from that loop.
+    const PINE = pineTune();
     const eyes = ({ P, lon }) => {
       const v = P.y;
-      const row = v.mul(2.40).add(50.0).toVar();          // positive, for floor/mod
+      const row = v.mul(PINE.rows).add(50.0).toVar();       // positive, for floor/mod
       const shift = floor(row).mod(2.0).mul(0.5);
       const p = vec2(lon.div(Math.PI * 2).add(0.5).mul(14.0).add(shift), row).toVar();
       const c = cellPt(p, 5.0, 1.0, 14, 0.44);
-      const d = c.d;
       const ox = abs(c.off.x), oy = c.off.y;
-      // the cushion sits a little above the eye; its outline is a hex norm
-      // blended half with the round one — the reference's ring shape
-      const cy = oy.sub(0.14);
-      const hd = max(ox, ox.mul(0.5).add(abs(cy).mul(0.92))).mul(0.35)
-        .add(length(vec2(ox, cy.mul(1.25))).mul(0.65)).toVar();
-      const dome = ss(0.55, 0.12, hd).toVar();                       // the soft cushion
-      const ring = ss(0.58, 0.36, hd).mul(ss(0.12, 0.34, hd)).toVar(); // its darker band
-      // the bract: a dry thorn from the eye to the top edge, wider at the base
-      const spike = ss(0.13, 0.02,
-        ox.add(ss(0.34, 0.0, oy).mul(0.10)).add(ss(0.02, -0.06, oy).mul(0.3)).add(ss(0.38, 0.52, oy).mul(0.3))).toVar();
-      // its base flares into a pale five-point star (soft, low)
-      const ang = atan(c.off.y, c.off.x);
-      const star = ss(0.34, 0.06, d.mul(cos(ang.mul(5.0)).mul(0.18).add(1.0))).toVar();
-      return {
-        dome, ring, spike, star,
-        eye: ss(0.09, 0.02, d).toVar(),
-        id: c.id, fade: cellFade(p).toVar(), v,
-      };
+      // the eye: a rounded disc a little above the cell centre
+      const ey = oy.sub(PINE.eyeY);
+      const ed = length(vec2(ox, ey.mul(PINE.eyeAspect))).toVar();
+      const eye = ss(PINE.eyeR, PINE.eyeR.sub(PINE.soft.mul(0.10)), ed).toVar();
+      const rim = ss(PINE.eyeR.add(0.06), PINE.eyeR.sub(0.04), ed)
+        .mul(ss(PINE.eyeR.sub(0.16), PINE.eyeR.sub(0.05), ed))
+        .mul(ss(-0.10, 0.12, ey)).toVar();                   // upper edge only
+      const ang = atan(ey, c.off.x);
+      const stria = sin(ang.mul(22.0)).mul(0.5).add(0.5).mul(ss(0.04, 0.16, ed)).toVar();
+      // the bract sheath: a triangle from the cell's lower edge (full width)
+      // to a thorn tip above the centre; its edge is a soft dry lip
+      // per-cell jitter: tip height and sheath width wander with the cell id
+      const j1 = c.id.sub(0.5).mul(PINE.jit), j2 = fract(c.id.mul(7.13)).sub(0.5).mul(PINE.jit);
+      const tipY = PINE.tipY.add(j1.mul(0.4)), baseY = float(-0.5);
+      const sw = PINE.soft;
+      const tri = oy.sub(baseY).div(tipY.sub(baseY)).clamp(0.0, 1.0);  // 0 base … 1 tip
+      const halfW = PINE.bractW.add(j2.mul(0.3)).mul(tri.oneMinus().pow(PINE.bractCurve)).add(0.012);
+      const inside = ss(sw.mul(0.035), sw.mul(-0.01), ox.sub(halfW)).mul(ss(-0.55, -0.45, oy)).mul(ss(tipY.add(sw.mul(0.03)), tipY.sub(sw.mul(0.03)), oy)).toVar();
+      // the thorn: a narrow spike from the eye's centre up past the sheath
+      // tip, drawn to a point — the sheath's own apex, not a knob on it
+      const tTop = tipY.add(0.06), tBot = tTop.sub(PINE.thornLen);
+      const tu = oy.sub(tBot).div(tTop.sub(tBot)).clamp(0.0, 1.0);          // 0 base … 1 point
+      const tw = PINE.thornW.mul(tu.oneMinus().mul(0.85).add(0.15));
+      const thorn = ss(sw.mul(0.03), sw.mul(-0.005), ox.sub(tw)).mul(ss(tBot.sub(0.03), tBot.add(0.03), oy)).mul(ss(tTop.add(0.02), tTop.sub(0.02), oy)).toVar();
+      const lip = inside.mul(ss(0.0, sw.mul(0.05), ox.sub(halfW).abs())).oneMinus().mul(inside).toVar();
+      return { eye, rim, stria, bract: inside, thorn, lip, id: c.id, fade: cellFade(p).toVar(), v, p };
     };
     const grain = (f, u, k) => fbm2(vec2(f.P.x.add(f.P.y), f.P.z.sub(f.P.y)).mul(k), 2, u.detail);
     return skinMaterial(this, {
       albedo: (f, u) => {
         const e = eyes(f);
-        // pale yellow-green skin, a touch more yellow at the base, green
-        // cushions everywhere; per-plate spread so no two neighbours match
         const t = e.v.mul(0.26).add(0.5).clamp(0.0, 1.0);
-        const base = ss(0.55, 0.05, t).mul(0.5).toVar();
-        const spread = e.id.sub(0.5).mul(0.3);
-        // Case B budget: flat 0.300 x 1.08 grain = 0.324 linear R; cream 0.340
-        const flat = mix(vec3(0.3000, 0.3000, 0.0700), vec3(0.3200, 0.2500, 0.0450), base)
-          .mul(grain(f, u, 9.0).mul(0.16).add(0.92)).toVar();
-        // faint pinkish-brown veins across the flats, like the photo
-        flat.assign(mix(flat, vec3(0.2200, 0.1500, 0.0800), rdg2(vec2(f.P.x.mul(6.0), f.P.y.mul(14.0)), 2).mul(0.12)));
-        const domeC = vec3(0.2000, 0.2650, 0.0600), ringC = vec3(0.1250, 0.1950, 0.0350);
-        const bractC = vec3(0.3400, 0.2950, 0.1800), eyeC = vec3(0.1000, 0.0900, 0.0300);
-        const alb = mix(flat, domeC, e.dome.mul(spread.add(0.75).clamp(0.4, 1.0))).toVar();
-        alb.assign(mix(alb, ringC, e.ring.mul(0.95)));
-        alb.assign(mix(alb, flat.mul(1.06), e.star.mul(0.6)));
-        alb.assign(mix(alb, eyeC, e.eye.mul(0.7)));
-        alb.assign(mix(alb, bractC, e.spike.mul(0.95)));
-        // sub-pixel (the far half, the small tier): settle to the skin's mean
-        return mix(mix(flat, domeC, 0.4), alb, e.fade);
+        const spread = e.id.sub(0.5).mul(PINE.spread);
+        // gold ground, a touch greener toward the crown and per-cell
+        const gold = mix(PINE.gold, PINE.goldGreen, ss(0.3, 0.95, t).mul(0.6).add(spread).clamp(0.0, 1.0))
+          .mul(grain(f, u, 9.0).mul(PINE.grain).add(float(1.0).sub(PINE.grain.mul(0.5)))).toVar();
+        // faint brown veins across the gold
+        gold.assign(mix(gold, PINE.vein, rdg2(vec2(f.P.x.mul(6.0), f.P.y.mul(14.0)), 2).mul(PINE.veinMix)));
+        // the eye: green-yellow, yellow toward its centre, striated, dark rim above
+        const eyeC = mix(PINE.eyeGreen, PINE.eyeYellow, e.stria.mul(0.35)).toVar();
+        const alb = mix(gold, eyeC, e.eye.mul(PINE.eyeMix)).toVar();
+        alb.assign(mix(alb, PINE.rim, e.rim.mul(PINE.rimMix)));
+        // the sheath over the top: tan, drier and lighter at the lip and thorn
+        const tan = PINE.tan.mul(grain(f, u, 18.0).mul(0.18).add(0.91)).toVar();
+        // the sheath is opaque where it lies over the eye (only the eye's upper
+        // crescent shows, as in the photo) and subtler over the gold
+        alb.assign(mix(alb, tan, e.bract.mul(mix(PINE.bractMix, PINE.bractOverEye, e.eye))));
+        alb.assign(mix(alb, PINE.thorn, max(e.thorn, e.lip.mul(PINE.lipMix)).mul(0.9)));
+        return mix(mix(gold, PINE.tan, 0.35), alb, e.fade);
       },
-      // waxy cushions, a slightly drier flat, a dry bract
-      rough: (f) => { const e = eyes(f); return mix(float(0.60), float(0.48), e.dome).add(e.spike.mul(0.25)); },
+      rough: (f) => { const e = eyes(f); return mix(PINE.roughGold, PINE.roughEye, e.eye).add(e.bract.mul(PINE.roughBract)); },
       relief: (f, u) => {
         const e = eyes(f);
-        // cushion up, ring as its shaded underside, bract sharp, star low
-        return e.dome.mul(1.3).sub(e.ring.mul(0.25)).add(e.spike.mul(2.4)).add(e.star.mul(0.35))
-          .sub(e.eye.mul(0.5)).mul(e.fade).add(grain(f, u, 20.0).mul(0.22));
+        return e.eye.mul(PINE.eyeH).sub(e.rim.mul(0.2)).add(e.stria.mul(0.12))
+          .add(e.bract.mul(PINE.bractH)).add(e.lip.mul(PINE.lipH)).add(e.thorn.mul(PINE.thornH))
+          .mul(e.fade).add(grain(f, u, 20.0).mul(0.2));
       },
     }, {
       bump: 0.0220,
+      // the crown: brighter grey-green, calmer ribs (the 26-per-turn rib ran
+      // as striping on the device)
+      leafTint: [1.30, 1.28, 1.22], rib: 0.6,
       mat: {
-        roughness: 0.58, sheen: 0.35, sheenColor: C('#c8a45a'), sheenRoughness: 0.6,
-        clearcoat: 0.22, clearcoatRoughness: 0.45, specularIntensity: 0.5,
+        roughness: 0.58, sheen: 0.30, sheenColor: C('#c8a45a'), sheenRoughness: 0.6,
+        clearcoat: 0.18, clearcoatRoughness: 0.5, specularIntensity: 0.5,
       },
     });
   },
