@@ -3864,17 +3864,18 @@ def({
 // them at runtime (window.__zsPine.set(name, value) in the harness) and the
 // shipped defaults below are what that loop settled on. Colours are linear.
 const PINE_DEFAULTS = {
-  rustMix: 0.85, rustBottom: 0.62, rustTop: 0.08, rustR: 0.60, rustC: [0.2800, 0.1000, 0.0300],
-  rimEdge: 0.50, rows: 2.60, skew: 0.42, sheathVein: 0.20, blemMix: 0.08, sheathV: 0.60,
-  creaseMix: 0.15, creaseH: 0.20, roughThorn: 0.45, creaseW: 0.36, eyeY: 0.04, eyeR: 0.60,
-  eyeAspect: 0.90, tipY: 0.44, bractW: 0.60, bractCurve: 0.85, spread: 0.50, grain: 0.08,
-  veinMix: 0.06, eyeMix: 0.95, eyeGrad: 1.00, eyePow: 3.00, rimMix: 1.00, rimLow: -0.45,
-  rimW: 0.18, bractMix: 0.60, bractOverEye: 0.70, soft: 3.00, jit: 0.80, lipMix: 0.10, lipH: 0.15,
-  roughGold: 0.34, roughEye: 0.36, roughBract: 0.45, eyeH: 0.80, bractH: 0.25, thornH: 2.20,
-  thornW: 0.05, thornLen: 0.50, gold: [0.5000, 0.4200, 0.1000],
-  goldGreen: [0.4200, 0.4000, 0.0900], vein: [0.2400, 0.1400, 0.0500],
-  eyeGreen: [0.1300, 0.2300, 0.0450], eyeYellow: [0.5200, 0.4400, 0.1100],
-  rim: [0.0320, 0.0620, 0.0090], tan: [0.4200, 0.3400, 0.1500], thorn: [0.5000, 0.4500, 0.3600],
+  rustMix: 0.850, rustBottom: 0.620, rustTop: 0.080, rustR: 0.600,
+  rustC: [0.2800, 0.1000, 0.0300], rimEdge: 0.500, rows: 2.600, skew: 0.420, sheathVein: 0.200,
+  blemMix: 0.080, sheathV: 0.600, creaseMix: 0.150, creaseH: 0.200, roughThorn: 0.450,
+  creaseW: 0.360, eyeY: 0.040, eyeR: 0.600, eyeAspect: 0.900, tipY: 0.440, bractW: 0.600,
+  bractCurve: 0.850, spread: 0.500, grain: 0.080, veinMix: 0.060, eyeMix: 0.950, eyeGrad: 1.000,
+  eyePow: 3.000, rimMix: 1.000, rimLow: -0.450, rimW: 0.162, bractMix: 0.600, bractOverEye: 0.700,
+  soft: 3.000, jit: 0.800, lipMix: 0.100, lipH: 0.150, roughGold: 0.340, roughEye: 0.360,
+  roughBract: 0.450, eyeH: 0.800, bractH: 0.250, thornH: 2.200, thornW: 0.050, thornLen: 0.575,
+  gold: [0.5000, 0.4200, 0.1000], goldGreen: [0.4200, 0.4000, 0.0900],
+  vein: [0.2400, 0.1400, 0.0500], eyeGreen: [0.1300, 0.2300, 0.0450],
+  eyeYellow: [0.5616, 0.4752, 0.1188], rim: [0.0336, 0.0651, 0.0095],
+  tan: [0.4200, 0.3400, 0.1500], thorn: [0.5000, 0.4500, 0.3600],
   creaseC: [0.0500, 0.0650, 0.0180],
 };
 // fruitlets around the barrel — a JS constant (cellPt's wrap), not a uniform
