@@ -146,6 +146,8 @@ let G = await page.evaluate(reachGate);
 check('the page to level 3 is withheld and demoend fired once', G.level === 2 && G.demoend === 1, JSON.stringify(G));
 let V = await page.evaluate(veil);
 check('the veil shows the price and the restore line, no App Store link', V && V.up && V.buy === 'unlock the first day · $2.99' && V.restore === true && V.link === null, JSON.stringify(V));
+R = await page.evaluate(() => { const e = document.elementFromPoint(215, 300); return { hit: e ? e.className.toString().slice(0, 40) : null, canvas: e && e.tagName === 'CANVAS' }; });
+check('while the veil is up a swipe lands on the veil, not the canvas', R.canvas === false && /zs-veil-hold|zs-title/.test(R.hit || ''), JSON.stringify(R));
 await page.evaluate(() => window.__tap('.zs-demo-buy'));
 await page.waitForTimeout(100);
 R = await page.evaluate(`(${(() => {
@@ -207,6 +209,8 @@ await page.evaluate(() => window.__tap('.zs-demo-stay'));
 await page.waitForTimeout(1200);
 V = await page.evaluate(veil);
 check('"keep slicing" lifts the veil', V === null, JSON.stringify(V));
+R = await page.evaluate(() => { const e = document.elementFromPoint(215, 300); return e ? e.tagName : null; });
+check('…and the canvas takes the pointer again', R === 'CANVAS', String(R));
 G = await page.evaluate(() => { window.__cut(); return { level: window.ZS.director.level, demoend: window.__demoend }; });
 check('still gated afterwards, and demoend does not fire again this session', G.level === 2 && G.demoend === 1, JSON.stringify(G));
 await page.evaluate(() => { window.ZS.bus.emit('demoend', {}); return window.__tap('.zs-demo-restore'); });   // the veil again (as the settings row would), then restore

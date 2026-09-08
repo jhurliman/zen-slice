@@ -487,6 +487,8 @@ html, body {
  * Reuses .zs-title (veil, fade, tracked caps). Only the CTA and "keep
  * slicing" take pointer events — the blade keeps working under the veil. */
 .zs-demo { z-index: 11; }
+/* 1.2: the veil holds the pointer — swipes stop at the words, not the fruit */
+.zs-veil-hold { pointer-events: auto; }
 .zs-demo .zs-title-word {
   font-size: clamp(20px, 5.6vmin, 44px);
   white-space: normal; text-align: center; max-width: 92vw;

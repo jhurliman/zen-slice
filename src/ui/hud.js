@@ -435,9 +435,13 @@ export function createHud() {
     // ══ THE VEIL ═══════════════════════════════════════════════════════════
     // director.js emits 'demoend' once per session, at the page-turn it
     // withholds while the day is not owned. Same voice as the title: a veil,
-    // not a wall — the world keeps playing and "keep slicing" lifts it. The
-    // CTA needs pointer-events while the veil itself takes none, so the
-    // blade keeps working underneath. Two faces of the same element:
+    // not a wall — the world keeps playing (fruit still flies up behind
+    // the words, beckoning) and "keep slicing" lifts it. The veil TAKES the
+    // pointer while it is up (1.2, the player: "registering swipe gameplay
+    // interactions through the overlay feels like a bug"): the blade
+    // listens on the canvas, so a veil with pointer-events catches every
+    // swipe before it can cut; the window listener audio.js needs for iOS
+    // resume still sees the tap. Two faces of the same element:
     //   - the web demo: a link to the App Store (or "coming soon");
     //   - the shell (1.2): "unlock the first day · $2.99" (StoreKit's
     //     localized price string) and the "restore purchase" link Apple
@@ -452,7 +456,7 @@ export function createHud() {
       const shell = !!(S && S.native);
       const url = (typeof __ZS_APPSTORE_URL__ !== 'undefined' && __ZS_APPSTORE_URL__) || '';
       const el = document.createElement('div');
-      el.className = 'zs-title zs-demo';
+      el.className = 'zs-title zs-demo zs-veil-hold';
       const buyLabel = () => `unlock the first day${S && S.price ? ` · ${S.price}` : ''}`;
       el.innerHTML =
         `<div class="zs-title-word">The orchard continues</div>`
