@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chord Cut — Press Kit</title>
+<title>Chord Cut Press Kit</title>
 <style>
   body { background: #0b0908; color: #f4ede2; font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif; margin: 0; }
   main { max-width: 46em; margin: 0 auto; padding: 3em 1.5em 4em; }
@@ -26,16 +26,17 @@
 <body>
 <main>
   <h1>Chord Cut</h1>
-  <p class="tagline">A zen fruit-slicing game where the cut is the note.</p>
+  <p class="tagline">A zen fruit-slicing game where every cut plays a piano chord.</p>
 
   <img class="hero" src="press/chordcut-hero.jpg" alt="A watermelon splitting along a golden blade trail, juice mid-flight">
 
   <h2>Factsheet</h2>
   <table>
     <tr><td>Developer</td><td>John Hurliman (solo)</td></tr>
-    <tr><td>Release</td><td>2026 — in App Store review</td></tr>
+    <tr><td>Release</td><td>September 5, 2026 (available now)</td></tr>
     <tr><td>Platforms</td><td>iOS 26+ (iPhone &amp; iPad) · free 3-level web demo (WebGPU browsers)</td></tr>
-    <tr><td>Price</td><td>$2.99 — no ads, no IAP, no tracking, no network</td></tr>
+    <tr><td>Price</td><td>$2.99 up front. No ads, no in-app purchases, no accounts, no tracking. Fully playable offline.</td></tr>
+    <tr><td>Length</td><td>Ten levels over about eighteen minutes, then an endless mode</td></tr>
     <tr><td>App Store</td><td><a href="https://apps.apple.com/us/app/chord-cut/id6803614537">apps.apple.com/us/app/chord-cut/id6803614537</a></td></tr>
     <tr><td>Web demo</td><td><a href="https://jhurliman.github.io/zen-slice/">jhurliman.github.io/zen-slice</a></td></tr>
     <tr><td>Source</td><td><a href="https://github.com/jhurliman/zen-slice">github.com/jhurliman/zen-slice</a> (GPLv3)</td></tr>
@@ -43,30 +44,35 @@
   </table>
 
   <h2>Description</h2>
-  <p>Chord Cut is a meditative slicing game where the blade is a musical
-  instrument. Every cut voices a piano chord from the current level's
-  palette, and the beat is inferred from the player's own slicing tempo —
-  there is no soundtrack; the player is the soundtrack. A ten-level "day
-  arc" drifts from Still Water to an endless Deep Calm coda as the harmony
-  deepens and the orchard changes.</p>
+  <p>Chord Cut is a slow fruit-slicing game where the blade is the
+  instrument. Every cut plays a piano chord from the current level's
+  palette, and the tempo follows how fast you slice. There is no backing
+  track. The player composes the soundtrack, one cut at a time. Ten levels
+  follow a day from Still Water to Night Jasmine, the harmony deepening as
+  the orchard changes, and end in Dreaming of Bliss, an endless coda with
+  the full palette.</p>
 
   <h2>What makes it interesting</h2>
   <ul>
-    <li><strong>The cut is the note.</strong> Slicing paints onto a generative
-    music system: single cuts play tones, multi-fruit cuts voice dyads,
-    triads and full chords, quantized to a beat inferred from your tempo.</li>
-    <li><strong>Everything is procedural.</strong> Every fruit, material,
-    juice droplet, light and piano note is generated on-device. The piano is
-    rendered — not sampled — in an OfflineAudioContext at launch.</li>
+    <li><strong>Every cut plays a chord.</strong> A single fruit plays a
+    tone, two fruits in one swipe play a dyad, three or more play a triad or
+    a full chord, all quantized to a beat inferred from your own tempo.</li>
+    <li><strong>Nothing is baked in.</strong> Every fruit, material, juice
+    droplet, light and piano note is generated on the device. The piano is
+    rendered at launch, not sampled. There are no image textures anywhere
+    in the game.</li>
     <li><strong>Real cutting, real juice.</strong> Fruit meshes are split
     geometrically along the swipe; the juice is a GPU fluid simulation tuned
     against high-speed photography.</li>
-    <li><strong>120 fps on ProMotion.</strong> Ships as a single
-    self-contained HTML file inside a native shell — no downloads, no
-    network, ever.</li>
+    <li><strong>One 4 MB file.</strong> The whole game ships as a single
+    self-contained HTML file inside a native shell. Nothing is downloaded
+    after install and it plays fully offline. Game Center keeps a top-score
+    leaderboard when you are online.</li>
+    <li><strong>Feels the cut.</strong> Haptics are tuned per slice and per
+    change in harmony, and Reduce Motion is respected.</li>
     <li><strong>Open source.</strong> GPLv3, with a public engineering log
-    documenting every design decision — likely the first paid slicer whose
-    entire source is public.</li>
+    that records every design decision. As far as we know it is the only
+    paid game on the App Store whose entire source is public.</li>
   </ul>
 
   <h2>Icon</h2>
@@ -76,7 +82,7 @@
   </div>
 
   <h2>Screenshots</h2>
-  <p class="note">Captured on iPhone (WebGPU, native build). Click for full size.</p>
+  <p class="note">Captured on iPhone from the native build. Click for full size.</p>
   <div class="grid">
     <a href="press/screen-1-watermelon-dyad.jpg"><img src="press/screen-1-watermelon-dyad.jpg" alt="Watermelon dyad slice"></a>
     <a href="press/screen-2-triple-slice.jpg"><img src="press/screen-2-triple-slice.jpg" alt="Triple fruit slice"></a>
@@ -87,9 +93,12 @@
   </div>
 
   <h2>About the developer</h2>
-  <p>John Hurliman is a solo developer. Chord Cut was built in the open with
-  its full engineering history — dead ends included — published in the
-  repository's <a href="https://github.com/jhurliman/zen-slice/blob/main/HANDOFF.md">engineering log</a>.</p>
+  <p>John Hurliman is a solo developer with a background in robotics
+  tooling. Chord Cut was built in the open, with its full engineering
+  history, dead ends included, published in the repository's
+  <a href="https://github.com/jhurliman/zen-slice/blob/main/HANDOFF.md">engineering log</a>.
+  The web demo runs at 120 fps on ProMotion displays; the App Store build
+  runs at 60, the ceiling WebKit sets for embedded web views.</p>
 
   <p class="note">Everything on this page may be used freely in coverage of
   Chord Cut. For anything else: <a href="mailto:john@mvi.llc">john@mvi.llc</a>.</p>
