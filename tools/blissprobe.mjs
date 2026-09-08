@@ -95,7 +95,7 @@ const R = await page.evaluate(() => {
   const s2 = slice();
   out.peakAfterLong = { score: s2, peak: ZS.score.peak, best: ZS.score.bestScore };
   ZS.bus.emit('rockhit', { at: ctx.camera.position.clone().set(0, 1, 0) });   // the stone takes the streak
-  out.afterRock = { score: ZS.score.score, peak: ZS.score.peak };
+  out.afterRock = { score: ZS.score.score, peak: ZS.score.peak, banked: ZS.score.banked };
   ZS.score.score = 2000;                     // a new streak, arriving
   step(2.5);                                 // let the readout settle on it
   spawns = 0;
@@ -165,6 +165,36 @@ const R = await page.evaluate(() => {
   step(0.3, true);
   out.natural = { level: ZS.director.level, fired: out.ev.bliss.length - nBefore, total: ZS.score.total };
 
+  // fifth run (r49): THE BANK. A real page turn (First Light → Morning Dew,
+  // gates satisfied, one real cut) must bank the score INCLUDING the turning
+  // cut; a stone then costs only what came after it.
+  ZS.clear(); step(0.2);
+  ZS.director.jumpLevel(1);
+  step(3 * DT);                              // the jump's bank settles (at 0)
+  ZS.director.sliced = 16;
+  ZS.advance(91);
+  ZS.score.score = 500; ZS.score.peak = 500;
+  out.bank = { before: ZS.score.banked };
+  const cutOnce = () => {
+    const f = ZS.spawn('watermelon');
+    f.pos.set(0, 1.2, 0); f.vel.set(0, 0.6, 0);
+    step(2 * DT, true);
+    const n = f.pos.clone().project(ctx.camera);
+    ZS.newStroke?.(); ZS.swipe(n.x - 0.8, n.y, n.x + 0.8, n.y, 12, 7);
+    step(0.3, true);
+  };
+  cutOnce();                                 // turns the page
+  out.bank.afterTurn = { level: ZS.director.level, score: ZS.score.score, banked: ZS.score.banked };
+  const pens = [];
+  const offPen = ZS.bus.on('penalty', (e) => pens.push(e.taken));
+  ZS.bus.emit('rockhit', { at: ctx.camera.position.clone().set(0, 1, 0) });   // right after the turn
+  out.bank.rockAtTurn = { score: ZS.score.score, taken: pens[0] };
+  cutOnce();                                 // earn something on the new page
+  out.bank.earned = { score: ZS.score.score, banked: ZS.score.banked };
+  ZS.bus.emit('rockhit', { at: ctx.camera.position.clone().set(0, 1, 0) });
+  offPen();
+  out.bank.rockLater = { score: ZS.score.score, banked: ZS.score.banked, peak: ZS.score.peak, taken: pens[1] };
+
   // fourth run (r45): the journey bar — director.progress and the line
   // hud.js draws from it along the bottom
   ZS.clear(); step(0.2);
@@ -204,7 +234,15 @@ console.log('\n── the facts (score.js) ──');
 const b1 = R.ev.bliss[0], b2 = R.ev.bliss[1];
 check('a slice moves the peak with the score', R.peakAfterSlice.score > 0 && R.peakAfterSlice.peak === R.peakAfterSlice.score, JSON.stringify(R.peakAfterSlice));
 check('the peak follows a long run', R.peakAfterLong.peak === R.peakAfterLong.score && R.peakAfterLong.score > 4000, JSON.stringify(R.peakAfterLong));
-check('a stone takes the streak, not the peak', R.afterRock.score === 0 && R.afterRock.peak === R.peakAfterLong.peak, JSON.stringify(R.afterRock));
+check('a stone drops the score to the bank (0 here: no page turned since the jump), not the peak', R.afterRock.score === R.afterRock.banked && R.afterRock.banked === 0 && R.afterRock.peak === R.peakAfterLong.peak, JSON.stringify(R.afterRock));
+
+console.log('\n── the bank (r49) ──');
+const B = R.bank;
+check('nothing banked before the first page turn', B.before === 0, `banked ${B.before}`);
+check('a real page turn banks the score, turning cut included', B.afterTurn.level === 2 && B.afterTurn.banked === B.afterTurn.score && B.afterTurn.score > 500, JSON.stringify(B.afterTurn));
+check('a stone right after the turn takes nothing', B.rockAtTurn.score === B.afterTurn.score && B.rockAtTurn.taken === 0, JSON.stringify(B.rockAtTurn));
+check('a cut on the new page lifts the score above the bank', B.earned.score > B.earned.banked && B.earned.banked === B.afterTurn.banked, JSON.stringify(B.earned));
+check('a stone then takes only what came after the turn; the peak stays', B.rockLater.score === B.afterTurn.banked && B.rockLater.taken === B.earned.score - B.afterTurn.banked && B.rockLater.peak === B.earned.score, JSON.stringify(B.rockLater));
 check('bliss fired once per arrival', R.ev.bliss.length === 4, `${R.ev.bliss.length} events over four runs`);
 check('bonus is 5% of the LIVE streak (2000 → +100)', b1 && b1.bonus === 100 && b1.score === 2100, JSON.stringify(b1));
 check('journey best is the session peak, not the arriving score', b1 && b1.journeyBest === R.peakAfterLong.peak, `${b1?.journeyBest} vs peak ${R.peakAfterLong.peak}`);
