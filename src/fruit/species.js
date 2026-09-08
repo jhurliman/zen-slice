@@ -3869,41 +3869,86 @@ def({
   shape: { squash: 1.35, lumps: 0.045, freq: 6.5 },
 
   makeSkinMaterial() {
+    // r47 — THE SHELL IS PLATES, NOT PITS. The r3 eyes were a product of two
+    // sines (8 around), which tiles the barrel in a coarse DIAMOND quilt of
+    // dark dents: the player's "visual fidelity of pineapples" complaint,
+    // and on the render it read as a corn cob. A pineapple shell is the
+    // inverse: RAISED hexagonal plates (the fruitlets), each with a flat
+    // waxy crown and a small dark bract spike at its centre, separated by
+    // narrow dark brown-green grooves — and it ripens from the base up, so
+    // the bottom is golden-orange and only the shoulder under the crown
+    // stays green. Twelve plates around, alternate rows offset half a cell
+    // (a hex packing), one-tap cellPt with a wide margin so the packing is
+    // regular-with-a-wobble rather than jittered.
     const eyes = ({ P, lon }) => {
       const v = P.y;
-      const jit = ringN(lon, 3.0, v.mul(2.0)).mul(0.55).toVar();
-      const h1n = sin(lon.mul(8.0).add(v.mul(5.4)).add(jit));
-      const h2n = sin(lon.mul(8.0).sub(v.mul(5.4)).sub(jit));
-      const eye = h1n.mul(h2n).mul(0.5).add(0.5).toVar();
+      // 14 plates around, ~9 rows up the barrel: on the reference photo the
+      // fruitlets are wider than tall (about 1.4:1) and nearly touch
+      const row = v.mul(2.40).add(50.0).toVar();          // positive, for floor/mod
+      const shift = floor(row).mod(2.0).mul(0.5);
+      const p = vec2(lon.div(Math.PI * 2).add(0.5).mul(14.0).add(shift), row).toVar();
+      const c = cellPt(p, 5.0, 1.0, 14, 0.44);
+      const d = c.d;
+      // a fruitlet is a HEXAGON, not a coin: a flat-top hex norm in cell
+      // space (rows are offset half a cell, so neighbours sit at ±60°) makes
+      // the plates fill the shell and leaves the grooves as a thin network
+      const ox = abs(c.off.x), oy = abs(c.off.y);
+      // (blended 70/30 with the round distance so the corners are rounded —
+      // a fruitlet is a cushion, not a honeycomb cell)
+      const hx = max(ox, ox.mul(0.5).add(oy.mul(0.92))).mul(0.7).add(d.mul(0.3)).toVar();
+      // the bract: a pale thorn rising from the eye at the plate's centre to
+      // its top edge — wider at the base, drawn to a point
+      const sy = c.off.y;
+      const spike = ss(0.11, 0.02,
+        ox.add(ss(0.34, 0.0, sy).mul(0.09)).add(ss(0.02, -0.05, sy).mul(0.3)).add(ss(0.36, 0.50, sy).mul(0.3))).toVar();
       return {
-        eye,
-        plate: ss(0.18, 0.85, eye).toVar(),
-        seam: ss(0.30, 0.02, eye).toVar(),
+        plate: ss(0.51, 0.40, hx).toVar(),    // the raised boss, out to the wall
+        top: ss(0.40, 0.18, hx).toVar(),      // its domed waxy crown
+        rim: ss(0.22, 0.38, hx).mul(ss(0.51, 0.42, hx)).toVar(),   // the lit lip
+        groove: ss(0.40, 0.55, hx).toVar(),   // the network between plates
+        spike, eye: ss(0.11, 0.03, d.add(sy.abs().mul(0.4))).toVar(),
+        id: c.id, fade: cellFade(p).toVar(), v,
       };
     };
+    const grain = (f, u, k) => fbm2(vec2(f.P.x.add(f.P.y), f.P.z.sub(f.P.y)).mul(k), 2, u.detail);
     return skinMaterial(this, {
       albedo: (f, u) => {
         const e = eyes(f);
-        // Case B. The grain tail below peaks at 1.14, so the plate colour's
-        // budget is 0.40/1.14 = 0.351: round 3's 0.42 was 20% over it even
-        // before the light was counted. 0.325 x 1.14 = 0.371 -> 0.601 linear.
-        const alb = mix(vec3(0.1250, 0.0640, 0.0155), vec3(0.3250, 0.2070, 0.0315), e.plate).toVar();
-        alb.mulAssign(fbm2(vec2(f.P.x.add(f.P.y), f.P.z.sub(f.P.y)).mul(10.0), 2, u.detail).mul(0.28).add(0.86));
-        // dry green bract tip at the centre of each plate
-        alb.assign(mix(alb, vec3(0.1400, 0.1950, 0.0360), ss(0.80, 0.99, e.eye).mul(0.75)));
-        return alb;
+        // ripens base → crown (v is ±1.9 on this body): gold-yellow below, the
+        // shoulder under the crown still green-yellow; plates spread around
+        // the gradient by their own id so no two neighbours match
+        const t = e.v.mul(0.26).add(0.5).clamp(0.0, 1.0);
+        // green comes in patches on the photo, not as a clean gradient: a
+        // low-frequency field over the shoulder gradient, then per-plate spread
+        const patch = grain(f, u, 1.6).mul(0.5).add(0.5);
+        const ripe = ss(0.15, 0.85, t).mul(0.55).add(patch.mul(0.45)).add(e.id.sub(0.5).mul(0.25)).clamp(0.0, 1.0);
+        // Case B budget: 0.320 x 1.07 grain x 1.12 rim = 0.384 linear R, under
+        // contract v5's 0.418 ceiling (the r3 plate was 0.371)
+        const gold = vec3(0.3200, 0.2100, 0.0300), green = vec3(0.1900, 0.2500, 0.0500);
+        const plateC = mix(gold, green, ripe).mul(grain(f, u, 10.0).mul(0.14).add(0.93))
+          .mul(e.rim.mul(0.12).add(1.0)).toVar();
+        // grooves are orange-brown; the bract is pale tan on a dark eye
+        const grooveC = vec3(0.1300, 0.0720, 0.0160);
+        const spikeC = vec3(0.3000, 0.2300, 0.1300), eyeC = vec3(0.0700, 0.0440, 0.0140);
+        const alb = mix(grooveC, plateC, e.plate).toVar();
+        alb.assign(mix(alb, eyeC, e.eye.mul(0.85)));
+        alb.assign(mix(alb, spikeC, e.spike.mul(0.95)));
+        // sub-pixel (the far half, the small tier): settle to the shell's mean
+        return mix(mix(grooveC, plateC, 0.7), alb, e.fade);
       },
-      rough: (f) => eyes(f).seam.mul(0.25).add(0.55),
+      // waxy plate crowns, matte grooves, a dry spike
+      rough: (f) => { const e = eyes(f); return mix(float(0.78), float(0.48), e.plate).add(e.spike.mul(0.2)); },
       relief: (f, u) => {
         const e = eyes(f);
-        return e.plate.mul(1.4).sub(e.seam.mul(2.2))
-          .add(fbm2(vec2(f.P.x.add(f.P.y), f.P.z.sub(f.P.y)).mul(20.0), 2, u.detail).mul(0.5));
+        return e.plate.mul(1.0).add(e.top.mul(0.30)).sub(e.groove.mul(1.1))
+          .sub(e.eye.mul(0.6)).add(e.spike.mul(2.8))
+          .mul(e.fade).add(grain(f, u, 20.0).mul(0.25));
       },
     }, {
-      bump: 0.0190,
+      bump: 0.0240,
       mat: {
-        roughness: 0.64, sheen: 0.35, sheenColor: C('#c8a45a'), sheenRoughness: 0.6,
-        clearcoat: 0.20, clearcoatRoughness: 0.5, specularIntensity: 0.5,
+        roughness: 0.60, sheen: 0.35, sheenColor: C('#c8a45a'), sheenRoughness: 0.6,
+        clearcoat: 0.22, clearcoatRoughness: 0.45, specularIntensity: 0.5,
       },
     });
   },
