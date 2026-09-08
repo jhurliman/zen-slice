@@ -33,9 +33,13 @@ footage (the plates in `reference/`); early rounds were scored blind against
 it by critic agents. The project now iterates in **player-feedback rounds**:
 he plays a build, sends notes, a round ships fixes as one PR.
 
-**1.0 is shipped** (2026-08): the first retail build ($2.99, App Store, plus
-the web demo on GitHub Pages and itch.io) is with Apple in review; future
-builds are 1.1, 1.2, …
+**1.0 is live** (released 2026-09-05, build 3, $2.99): App Store, plus the
+web demo on GitHub Pages and itch.io. **1.1 is due 2026-10-01** and changes
+the model — free download, levels 1–3 free, one $2.99 non-consumable IAP
+unlocks the rest, 1.0 buyers grandfathered — because the App Store featuring
+nomination was filed against that update (open item 6.3). Build numbers keep
+counting (4 = r45 journey bar, in TestFlight); marketing versions are 1.1,
+1.2, …
 
 ## 2. ⚠ THE MOST IMPORTANT LESSON
 
@@ -198,3 +202,49 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    limiter into the tanh shoulder. Verdict (on device, 1.0): the flourish as
    shipped — gather-flush timing and the r38g mix — reads good; closed, the
    grid-quantization idea is not pursued.
+
+3. **1.1 — free download + $2.99 unlock, due Wed 2026-10-01 (submit by Mon 9/22).**
+   The featuring nomination (filed 9/7) names 10/1 as the update's release
+   date, so this is a dated deliverable. Scope, in build order:
+   - **StoreKit plugin.** `ios/App/App/StoreKitPlugin.swift`, same shape as
+     `GameCenterPlugin.swift` (a `CAPPlugin` registered in the shell, called
+     from JS via `window.Capacitor.Plugins.StoreKit`). StoreKit 2 only:
+     `Product.products(for:)`, `product.purchase()`, `Transaction.currentEntitlements`,
+     `AppStore.sync()` for Restore. One non-consumable, id
+     `org.jhurliman.chordcut.full`. Methods: `status()` →
+     `{entitled, price, reason}`, `purchase()`, `restore()`.
+   - **Grandfathering.** `AppTransaction.shared` → `originalAppVersion` is
+     the *build number* (CFBundleVersion) of the first install. Builds `≤ 4`
+     were paid installs → entitled, no purchase needed. ⚠ In sandbox and
+     TestFlight `originalAppVersion` is always `"1.0"`, so this branch must
+     be tested with an Xcode StoreKit configuration file (set the app
+     version there), not on TestFlight. Compare as an integer, not a string.
+   - **The gate.** The demo gate (`director.js` DEMO GATE, `__ZS_DEMO__`)
+     already withholds the page-turn to level 3 and emits `demoend`; the
+     veil in `hud.js` already renders the CTA. Generalize: the gate fires
+     when `!entitled` — `__ZS_DEMO__` (web) *or* the native shell reporting
+     `entitled:false`. The native veil's CTA becomes "unlock the full game ·
+     $2.99" (price string from StoreKit, localized) plus a small "restore
+     purchase" link — Apple rejects paywalls without one. Entitlement is
+     read once at boot, cached in prefs so the gate is correct offline and
+     before StoreKit answers, and re-read after purchase/restore. The
+     journey bar's `JOURNEY_S` and the coda are unchanged; the gate just
+     stops the arc at level 3 as the web demo does today.
+   - **Nothing else phones home.** StoreKit talks to Apple; the "no
+     accounts, no tracking" claims stay true. The privacy label may need
+     "Purchases" added under data not linked to you — check the App Privacy
+     questionnaire when submitting.
+   - **ASC.** Create the IAP (Pricing: $2.99 tier, localized display name
+     "Full Game", description, review screenshot of the veil), attach it to
+     the 1.1 submission, add review notes: "Paid app transitioning to free
+     with unlock; previous purchasers are entitled via
+     AppTransaction.originalAppVersion ≤ 4." Manual release. On 10/1
+     release the build FIRST, then change the price to Free — the other
+     order gives the full game away and mis-grandfathers those installs.
+   - **Verify on device before submitting:** buy in sandbox, kill the app,
+     relaunch offline (entitled), delete + reinstall + Restore, and the
+     Reduce Motion clause the press kit makes (untested on the iPhone build
+     as of 9/7 — fix if the native build ignores it).
+   - **Public copy on 10/1:** press kit price row, README, itch page, store
+     description, blog addendum. Marketing side and dates: private/PLAN.md
+     "Phase 2".
