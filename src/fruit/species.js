@@ -3864,16 +3864,16 @@ def({
 // them at runtime (window.__zsPine.set(name, value) in the harness) and the
 // shipped defaults below are what that loop settled on. Colours are linear.
 const PINE_DEFAULTS = {
-  rows: 2.80, skew: 0.42, sheathVein: 0.40, blemMix: 0.15, sheathV: 0.60, creaseMix: 0.30,
-  creaseH: 0.35, roughThorn: 0.38, creaseW: 0.36, eyeY: 0.04, eyeR: 0.64, eyeAspect: 0.58,
-  tipY: 0.44, bractW: 0.60, bractCurve: 0.85, spread: 0.50, grain: 0.10, veinMix: 0.12,
-  eyeMix: 0.95, eyeGrad: 1.00, eyePow: 4.00, rimMix: 1.00, rimLow: -0.25, rimW: 0.22,
-  bractMix: 0.90, bractOverEye: 0.88, soft: 3.00, jit: 0.80, lipMix: 0.20, lipH: 0.15,
-  roughGold: 0.24, roughEye: 0.30, roughBract: 0.45, eyeH: 0.80, bractH: 0.25, thornH: 2.20,
-  thornW: 0.05, thornLen: 0.50, gold: [0.5000, 0.4100, 0.1000],
-  goldGreen: [0.4100, 0.3800, 0.0900], vein: [0.2400, 0.1400, 0.0500],
-  eyeGreen: [0.0600, 0.1500, 0.0180], eyeYellow: [0.5300, 0.4400, 0.1100],
-  rim: [0.0180, 0.0450, 0.0050], tan: [0.3400, 0.2500, 0.1000], thorn: [0.5000, 0.4500, 0.3600],
+  rimEdge: 0.50, rows: 2.60, skew: 0.42, sheathVein: 0.20, blemMix: 0.08, sheathV: 0.60,
+  creaseMix: 0.15, creaseH: 0.20, roughThorn: 0.45, creaseW: 0.36, eyeY: 0.04, eyeR: 0.64,
+  eyeAspect: 0.62, tipY: 0.44, bractW: 0.60, bractCurve: 0.85, spread: 0.50, grain: 0.08,
+  veinMix: 0.06, eyeMix: 0.95, eyeGrad: 1.00, eyePow: 3.00, rimMix: 1.00, rimLow: -0.40,
+  rimW: 0.20, bractMix: 0.60, bractOverEye: 0.70, soft: 3.00, jit: 0.80, lipMix: 0.10, lipH: 0.15,
+  roughGold: 0.34, roughEye: 0.36, roughBract: 0.45, eyeH: 0.80, bractH: 0.25, thornH: 2.20,
+  thornW: 0.05, thornLen: 0.50, gold: [0.5000, 0.4200, 0.1000],
+  goldGreen: [0.4200, 0.4000, 0.0900], vein: [0.2400, 0.1400, 0.0500],
+  eyeGreen: [0.1200, 0.2200, 0.0400], eyeYellow: [0.5200, 0.4400, 0.1100],
+  rim: [0.0150, 0.0350, 0.0040], tan: [0.4200, 0.3400, 0.1500], thorn: [0.5000, 0.4500, 0.3600],
   creaseC: [0.0500, 0.0650, 0.0180],
 };
 // fruitlets around the barrel — a JS constant (cellPt's wrap), not a uniform
@@ -3935,8 +3935,9 @@ def({
       const ey = oy.sub(PINE.eyeY);
       const ed = length(vec2(ox, ey.mul(PINE.eyeAspect))).toVar();
       const eye = ss(PINE.eyeR, PINE.eyeR.sub(PINE.soft.mul(0.10)), ed).toVar();
-      const rim = ss(PINE.eyeR.add(0.06), PINE.eyeR.sub(0.04), ed)
-        .mul(ss(PINE.eyeR.sub(PINE.rimW), PINE.eyeR.sub(PINE.rimW.mul(0.35)), ed))
+      // the ring's edges: `rimEdge` scales their softness (1 = the r47c widths)
+      const rim = ss(PINE.eyeR.add(PINE.rimEdge.mul(0.06)), PINE.eyeR.sub(PINE.rimEdge.mul(0.04)), ed)
+        .mul(ss(PINE.eyeR.sub(PINE.rimW), PINE.eyeR.sub(PINE.rimW).add(PINE.rimEdge.mul(0.10)), ed))
         .mul(ss(PINE.rimLow, PINE.rimLow.add(0.22), ey)).toVar();   // fades out toward the sheath
       const ang = atan(ey, ox);
       const stria = sin(ang.mul(22.0)).mul(0.5).add(0.5).mul(ss(0.04, 0.16, ed)).toVar();
@@ -4042,8 +4043,10 @@ def({
       mat: {
         // (0.42 clearcoat at 0.32 roughness mirrored the stage's cool ambient
         // as a blue sheen down the flank — the glint has to be the KEY, warm)
-        roughness: 0.50, sheen: 0.38, sheenColor: C('#e8c860'), sheenRoughness: 0.45,
-        clearcoat: 0.16, clearcoatRoughness: 0.45, specularIntensity: 0.7,
+        // r47j: specular and clearcoat back down — the player: "I was trying
+        // to fix albedo with specular"; the brightness has to be in the colour
+        roughness: 0.55, sheen: 0.30, sheenColor: C('#e8c860'), sheenRoughness: 0.5,
+        clearcoat: 0.10, clearcoatRoughness: 0.5, specularIntensity: 0.5,
       },
     });
   },
