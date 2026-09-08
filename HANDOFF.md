@@ -34,12 +34,13 @@ it by critic agents. The project now iterates in **player-feedback rounds**:
 he plays a build, sends notes, a round ships fixes as one PR.
 
 **1.0 is live** (released 2026-09-05, build 3, $2.99): App Store, plus the
-web demo on GitHub Pages and itch.io. **1.1 is due 2026-10-01** and changes
-the model — free download, levels 1–3 free, one $2.99 non-consumable IAP
-unlocks the rest, 1.0 buyers grandfathered — because the App Store featuring
-nomination was filed against that update (open item 6.3). Build numbers keep
-counting (4 = r45 journey bar, in TestFlight); marketing versions are 1.1,
-1.2, …
+web demo on GitHub Pages and itch.io. **1.1** is a minor paid release — the
+r45 journey bar (TestFlight build 4) plus quality fixes — going out in the
+launch window. **1.2 is due 2026-10-01** and changes the model — free
+download, levels 1–3 free, one $2.99 non-consumable IAP unlocks the rest,
+earlier buyers grandfathered — because the App Store featuring nomination
+was filed against that update (open item 6.3). Build numbers keep counting
+across versions; marketing versions are 1.1, 1.2, …
 
 ## 2. ⚠ THE MOST IMPORTANT LESSON
 
@@ -203,7 +204,7 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    shipped — gather-flush timing and the r38g mix — reads good; closed, the
    grid-quantization idea is not pursued.
 
-3. **1.1 — free download + $2.99 unlock, due Wed 2026-10-01 (submit by Mon 9/22).**
+3. **1.2 — free download + $2.99 unlock, due Wed 2026-10-01 (submit by Mon 9/22).**
    The featuring nomination (filed 9/7) names 10/1 as the update's release
    date, so this is a dated deliverable. Scope, in build order:
    - **StoreKit plugin.** `ios/App/App/StoreKitPlugin.swift`, same shape as
@@ -214,8 +215,10 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
      `org.jhurliman.chordcut.full`. Methods: `status()` →
      `{entitled, price, reason}`, `purchase()`, `restore()`.
    - **Grandfathering.** `AppTransaction.shared` → `originalAppVersion` is
-     the *build number* (CFBundleVersion) of the first install. Builds `≤ 4`
-     were paid installs → entitled, no purchase needed. ⚠ In sandbox and
+     the *build number* (CFBundleVersion) of the first install. Every build up to and including 1.1's was a paid install → entitled,
+     no purchase needed. Pin the constant (`PAID_THROUGH_BUILD`) to 1.1's
+     final build number when 1.1 ships; 1.2's first build must be strictly
+     greater. ⚠ In sandbox and
      TestFlight `originalAppVersion` is always `"1.0"`, so this branch must
      be tested with an Xcode StoreKit configuration file (set the app
      version there), not on TestFlight. Compare as an integer, not a string.
@@ -238,7 +241,7 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
      "Full Game", description, review screenshot of the veil), attach it to
      the 1.1 submission, add review notes: "Paid app transitioning to free
      with unlock; previous purchasers are entitled via
-     AppTransaction.originalAppVersion ≤ 4." Manual release. On 10/1
+     AppTransaction.originalAppVersion ≤ <1.1's build>." Manual release. On 10/1
      release the build FIRST, then change the price to Free — the other
      order gives the full game away and mis-grandfathers those installs.
    - **Verify on device before submitting:** buy in sandbox, kill the app,
@@ -248,3 +251,6 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    - **Public copy on 10/1:** press kit price row, README, itch page, store
      description, blog addendum. Marketing side and dates: private/PLAN.md
      "Phase 2".
+   - **1.1 first.** Journey bar + quality fixes ship as 1.1 (paid, same
+     listing) before any of this; 1.2 is the model change and nothing else,
+     so a review rejection on the IAP can't hold the quality fixes hostage.
