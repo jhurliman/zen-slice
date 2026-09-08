@@ -2027,10 +2027,10 @@ export const SHAPE_VARIANTS = {
         leaves: {
           rootR: 0.2, rootLift: 0.03,
           whorls: [
-            { n: 12, beta: 0.06, len: 1.55, width: 0.51, thick: 0.06, droop: 0.22, kick: 0.05, cup: 0.45, jitPhi: 0.1, jitBeta: 0.05, jitLen: 0.1 },
-            { n: 14, beta: 0.18, len: 1.75, width: 0.6, thick: 0.06, droop: 0.42, kick: 0.12, cup: 0.45, phase: 0.5, jitPhi: 0.1, jitBeta: 0.08, jitLen: 0.12 },
-            { n: 16, beta: 0.34, len: 1.65, width: 0.63, thick: 0.06, droop: 0.62, kick: 0.22, cup: 0.45, phase: 0.25, jitPhi: 0.1, jitBeta: 0.1, jitLen: 0.12 },
-            { n: 16, beta: 0.55, len: 1.3, width: 0.63, thick: 0.06, droop: 0.85, kick: 0.3, cup: 0.45, phase: 0.75, jitPhi: 0.12, jitBeta: 0.12, jitLen: 0.14 },
+            { n: 12, beta: 0.06, len: 2.170, width: 0.51, thick: 0.06, droop: 0.22, kick: 0.05, cup: 0.45, jitPhi: 0.1, jitBeta: 0.05, jitLen: 0.1 },
+            { n: 14, beta: 0.18, len: 2.450, width: 0.6, thick: 0.06, droop: 0.42, kick: 0.12, cup: 0.45, phase: 0.5, jitPhi: 0.1, jitBeta: 0.08, jitLen: 0.12 },
+            { n: 16, beta: 0.34, len: 2.310, width: 0.63, thick: 0.06, droop: 0.62, kick: 0.22, cup: 0.45, phase: 0.25, jitPhi: 0.1, jitBeta: 0.1, jitLen: 0.12 },
+            { n: 16, beta: 0.55, len: 1.820, width: 0.63, thick: 0.06, droop: 0.85, kick: 0.3, cup: 0.45, phase: 0.75, jitPhi: 0.12, jitBeta: 0.12, jitLen: 0.14 },
           ],
         },
       },
