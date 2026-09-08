@@ -304,7 +304,18 @@ export function cutGeometry(geom, plane, rindThickness = 0.055, _retry = 0) {
   const loops = ch.loops;
   let ring = null, covered = 0;
   for (let i = 0; i < loops.length; i++) covered += loops[i].length;
-  if (covered >= ch.total * 0.92 && loops.length) {
+  // r48j: a LEAF-ONLY cut (the plane crossed the crown and nothing else —
+  // possible now that the blade's hit test covers the crown). There is no
+  // body loop to chain, so this used to fall to the soup cap and paint the
+  // leaf sections as flesh at full juice. Cap the closed leaf loops with the
+  // dry-flagged fan, drop the open grazes, and report no flesh at all.
+  const leafOnly = bodySegs.length < 3 && leafSegs.length >= 3;
+  if (leafOnly) {
+    const lch = chainLoops(leafSegs);
+    for (let i = 0; i < lch.loops.length; i++) {
+      addFlatCap(P, lch.loops[i], plane, +1, 16); addFlatCap(N, lch.loops[i], plane, -1, 16);
+    }
+  } else if (covered >= ch.total * 0.92 && loops.length) {
     if (leafSegs.length >= 3) {
       const lch = chainLoops(leafSegs);
       for (let i = 0; i < lch.loops.length; i++) {
@@ -389,7 +400,7 @@ export function cutGeometry(geom, plane, rindThickness = 0.055, _retry = 0) {
     // dry-leaf flag (u ≥ 8) over all cap area. A swipe through the pineapple's
     // crown alone cuts real geometry (two halves, a cap) but exposes no
     // flesh; slicer.js scales its juice by this and skips it near zero.
-    fleshFrac: capFleshFraction(posG),
+    fleshFrac: leafOnly ? 0 : capFleshFraction(posG),
   };
 }
 
