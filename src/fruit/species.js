@@ -3880,33 +3880,39 @@ def({
     // stays green. Twelve plates around, alternate rows offset half a cell
     // (a hex packing), one-tap cellPt with a wide margin so the packing is
     // regular-with-a-wobble rather than jittered.
+    // r47b — NOT A HONEYCOMB. The first r47 pass drew the fruitlets as hex
+    // plates with a groove network and the player's device capture read as
+    // "too geometric, not organic". His close-up of the reference says what
+    // a fruitlet actually is: the UPPER half is a soft green cushion ringed
+    // by a darker green band (halfway between a circle and a hexagon); the
+    // LOWER half is pale yellow-green and simply flows into its neighbours —
+    // there is no groove and no edge anywhere; and a dry cream bract stands
+    // up from the eye at the centre, its base flaring into a soft pale star.
+    // So: cushions and bracts on a continuous skin, every edge a gradient.
     const eyes = ({ P, lon }) => {
       const v = P.y;
-      // 14 plates around, ~9 rows up the barrel: on the reference photo the
-      // fruitlets are wider than tall (about 1.4:1) and nearly touch
       const row = v.mul(2.40).add(50.0).toVar();          // positive, for floor/mod
       const shift = floor(row).mod(2.0).mul(0.5);
       const p = vec2(lon.div(Math.PI * 2).add(0.5).mul(14.0).add(shift), row).toVar();
       const c = cellPt(p, 5.0, 1.0, 14, 0.44);
       const d = c.d;
-      // a fruitlet is a HEXAGON, not a coin: a flat-top hex norm in cell
-      // space (rows are offset half a cell, so neighbours sit at ±60°) makes
-      // the plates fill the shell and leaves the grooves as a thin network
-      const ox = abs(c.off.x), oy = abs(c.off.y);
-      // (blended 70/30 with the round distance so the corners are rounded —
-      // a fruitlet is a cushion, not a honeycomb cell)
-      const hx = max(ox, ox.mul(0.5).add(oy.mul(0.92))).mul(0.7).add(d.mul(0.3)).toVar();
-      // the bract: a pale thorn rising from the eye at the plate's centre to
-      // its top edge — wider at the base, drawn to a point
-      const sy = c.off.y;
-      const spike = ss(0.11, 0.02,
-        ox.add(ss(0.34, 0.0, sy).mul(0.09)).add(ss(0.02, -0.05, sy).mul(0.3)).add(ss(0.36, 0.50, sy).mul(0.3))).toVar();
+      const ox = abs(c.off.x), oy = c.off.y;
+      // the cushion sits a little above the eye; its outline is a hex norm
+      // blended half with the round one — the reference's ring shape
+      const cy = oy.sub(0.14);
+      const hd = max(ox, ox.mul(0.5).add(abs(cy).mul(0.92))).mul(0.35)
+        .add(length(vec2(ox, cy.mul(1.25))).mul(0.65)).toVar();
+      const dome = ss(0.55, 0.12, hd).toVar();                       // the soft cushion
+      const ring = ss(0.58, 0.36, hd).mul(ss(0.12, 0.34, hd)).toVar(); // its darker band
+      // the bract: a dry thorn from the eye to the top edge, wider at the base
+      const spike = ss(0.13, 0.02,
+        ox.add(ss(0.34, 0.0, oy).mul(0.10)).add(ss(0.02, -0.06, oy).mul(0.3)).add(ss(0.38, 0.52, oy).mul(0.3))).toVar();
+      // its base flares into a pale five-point star (soft, low)
+      const ang = atan(c.off.y, c.off.x);
+      const star = ss(0.34, 0.06, d.mul(cos(ang.mul(5.0)).mul(0.18).add(1.0))).toVar();
       return {
-        plate: ss(0.51, 0.40, hx).toVar(),    // the raised boss, out to the wall
-        top: ss(0.40, 0.18, hx).toVar(),      // its domed waxy crown
-        rim: ss(0.22, 0.38, hx).mul(ss(0.51, 0.42, hx)).toVar(),   // the lit lip
-        groove: ss(0.40, 0.55, hx).toVar(),   // the network between plates
-        spike, eye: ss(0.11, 0.03, d.add(sy.abs().mul(0.4))).toVar(),
+        dome, ring, spike, star,
+        eye: ss(0.09, 0.02, d).toVar(),
         id: c.id, fade: cellFade(p).toVar(), v,
       };
     };
@@ -3914,40 +3920,38 @@ def({
     return skinMaterial(this, {
       albedo: (f, u) => {
         const e = eyes(f);
-        // ripens base → crown (v is ±1.9 on this body): gold-yellow below, the
-        // shoulder under the crown still green-yellow; plates spread around
-        // the gradient by their own id so no two neighbours match
+        // pale yellow-green skin, a touch more yellow at the base, green
+        // cushions everywhere; per-plate spread so no two neighbours match
         const t = e.v.mul(0.26).add(0.5).clamp(0.0, 1.0);
-        // green comes in patches on the photo, not as a clean gradient: a
-        // low-frequency field over the shoulder gradient, then per-plate spread
-        const patch = grain(f, u, 1.6).mul(0.5).add(0.5);
-        const ripe = ss(0.15, 0.85, t).mul(0.55).add(patch.mul(0.45)).add(e.id.sub(0.5).mul(0.25)).clamp(0.0, 1.0);
-        // Case B budget: 0.320 x 1.07 grain x 1.12 rim = 0.384 linear R, under
-        // contract v5's 0.418 ceiling (the r3 plate was 0.371)
-        const gold = vec3(0.3200, 0.2100, 0.0300), green = vec3(0.1900, 0.2500, 0.0500);
-        const plateC = mix(gold, green, ripe).mul(grain(f, u, 10.0).mul(0.14).add(0.93))
-          .mul(e.rim.mul(0.12).add(1.0)).toVar();
-        // grooves are orange-brown; the bract is pale tan on a dark eye
-        const grooveC = vec3(0.1300, 0.0720, 0.0160);
-        const spikeC = vec3(0.3000, 0.2300, 0.1300), eyeC = vec3(0.0700, 0.0440, 0.0140);
-        const alb = mix(grooveC, plateC, e.plate).toVar();
-        alb.assign(mix(alb, eyeC, e.eye.mul(0.85)));
-        alb.assign(mix(alb, spikeC, e.spike.mul(0.95)));
-        // sub-pixel (the far half, the small tier): settle to the shell's mean
-        return mix(mix(grooveC, plateC, 0.7), alb, e.fade);
+        const base = ss(0.55, 0.05, t).mul(0.5).toVar();
+        const spread = e.id.sub(0.5).mul(0.3);
+        // Case B budget: flat 0.300 x 1.08 grain = 0.324 linear R; cream 0.340
+        const flat = mix(vec3(0.3000, 0.3000, 0.0700), vec3(0.3200, 0.2500, 0.0450), base)
+          .mul(grain(f, u, 9.0).mul(0.16).add(0.92)).toVar();
+        // faint pinkish-brown veins across the flats, like the photo
+        flat.assign(mix(flat, vec3(0.2200, 0.1500, 0.0800), rdg2(vec2(f.P.x.mul(6.0), f.P.y.mul(14.0)), 2).mul(0.12)));
+        const domeC = vec3(0.2000, 0.2650, 0.0600), ringC = vec3(0.1250, 0.1950, 0.0350);
+        const bractC = vec3(0.3400, 0.2950, 0.1800), eyeC = vec3(0.1000, 0.0900, 0.0300);
+        const alb = mix(flat, domeC, e.dome.mul(spread.add(0.75).clamp(0.4, 1.0))).toVar();
+        alb.assign(mix(alb, ringC, e.ring.mul(0.95)));
+        alb.assign(mix(alb, flat.mul(1.06), e.star.mul(0.6)));
+        alb.assign(mix(alb, eyeC, e.eye.mul(0.7)));
+        alb.assign(mix(alb, bractC, e.spike.mul(0.95)));
+        // sub-pixel (the far half, the small tier): settle to the skin's mean
+        return mix(mix(flat, domeC, 0.4), alb, e.fade);
       },
-      // waxy plate crowns, matte grooves, a dry spike
-      rough: (f) => { const e = eyes(f); return mix(float(0.78), float(0.48), e.plate).add(e.spike.mul(0.2)); },
+      // waxy cushions, a slightly drier flat, a dry bract
+      rough: (f) => { const e = eyes(f); return mix(float(0.60), float(0.48), e.dome).add(e.spike.mul(0.25)); },
       relief: (f, u) => {
         const e = eyes(f);
-        return e.plate.mul(1.0).add(e.top.mul(0.30)).sub(e.groove.mul(1.1))
-          .sub(e.eye.mul(0.6)).add(e.spike.mul(2.8))
-          .mul(e.fade).add(grain(f, u, 20.0).mul(0.25));
+        // cushion up, ring as its shaded underside, bract sharp, star low
+        return e.dome.mul(1.3).sub(e.ring.mul(0.25)).add(e.spike.mul(2.4)).add(e.star.mul(0.35))
+          .sub(e.eye.mul(0.5)).mul(e.fade).add(grain(f, u, 20.0).mul(0.22));
       },
     }, {
-      bump: 0.0240,
+      bump: 0.0220,
       mat: {
-        roughness: 0.60, sheen: 0.35, sheenColor: C('#c8a45a'), sheenRoughness: 0.6,
+        roughness: 0.58, sheen: 0.35, sheenColor: C('#c8a45a'), sheenRoughness: 0.6,
         clearcoat: 0.22, clearcoatRoughness: 0.45, specularIntensity: 0.5,
       },
     });
