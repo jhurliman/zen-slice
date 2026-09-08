@@ -4132,8 +4132,8 @@ def({
       // like the strawberry's calyx; the shared brown-root ramp painted most
       // of a real blade brown, since its uv band starts at 1.0 at the hub
       leafFresh: true, leafTint: [1.50, 1.62, 1.42], rib: 0.5,
-      leafBloom: 0.90, leafBloomSpan: 1.0, leafBloomColor: [0.3600, 0.4600, 0.3400], leafMottle: 1.0, leafGlow: 0.30,
-      leafMottleDark: 0.80, leafMottleRange: 0.90, leafVar: 0.55, leafAO: 0.40, capK: 1.12,
+      leafBloom: 0.90, leafBloomSpan: 1.0, leafBloomColor: [0.3600, 0.4600, 0.3400], leafMottle: 1.0, leafGlow: 0.20,
+      leafMottleDark: 0.90, leafMottleRange: 1.00, leafVar: 0.60, leafAO: 0.50, capK: 1.12,
       // r47i: the shell GLINTS — a waxed rind under the key. Clearcoat and
       // specular up (the player: "I want light to really glint off this")
       mat: {
