@@ -433,8 +433,12 @@ export function createAudio() {
     if (e.peak) conductor.onComboPeak();
     const t = engine.now();
     // r46: no shimmer on top of a run — the two high answers (D5/E6-ish at
-    // 3.8 kHz) were the last thing a flourish needed more of
-    if (e.count >= 3 && t - lastShimmer > 0.8 && t - lastRun > 1.5) {
+    // 3.8 kHz) were the last thing a flourish needed more of. The combo
+    // event lands at CUT time, before the stroke's flush schedules its run,
+    // so "a run played recently" is not enough: a stroke still gathering
+    // three or more cuts will voice its own chord — the shimmer is only for
+    // combos built ACROSS strokes (Codex on #40).
+    if (e.count >= 3 && pending.length < 3 && t - lastShimmer > 0.8 && t - lastRun > 1.5) {
       lastShimmer = t;
       const a = harmony.noteFor('kiwi', 2);
       const b = harmony.noteFor('strawberry', 1);
@@ -607,6 +611,7 @@ export function createAudio() {
     recoveries,
     // hardware truth for the latency conversation: seconds from "we scheduled
     // it" to "the speaker moves". Read these off the device via ?debug.
+    sampleRate: engine.actx?.sampleRate ?? null,
     baseLatency: engine.actx?.baseLatency ?? null,
     outputLatency: engine.actx?.outputLatency ?? null,
     bpm: Math.round(conductor.bpm * 10) / 10,

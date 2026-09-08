@@ -55,11 +55,10 @@ const res = await page.evaluate(async ({ level, qtier }) => {
   for (let i = 0; i < 25; i++) { const s = ZS.audio.state(); peakVoices = Math.max(peakVoices, s.voicesActive); await sleep(40); }
   const pcm = await recP;
   const s1 = ZS.audio.state();
-  return { slices, liveAfterSpawn, tier, maxFruit, pcm: Array.from(pcm), harm, flushed, peakVoices, steals: s1.steals - steals0, level: s1.level, chord: s1.chord, errors: s1.errors, vd: s1.voiceDebug };
+  return { sampleRate: s1.sampleRate || 48000, slices, liveAfterSpawn, tier, maxFruit, pcm: Array.from(pcm), harm, flushed, peakVoices, steals: s1.steals - steals0, level: s1.level, chord: s1.chord, errors: s1.errors, vd: s1.voiceDebug };
 }, { level, qtier });
-const sr = await page.evaluate(() => window.ZS.audio.state().baseLatency !== undefined ? (window.AudioContext ? 48000 : 48000) : 48000);
 await browser.close(); server.close();
-const x = Float32Array.from(res.pcm); const SR = 48000;
+const x = Float32Array.from(res.pcm); const SR = res.sampleRate;
 // stats
 let peak = 0, over = 0, sumsq = 0; for (const v of x) { const a = Math.abs(v); if (a > peak) peak = a; if (a > 0.5) over++; sumsq += v * v; }
 const db = (a) => (20 * Math.log10(Math.max(1e-9, a))).toFixed(1);
