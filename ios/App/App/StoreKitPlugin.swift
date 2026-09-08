@@ -48,11 +48,22 @@ public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
 
     override public func load() {
         // Finish every transaction that arrives outside a purchase() call
-        // (Ask to Buy approvals, purchases from another device) so StoreKit
-        // stops redelivering it; the JS side re-reads status() at each boot.
-        updates = Task.detached {
+        // (Ask to Buy approvals, purchases from another device, refunds) so
+        // StoreKit stops redelivering it — and TELL THE PAGE (PR #51 review):
+        // the veil promises "the orchard will open when approval arrives",
+        // so the entitlement has to reach store.js while the app is open,
+        // not at the next boot. Emitted as the 'entitlement' plugin event;
+        // store.js listens and re-reads status() on foreground as well.
+        updates = Task.detached { [weak self] in
             for await result in Transaction.updates {
-                if case .verified(let t) = result { await t.finish() }
+                guard case .verified(let t) = result else { continue }
+                await t.finish()
+                guard t.productID == StoreKitPlugin.PRODUCT_ID, let self else { continue }
+                let entitled = t.revocationDate == nil
+                var data: [String: Any] = ["entitled": entitled, "reason": entitled ? "purchase" : "none",
+                                           "price": "", "outcome": "update"]
+                if let p = await Self.product() { data["price"] = p.displayPrice }
+                self.notifyListeners("entitlement", data: data)
             }
         }
     }

@@ -56,6 +56,7 @@ const bridge = (cfg) => {
     isNativePlatform: () => true,
     Plugins: {
       StoreKit: {
+        addListener: (name, cb) => { window.__sk.listeners = window.__sk.listeners || {}; window.__sk.listeners[name] = cb; return Promise.resolve({ remove() {} }); },
         status: (o) => { window.__sk.calls.push(['status', o]); return cfg.hang ? new Promise(() => {}) : Promise.resolve(snap()); },
         purchase: (o) => {
           window.__sk.calls.push(['purchase', o]);
@@ -211,6 +212,26 @@ await page.waitForTimeout(100);
 V = await page.evaluate(veil);
 R = await page.evaluate(() => window.ZS.ctx.store.entitled);
 check('Ask to Buy (pending) is explained, not entitled yet', V && V.up && /waiting for approval/.test(V.sub) && R === false, JSON.stringify(V));
+// the approval arrives later as the plugin's 'entitlement' event (PR #51 review)
+await page.evaluate(() => { window.__sk.entitled = true; window.__sk.listeners.entitlement({ entitled: true, reason: 'purchase', price: '$2.99', outcome: 'update' }); });
+await page.waitForTimeout(50);
+V = await page.evaluate(veil);
+R = await page.evaluate(() => ({ entitled: window.ZS.ctx.store.entitled, prefs: (JSON.parse(localStorage.getItem('zs-prefs') || '{}')).entitled }));
+check('…and when the approval arrives as a transaction update, the veil thanks and the day is owned', R.entitled === true && R.prefs === true && V && V.word === 'The whole day is yours', JSON.stringify({ R, V }));
+await page.close();
+// coming back to the foreground re-asks while not owned
+page = await open(ctxB, { entitled: false, price: '$2.99', purchase: 'cancel', restore: 'none' });
+await page.evaluate(() => { localStorage.removeItem('zs-prefs'); });
+await page.close();
+page = await open(ctxB, { entitled: false, price: '$2.99', purchase: 'cancel', restore: 'none' });
+R = await page.evaluate(async () => {
+  const before = window.__sk.calls.filter((c) => c[0] === 'status').length;
+  window.__sk.entitled = true;                       // approved while we were away
+  document.dispatchEvent(new Event('visibilitychange'));
+  await new Promise((r) => setTimeout(r, 50));
+  return { before, after: window.__sk.calls.filter((c) => c[0] === 'status').length, entitled: window.ZS.ctx.store.entitled };
+});
+check('returning to the foreground re-reads status() and picks up the entitlement', R.before === 1 && R.after === 2 && R.entitled === true, JSON.stringify(R));
 check('no page errors', page.__errs.length === 0, page.__errs.join(' | '));
 await page.close();
 await ctxB.close();

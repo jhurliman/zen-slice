@@ -77,6 +77,19 @@ export function createStore() {
     api.entitled = loadPrefs().entitled === true;
     api.reason = api.entitled ? 'cached' : 'none';
     call('status').then((s) => take(s, 'status')).catch(() => { /* cache stands */ });
+    // Transactions that complete OUTSIDE purchase() — an Ask to Buy approval,
+    // a purchase on another device, a refund — arrive as the plugin's
+    // 'entitlement' event (PR #51 review): the veil's "the orchard will open
+    // when approval arrives" is only true if this lands while the app is up.
+    try {
+      const h = plugin.addListener?.('entitlement', (s) => take(s, 'update'));
+      if (h && h.catch) h.catch(() => {});
+    } catch (_) { /* older bridge: the foreground refresh below still covers it */ }
+    // …and belt and braces: returning to the app re-asks while not owned
+    // (the approval may have happened while we were in the background).
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !api.entitled && !api.busy) api.refresh();
+    });
   };
   api.refresh = () => (plugin ? call('status').then((s) => { take(s, 'status'); return s; }).catch(() => null) : Promise.resolve(null));
   api.purchase = () => run('purchase');
