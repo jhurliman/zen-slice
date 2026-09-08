@@ -2031,7 +2031,7 @@ export const SHAPE_VARIANTS = {
             { n: 14, beta: 0.18, len: 2.45, width: 0.6, thick: 0.06, droop: 0.42, kick: 0.12, cup: 0.45, phase: 0.5, jitPhi: 0.1, jitBeta: 0.08, jitLen: 0.25 },
             { n: 16, beta: 0.34, len: 2.31, width: 0.724, thick: 0.06, droop: 0.62, kick: 0.22, cup: 0.45, phase: 0.25, jitPhi: 0.1, jitBeta: 0.1, jitLen: 0.25 },
             { n: 16, beta: 0.55, len: 1.82, width: 0.724, thick: 0.06, droop: 1.2, kick: 0.4, cup: 0.45, phase: 0.75, jitPhi: 0.12, jitBeta: 0.12, jitLen: 0.25 },
-            { n: 22, beta: 1.05, len: 0.42, width: 0.34, thick: 0.06, droop: 0.45, kick: 0.15, cup: 0.35, phase: 0.35, jitPhi: 0.14, jitBeta: 0.18, jitLen: 0.3 },
+            { n: 22, beta: 1.05, len: 0.84, width: 0.34, thick: 0.06, droop: 0.45, kick: 0.15, cup: 0.35, phase: 0.35, jitPhi: 0.14, jitBeta: 0.18, jitLen: 0.3 },
           ],
         },
       },
