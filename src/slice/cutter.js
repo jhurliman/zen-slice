@@ -287,11 +287,30 @@ export function cutGeometry(geom, plane, rindThickness = 0.055, _retry = 0) {
   if (N.empty) return { pos: geom, neg: null, ring: null };
 
   // ── Build the cut rings, then both cut faces off one shared resampling ─────
-  const ch = chainLoops(segs);
+  // r48g: LEAF CROSSINGS ARE CHAINED APART FROM THE BODY'S. The pineapple's
+  // crown is sixty thin radial leaf pillows, and a lengthwise cut plane runs
+  // along the spine of the ones lying in it — a grazing cut whose crossing
+  // runs cannot close. Counted against the body's coverage they dropped it
+  // under the 92% floor on EVERY crown cut, so the whole fruit fell to the
+  // soup cap: no rind ring, and leaf cross-sections painted as flesh with no
+  // dry flag. A crossing whose both ends carry the appendage uv band is a
+  // leaf crossing: the body chains on its own (and keeps its rich cap), the
+  // leaf runs chain separately — closed ones get the flat dry-flagged fan,
+  // open ones are dropped (a grazed leaf shows its shell, not yellow).
+  const isLeafSeg = (sg) => (sg[0][3] || 0) > 0.99 && (sg[1][3] || 0) > 0.99;
+  const bodySegs = [], leafSegs = [];
+  for (let i = 0; i < segs.length; i++) (isLeafSeg(segs[i]) ? leafSegs : bodySegs).push(segs[i]);
+  const ch = chainLoops(bodySegs);
   const loops = ch.loops;
   let ring = null, covered = 0;
   for (let i = 0; i < loops.length; i++) covered += loops[i].length;
   if (covered >= ch.total * 0.92 && loops.length) {
+    if (leafSegs.length >= 3) {
+      const lch = chainLoops(leafSegs);
+      for (let i = 0; i < lch.loops.length; i++) {
+        addFlatCap(P, lch.loops[i], plane, +1, 16); addFlatCap(N, lch.loops[i], plane, -1, 16);
+      }
+    }
     // A fruit with real surface relief gives one big loop and a scatter of tiny
     // ones around individual bumps. The tiny ones are a couple of pixels across
     // and cannot show a rind, so they get the flat fan: on the pineapple that is
@@ -995,7 +1014,10 @@ function addCap(side, R, sign) {
     const g = (m * N + i) * 3, a = B ? NB : NA;
     cP[o] = G[g]; cP[o + 1] = G[g + 1]; cP[o + 2] = G[g + 2];
     cN[o] = a[g]; cN[o + 1] = a[g + 1]; cN[o + 2] = a[g + 2];
-    cU[ou] = S.uA[i] + uOffAt(i); cU[ou + 1] = RV[m];
+    // r48h: the cap's u carries the rim's SOURCE skin uv.y (body 0.02–0.98,
+    // bottom → top; leaves > 1) plus the dry flag — no material derives the
+    // cap angle from u, so the pineapple can end its rind at the crown base
+    cU[ou] = S.uy[i] + uOffAt(i); cU[ou + 1] = RV[m];
   }
   /** same, into the skin buffer; always group B */
   function ws(m, i) {

@@ -2190,6 +2190,27 @@ function skinMaterial(sp, body, o = {}) {
   // brighter, more saturated foliage than plate-01's grey-green crown.
   const A_FOLF = fromKeyLit(0.0560, 0.1240, 0.0510);
 
+  // r48b: the leaf options are UNIFORMS (tunable at runtime through
+  // window.__zsLeaf for the pineapple), defaults from `o`
+  const LU = {
+    tint: uniform(new THREE.Vector3(...(o.leafTint || [1, 1, 1]))),
+    bloom: uniform(o.leafBloom || 0), bloomSpan: uniform(o.leafBloomSpan ?? 0.55),
+    bloomColor: uniform(new THREE.Vector3(...(o.leafBloomColor || [0.11, 0.125, 0.105]))),
+    mottle: uniform(o.leafMottle || 0), glow: uniform(o.leafGlow || 0),
+    // r48d: the range's two ends and its per-leaf spread — how dark the
+    // un-bloomed green goes (mottleDark), how far the bloom amount swings
+    // (mottleRange), per-blade variation from the blade's own uv.x (leafVar),
+    // and a darkening toward the hub that reads as occlusion (leafAO)
+    mottleDark: uniform(o.leafMottleDark ?? 0.45), mottleRange: uniform(o.leafMottleRange ?? 0.5),
+    leafVar: uniform(o.leafVar ?? 0.0), leafAO: uniform(o.leafAO ?? 0.0),
+  };
+  m.userData.leafU = LU;
+  if (typeof window !== 'undefined' && sp.id === 'pineapple') {
+    window.__zsLeaf = {
+      set(k, v) { const x = LU[k]; if (!x) return false; if (Array.isArray(v)) x.value.set(v[0], v[1], v[2]); else x.value = v; return true; },
+      get: () => Object.fromEntries(Object.entries(LU).map(([k, x]) => [k, x.value.isVector3 ? [x.value.x, x.value.y, x.value.z] : x.value])),
+    };
+  }
   m.colorNode = Fn(() => {
     const f = frame();
     // r47o `o.capK`: a per-material ceiling factor (skins have no floor, so
@@ -2206,7 +2227,7 @@ function skinMaterial(sp, body, o = {}) {
     // r47c `o.leafTint`: a per-material multiplier on the foliage colour —
     // the pineapple crown on the reference is a brighter, greyer green than
     // plate-01's, and its blades are broad enough to want it
-    const tintV = o.leafTint ? vec3(o.leafTint[0], o.leafTint[1], o.leafTint[2]) : vec3(1.0, 1.0, 1.0);
+    const tintV = LU.tint;
     const leafC = (o.leafFresh
       // fresh: green from the root, no die-back straw at the tip
       ? mix(A_ROOT, A_FOLF, ss(1.030, 1.200, a.y)).mul(vary.mul(0.20).add(1.0))
@@ -2219,9 +2240,26 @@ function skinMaterial(sp, body, o = {}) {
       .toVar();
     // r47e `o.leafBloom`: a waxy grey-white bloom over the lower blade, as
     // on a pineapple crown's rosette — strongest at the root, gone by mid-blade
-    const bloomed = o.leafBloom
-      ? mix(leafC.mul(tintV), fromKeyLit(0.1100, 0.1250, 0.1050), ss(0.55, 0.05, a.bh).mul(o.leafBloom))
-      : leafC.mul(tintV);
+    // `o.leafBloomSpan` (r48): how far up the blade the bloom reaches — 0.55
+    // is the root-only bloom of r47e; the pineapple's crown is waxy grey-green
+    // to the tips on the reference, so it runs the whole blade (1.0)
+    // `o.leafMottle` (r48b): the bloom is UNEVEN — on the reference crown the
+    // wax sits in pale grey patches, thins to mid grey-green, and the leaf
+    // margins stay a darker green. A low-frequency field over position drives
+    // the bloom amount and darkens the leaf where the bloom thins, so the
+    // rosette is three greens instead of one.
+    const field = fbm2(vec2(f.P.x.mul(2.6).add(f.P.z.mul(1.9)), f.P.y.mul(1.7).add(f.P.z.mul(0.8))), 2, float(1.0)).mul(0.5).add(0.5);
+    // per-blade: a hash of the blade's uv.x (constant along a real leaf)
+    const perLeaf = fract(sin(uv().x.mul(537.13).add(11.7)).mul(43758.5453));
+    const mott = mix(field, perLeaf, LU.leafVar).toVar();
+    const bloomAmt = LU.bloom.mul(mott.mul(LU.mottle).mul(LU.mottleRange.mul(2.0)).add(float(1.0).sub(LU.mottle.mul(LU.mottleRange))));
+    const ao = float(1.0).sub(ss(0.45, 0.0, a.bh).mul(LU.leafAO));
+    const leafBase = leafC.mul(tintV).mul(float(1.0).sub(mott.oneMinus().mul(LU.mottle).mul(LU.mottleDark))).mul(ao);
+    const E = vec3(E_KEY[0], E_KEY[1], E_KEY[2]);
+    // bloom mask: full below `span − 0.3`, fading out by `span + 0.3` (r48c —
+    // the old ss(span, 0.05, bh) faded to ZERO at the tip, so "span 1.0"
+    // half-bloomed the blade and no bloom colour could read as pale)
+    const bloomed = mix(leafBase, LU.bloomColor.div(E).mul(ao), ss(LU.bloomSpan.add(0.3), LU.bloomSpan.sub(0.3), a.bh).mul(bloomAmt).clamp(0.0, 1.0));
     alb.assign(mix(alb, bloomed, a.leafy));
     alb.assign(mix(alb, woodC, a.wood));
     return alb;
@@ -2254,6 +2292,32 @@ function skinMaterial(sp, body, o = {}) {
     m.clearcoatNode = Fn(() => {
       const a = appendage();
       return float(cc0).mul(max(a.leafy, a.wood).mul(0.88).oneMinus());
+    })();
+  }
+  // r48 `o.leafGlow`: a faint self-lit term on foliage only — a stand-in for a
+  // thin leaf's translucency. The pineapple's recurving outer leaves show the
+  // camera their UNDERSIDES, which face away from the key over a black void
+  // and rendered as black spikes; a real crown's undersides are lit through.
+  if (o.leafGlow > 0) {
+    m.emissiveNode = Fn(() => {
+      const a = appendage();
+      const f = frame();
+      const vary = ringN(f.lon, 11.0, a.y.mul(2.2));
+      const base = o.leafFresh ? A_FOLF : A_FOL;
+      return base.mul(LU.tint).mul(vary.mul(0.15).add(1.0)).mul(a.leafy.mul(LU.glow));
+    })();
+  }
+  // r48: the same for SHEEN — the pineapple's gold sheen on its leaves read as
+  // a yellow glint where the reference crown has a grey-white bloom
+  // (r48f: sheenNode is the sheen COLOUR × amount as a vec3 — a scalar here
+  // made every sheened skin's sheen WHITE, which turned the kiwi's brown fuzz
+  // white-grey. It carries the material's own sheenColor now.)
+  if ((o.mat && o.mat.sheen) > 0) {
+    const sh0 = o.mat.sheen;
+    const sc = o.mat.sheenColor || new THREE.Color(1, 1, 1);
+    m.sheenNode = Fn(() => {
+      const a = appendage();
+      return vec3(sc.r, sc.g, sc.b).mul(sh0).mul(max(a.leafy, a.wood).mul(0.9).oneMinus());
     })();
   }
 
@@ -3911,9 +3975,12 @@ function pineTune() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function paLayers(cc) {
+  // r48g, from the reference cut: a paler core to ~0.28 of the radius, a
+  // thin DARK GREEN rind (~4% of the radius) with a yellow-green inner edge
   return {
-    core: ss(0.24, 0.06, cc.rad).toVar(),
-    shell: ss(0.930, 0.985, cc.rad),
+    core: ss(0.30, 0.10, cc.rad).toVar(),
+    shell: ss(0.945, 0.965, cc.rad),
+    rindEdge: ss(0.905, 0.925, cc.rad).mul(ss(0.965, 0.945, cc.rad)),
   };
 }
 
@@ -4068,7 +4135,12 @@ def({
       bump: 0.0220,
       // the crown: brighter grey-green, calmer ribs (the 26-per-turn rib ran
       // as striping on the device)
-      leafTint: [1.30, 1.28, 1.22], rib: 0.6, leafBloom: 0.55, capK: 1.12,
+      // r48: real leaves (geometry.js buildLeafCrown) — green from the root
+      // like the strawberry's calyx; the shared brown-root ramp painted most
+      // of a real blade brown, since its uv band starts at 1.0 at the hub
+      leafFresh: true, leafTint: [1.50, 1.62, 1.42], rib: 0.5,
+      leafBloom: 0.90, leafBloomSpan: 1.0, leafBloomColor: [0.3600, 0.4600, 0.3400], leafMottle: 1.0, leafGlow: 0.20,
+      leafMottleDark: 0.90, leafMottleRange: 1.00, leafVar: 0.60, leafAO: 0.50, capK: 1.12,
       // r47i: the shell GLINTS — a waxed rind under the key. Clearcoat and
       // specular up (the player: "I want light to really glint off this")
       mat: {
@@ -4086,7 +4158,8 @@ def({
     const pockets = (cc) => {
       const p = vec2(cc.aN.mul(14.0), cc.rad.mul(4.5)).toVar();
       const c = cellPt(p, 7.0, 0.8, 14);
-      const band = ss(0.22, 0.34, cc.rad).mul(ss(0.78, 0.90, cc.rad).oneMinus());
+      // r48g: the pits sit along the RIND on the reference, not mid-flesh
+      const band = ss(0.84, 0.90, cc.rad).mul(ss(0.99, 0.95, cc.rad));
       return blob(c.d, 0.20, 0.40).mul(step(0.30, c.id)).mul(band).mul(cellFade(p)).toVar();
     };
     // r37 — THE CROWN CUT. A lengthwise slice runs through the crown, and the
@@ -4102,59 +4175,60 @@ def({
     // hook: no foam, no juice pool, no wet gloss on a leaf (matte 0.82), and
     // the sss transmission is gated below for the same reason.
     const crownCut = () => step(8.0, uv().x);
+    // r48h: where on the fruit this rim sits — the cutter writes the rim's
+    // source skin uv.y into the cap's u (0.02 bottom … 0.98 top). The rind
+    // ends at the crown base instead of crossing under the crown.
+    const topOfFruit = () => ss(0.84, 0.94, fract(uv().x));
     return fleshMaterial(this, {
       dry: () => crownCut(),
       albedo: (cc, u) => {
         const { ang, rad, q } = cc;
-        const fib = ringN(ang, 18.0, rad.mul(2.6).add(2.0)).mul(ss(0.05, 0.30, rad))
-          .add(ringN(ang, 38.0, rad.mul(4.2).add(9.0)).mul(0.6)
-            .mul(ss(0.26, 0.60, rad)).mul(u.detail)).toVar();
-        const gr = fbm2(q.mul(28.0), 2, u.detail).toVar();
-
-        // ROUND 4, case A. The fib/gr tail peaks at 1.20, so the base's budget
-        // is 0.90/1.20 = 0.75; 0.67 leaves the peak at 0.582 scene-linear.
-        // ROUND 5, case B, x0.44: 0.582 was the peak at N.L = 0.49 and 1.29 at
-        // N.L = 1. Now 0.546 at N.L = 1, and the soft ceiling in fleshMaterial
-        // takes the very top of the fib tail rather than letting it clip.
-        const alb = vec3(0.2948, 0.1989, 0.0286)
-          .mul(fib.mul(0.42).add(gr.mul(0.18)).add(0.80)).toVar();
-        // eye pockets: darker fibrous nodes in concentric arcs
-        alb.assign(mix(alb, vec3(0.1232, 0.0616, 0.0092), pockets(cc).mul(0.80)));
-
         const L = paLayers(cc);
         const kr = capKey();
-        alb.assign(mix(alb, vec3(0.3080, 0.2825, 0.1668)
-          .mul(rdg2(vec2(ang.mul(10.0), rad.mul(22.0)), 2).mul(0.26).add(0.86)), L.core.mul(0.90)));
-        alb.mulAssign(ss(0.790, 0.872, rad).mul(ss(0.872, 0.930, rad).oneMinus())
-          .mul(0.44).oneMinus());
-        alb.assign(mix(alb, vec3(0.1452, 0.0792, 0.0132).mul(kr), L.shell));
-        // leaf interior: the crown's own grey-green (the skin's bract tint,
-        // shaded a touch darker — an interior face sees less light), with a
-        // little fbm so a wide blade cross-section is not a flat decal
+        // r48h, from the reference cut: the centre half is a rich juicy
+        // yellow; toward the rind it goes whiter and finely fibrous. No
+        // spokes, no star — the fibres are fine radial lines at low
+        // contrast, denser near the edge.
+        const toEdge = ss(0.35, 0.95, rad);
+        const fine = ringN(ang, 64.0, rad.mul(5.0)).mul(0.5).add(0.5)
+          .mul(ss(0.30, 0.80, rad)).mul(u.detail);
+        const gr = fbm2(q.mul(14.0), 2, u.detail).mul(0.5).add(0.5);
+        const rich = vec3(0.4700, 0.3600, 0.0900), cream = vec3(0.4300, 0.4000, 0.1900);
+        const alb = mix(rich, cream, toEdge).mul(gr.mul(0.06).add(0.97)).toVar();
+        alb.assign(mix(alb, cream.mul(1.04), fine.mul(0.35)));
+        // the core: a soft pale disc, no striations
+        alb.assign(mix(alb, vec3(0.4300, 0.4100, 0.2600), L.core.mul(0.6)));
+        // the rind: a yellow-green inner edge, then dark green skin — ending
+        // where the rim is the fruit's top (the crown base)
+        const notTop = topOfFruit().oneMinus();
+        alb.assign(mix(alb, vec3(0.0900, 0.0500, 0.0100), pockets(cc).mul(0.85).mul(notTop)));
+        alb.assign(mix(alb, vec3(0.2200, 0.2400, 0.0600), L.rindEdge.mul(0.9).mul(notTop)));
+        alb.assign(mix(alb, vec3(0.0500, 0.0900, 0.0200).mul(kr), L.shell.mul(notTop)));
+        // leaf interior: the crown's own grey-green, shaded a touch darker
         const leaf = vec3(0.1050, 0.1480, 0.0330)
           .mul(fbm2(q.mul(16.0), 2, u.detail).mul(0.30).add(0.85)).toVar();
         alb.assign(mix(alb, leaf, crownCut()));
         return alb;
       },
       relief: (cc, u) => {
-        const L = paLayers(cc);
-        // leaves are smooth inside: fade the fibre rings out across the gate
-        return ringN(cc.ang, 18.0, cc.rad.mul(2.6).add(2.0)).mul(0.85)
-          .add(fbm2(cc.q.mul(28.0), 2, u.detail).mul(0.4))
-          .sub(pockets(cc).mul(0.8)).add(L.core.mul(0.45))
+        // smooth and wet: fine fibres only, a little grain, nothing lumpy
+        return ringN(cc.ang, 64.0, cc.rad.mul(5.0)).mul(0.30).mul(ss(0.30, 0.80, cc.rad))
+          .add(fbm2(cc.q.mul(14.0), 2, u.detail).mul(0.15))
           .mul(crownCut().mul(0.85).oneMinus());
       },
       rough: (cc, u) => {
         const L = paLayers(cc);
-        return mix(u.rough, float(0.55), L.core).add(L.shell.mul(0.25));
+        // as wet as it goes: a juice-slick face, the core a touch drier,
+        // the rind matte
+        return mix(u.rough, float(0.30), L.core).add(L.shell.mul(0.35));
       },
       sssMask: (cc) => {
         const L = paLayers(cc);
         // a leaf does not glow with transmitted juice light
-        return L.shell.oneMinus().mul(L.core.mul(0.7).oneMinus())
+        return L.shell.oneMinus().mul(L.core.mul(0.6).oneMinus())
           .mul(crownCut().oneMinus());
       },
-    }, { rough: 0.32, wet: 0.95, bump: 0.0298, floor: [0.1300, 0.0770, 0.0110] });
+    }, { rough: 0.16, wet: 1.0, bump: 0.0120, floor: [0.1300, 0.0770, 0.0110] });
   },
 });
 

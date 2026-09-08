@@ -2020,12 +2020,18 @@ export const SHAPE_VARIANTS = {
       },
       pineapple: {
         lumps: 0.010,
-        crown: {
-          cols: 88,
+        // r48: REAL LEAVES (buildLeafCrown), as the strawberry's calyx — a
+        // rosette on a small hub at the pole, spines curving outward, air
+        // under the blades. The body crown is deleted.
+        crown: null,
+        leaves: {
+          rootR: 0.36, rootLift: 0.03,
           whorls: [
-            { n: 8, a: 0.12, len: 1.911, wArc: 0.0820, round: true, skew: 0.25, wp: 0.220, pPol: 3.00, pAz: 1.15, phase: 0.00, jit: 0.05, jitA: 0.024 },
-            { n: 8, a: 0.29, len: 1.732, wArc: 0.0950, round: true, skew: 0.30, wp: 0.220, pPol: 3.00, pAz: 1.15, phase: 0.33, jit: 0.06, jitA: 0.028 },
-            { n: 8, a: 0.46, len: 1.466, wArc: 0.1070, round: true, skew: 0.55, wp: 0.220, pPol: 3.00, pAz: 1.15, phase: 0.67, jit: 0.07, jitA: 0.032 },
+            { n: 12, beta: 0.03, len: 2.17, width: 0.51, thick: 0.06, droop: 0.15, kick: 0.03, cup: 0.45, jitPhi: 0.1, jitBeta: 0.05, jitLen: 0.25 },
+            { n: 14, beta: 0.18, len: 2.45, width: 0.6, thick: 0.06, droop: 0.42, kick: 0.12, cup: 0.45, phase: 0.5, jitPhi: 0.1, jitBeta: 0.08, jitLen: 0.25 },
+            { n: 16, beta: 0.34, len: 2.31, width: 0.724, thick: 0.06, droop: 0.62, kick: 0.22, cup: 0.45, phase: 0.25, jitPhi: 0.1, jitBeta: 0.1, jitLen: 0.25 },
+            { n: 16, beta: 0.55, len: 1.82, width: 0.724, thick: 0.06, droop: 1.2, kick: 0.4, cup: 0.45, phase: 0.75, jitPhi: 0.12, jitBeta: 0.12, jitLen: 0.25 },
+            { n: 22, beta: 1.05, len: 0.84, width: 0.34, thick: 0.06, droop: 0.45, kick: 0.15, cup: 0.35, phase: 0.35, jitPhi: 0.14, jitBeta: 0.18, jitLen: 0.3 },
           ],
         },
       },
@@ -2526,7 +2532,7 @@ function bladeHeight(blades, a, phi) {
  * path — with no shader work here.
  */
 function buildLeafCrown(LS, yRoot, seedPh) {
-  const P = [], UV = [], idx = [];
+  const P = [], UV = [], idx = [], SN = [];
   const SEC = 8;                       // cross sections along the spine
   const rootR = LS.rootR ?? 0.06;
   let wi = 0;
@@ -2543,10 +2549,13 @@ function buildLeafCrown(LS, yRoot, seedPh) {
       const base = P.length / 3;
       let dR = rootR, yy = yRoot + (LS.rootLift ?? 0.0);
       const ds = L / (SEC - 1);
+      let rootDir = [0, 1, 0], tipDir = [0, 1, 0];
       for (let sI = 0; sI < SEC; sI++) {
         const s = sI / (SEC - 1);
         const theta = beta + (w.droop || 0) * s - (w.kick || 0) * s * s;
         const st = Math.sin(theta), ct = Math.cos(theta);
+        if (sI === 0) rootDir = [st * er[0], ct, st * er[2]];
+        if (sI === SEC - 1) tipDir = [st * er[0], ct, st * er[2]];
         // in-plane sheet normal (perpendicular to the spine, pointing up-out)
         const nr = -ct, ny = st;
         // blade half-width: broad by 40% out, tapering to a point
@@ -2567,6 +2576,7 @@ function buildLeafCrown(LS, yRoot, seedPh) {
         const bmx = cx - 0.5 * th * (nr * er[0]), bmy = cy - 0.5 * th * ny;
         const bmz = cz - 0.5 * th * (nr * er[2]);
         P.push(exm, eym, ezm, exp_, eym, ezp, tmx, tmy, tmz, bmx, bmy, bmz);
+        SN.push(nr * er[0], ny, nr * er[2]);   // the section's sheet normal (r48c)
         const u = phi / TAU - Math.floor(phi / TAU);
         const v = 1.0 + 0.66 * s;      // the LEAF uv band — see the contract
         UV.push(u, v, u, v, u, v, u, v);
@@ -2576,15 +2586,53 @@ function buildLeafCrown(LS, yRoot, seedPh) {
       // stitch sections: per pair, 4 top + 4 bottom triangles.
       // Winding derived in the local frame (X=azimuth, up=sheet normal,
       // Z=spine): top sheet CCW seen from the normal side, bottom reversed.
+      // r48c: and then VERIFIED per triangle against the section's sheet
+      // normal — on the pineapple's long, drooping, cupped blades the local
+      // frame's handedness flips along the spine and every other strip
+      // triangle came out inward, which back-face culling turned into black
+      // stair-stepped strips down each leaf (the strawberry's short calyx
+      // never showed it). A triangle whose geometric normal opposes its
+      // sheet's expected side is flipped here, so nothing is culled.
+      const tri = (i0, i1, i2, wantUp) => {
+        const x0 = P[i0 * 3], y0 = P[i0 * 3 + 1], z0 = P[i0 * 3 + 2];
+        const ux = P[i1 * 3] - x0, uy = P[i1 * 3 + 1] - y0, uz = P[i1 * 3 + 2] - z0;
+        const vx = P[i2 * 3] - x0, vy = P[i2 * 3 + 1] - y0, vz = P[i2 * 3 + 2] - z0;
+        const nx = uy * vz - uz * vy, ny_ = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        const sIdx = ((i0 - base) >> 2), so = (sIdx - 0) * 3;   // section of vertex i0
+        const d = nx * SN[SNbase + so] + ny_ * SN[SNbase + so + 1] + nz * SN[SNbase + so + 2];
+        if ((d < 0) === wantUp) idx.push(i0, i2, i1); else idx.push(i0, i1, i2);
+      };
+      const SNbase = (base / 4) * 3;
       for (let sI = 0; sI + 1 < SEC; sI++) {
         const a = base + sI * 4, b = base + (sI + 1) * 4;
         const aM = a, aP = a + 1, aT = a + 2, aB = a + 3;
         const bM = b, bP = b + 1, bT = b + 2, bB = b + 3;
-        idx.push(aM, bT, aT, aM, bM, bT);        // top, − half
-        idx.push(aT, bT, bP, aT, bP, aP);        // top, + half
-        idx.push(aM, aB, bB, aM, bB, bM);        // bottom, − half
-        idx.push(aB, aP, bP, aB, bP, bB);        // bottom, + half
+        tri(aM, bT, aT, true); tri(aM, bM, bT, true);       // top, − half
+        tri(aT, bT, bP, true); tri(aT, bP, aP, true);       // top, + half
+        tri(aM, aB, bB, false); tri(aM, bB, bM, false);     // bottom, − half
+        tri(aB, aP, bP, false); tri(aB, bP, bB, false);     // bottom, + half
       }
+      // r48g: CLOSE the pillow at both ends. The root diamond was left open
+      // ("buried in the hub, never visible") and so was the tip's — and a cut
+      // plane through an open end yields an open crossing run. On the
+      // pineapple's 60-leaf crown that dropped the chainer's coverage under
+      // its 92% floor, so EVERY crown cut fell to the soup cap: no rind ring,
+      // and leaf cross-sections painted as flesh with no dry flag. Two
+      // triangles per end, wound to face out along the spine.
+      const endCap = (sec, dir) => {
+        const M = base + sec * 4, Pp = M + 1, Tt = M + 2, Bb = M + 3;
+        const nx = dir[0], ny_ = dir[1], nz = dir[2];
+        const face = (i0, i1, i2) => {
+          const x0 = P[i0 * 3], y0 = P[i0 * 3 + 1], z0 = P[i0 * 3 + 2];
+          const ux = P[i1 * 3] - x0, uy = P[i1 * 3 + 1] - y0, uz = P[i1 * 3 + 2] - z0;
+          const vx = P[i2 * 3] - x0, vy = P[i2 * 3 + 1] - y0, vz = P[i2 * 3 + 2] - z0;
+          const d = (uy * vz - uz * vy) * nx + (uz * vx - ux * vz) * ny_ + (ux * vy - uy * vx) * nz;
+          if (d < 0) idx.push(i0, i2, i1); else idx.push(i0, i1, i2);
+        };
+        face(M, Tt, Pp); face(M, Pp, Bb);
+      };
+      endCap(0, [-rootDir[0], -rootDir[1], -rootDir[2]]);
+      endCap(SEC - 1, tipDir);
       wi++;
     }
   }
