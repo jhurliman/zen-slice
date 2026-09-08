@@ -212,7 +212,7 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    the gate in director.js now reads `ctx.store.entitled` (DEMO=1 pins it
    false; outside the shell it is true), the veil in hud.js has its shell face
    (price from StoreKit, restore line, thank-you on entitlement) plus an
-   "unlock the full game" settings row, prefs carry `entitled`,
+   "unlock the first day" settings row, prefs carry `entitled`,
    `tools/storeprobe.mjs` (27 checks, mocked bridge). PAID_THROUGH_BUILD = 5
    (1.1's build; re-pin if 1.1 is resubmitted). Still to do: device
    verification (sandbox buy with debug on, offline relaunch, delete +
@@ -224,7 +224,12 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
      from JS via `window.Capacitor.Plugins.StoreKit`). StoreKit 2 only:
      `Product.products(for:)`, `product.purchase()`, `Transaction.currentEntitlements`,
      `AppStore.sync()` for Restore. One non-consumable, id
-     `org.jhurliman.chordcut.full`. Methods: `status()` →
+     `org.jhurliman.chordcut.album1` (POSITIONING, 9/8: the ~18-minute arc is
+     THE FIRST ALBUM, "The First Day", not "the full game" — future packs
+     with new levels/fruit/instruments are their own products, album2…, each
+     an album release; store.js grows from one boolean to an owned-set keyed
+     by pack and the gate asks for the pack a level belongs to; the display
+     name can change in ASC, the product id cannot). Methods: `status()` →
      `{entitled, price, reason}`, `purchase()`, `restore()`.
    - **Grandfathering.** Two independent tests, either one entitles:
      1. `AppTransaction.shared.originalAppVersion` — on iOS this is the
@@ -251,7 +256,7 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
      already withholds the page-turn to level 3 and emits `demoend`; the
      veil in `hud.js` already renders the CTA. Generalize: the gate fires
      when `!entitled` — `__ZS_DEMO__` (web) *or* the native shell reporting
-     `entitled:false`. The native veil's CTA becomes "unlock the full game ·
+     `entitled:false`. The native veil's CTA becomes "unlock the first day ·
      $2.99" (price string from StoreKit, localized) plus a small "restore
      purchase" link — Apple rejects paywalls without one. Entitlement is
      read once at boot, cached in prefs so the gate is correct offline and
@@ -263,7 +268,7 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
      "Purchases" added under data not linked to you — check the App Privacy
      questionnaire when submitting.
    - **ASC.** Create the IAP (Pricing: $2.99 tier, localized display name
-     "Full Game", description, review screenshot of the veil), attach it to
+     "The First Day", description, review screenshot of the veil), attach it to
      the 1.1 submission, add review notes: "Paid app transitioning to free
      with unlock; previous purchasers are entitled via
      AppTransaction.originalAppVersion ≤ <1.1's build> or originalPurchaseDate

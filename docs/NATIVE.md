@@ -111,7 +111,7 @@ unlocked — install works either way.)
   are silent no-ops if the leaderboard is missing under App Store Connect →
   App → Services → Game Center.
 - **StoreKit** (1.2): `StoreKitPlugin.swift`, StoreKit 2, one non-consumable
-  `org.jhurliman.chordcut.full`. `status()`/`purchase()`/`restore()` from JS via
+  `org.jhurliman.chordcut.album1` ("The First Day" — the ~18-minute arc is the first album; later packs are album2…). `status()`/`purchase()`/`restore()` from JS via
   `Capacitor.Plugins.StoreKit` (src/core/store.js owns `entitled`, caches it in
   prefs, announces `'entitlement'` on the bus). Paid 1.0/1.1 installs are
   grandfathered from the app receipt: `originalPurchaseDate` before

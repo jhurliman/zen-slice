@@ -10,13 +10,13 @@
       "internalID" : "6803614537001",
       "localizations" : [
         {
-          "description" : "Unlock the rest of the day: seven more levels, from Orchard Rain to Dreaming of Bliss.",
-          "displayName" : "Full Game",
+          "description" : "The first album. The rest of the day: seven more levels, from Orchard Rain to Dreaming of Bliss.",
+          "displayName" : "The First Day",
           "locale" : "en_US"
         }
       ],
-      "productID" : "org.jhurliman.chordcut.full",
-      "referenceName" : "Full Game",
+      "productID" : "org.jhurliman.chordcut.album1",
+      "referenceName" : "The First Day",
       "type" : "NonConsumable"
     }
   ],

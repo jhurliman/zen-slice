@@ -383,7 +383,7 @@ export function createHud() {
         + `<button data-k="again">begin again</button>`
         // 1.2: the way back to the veil after "keep slicing" — only in the
         // shell, only while the day is not yet owned; removed on entitlement
-        + (ctx.store?.native && !ctx.store.entitled ? `<button data-k="unlock">unlock the full game</button>` : '')
+        + (ctx.store?.native && !ctx.store.entitled ? `<button data-k="unlock">unlock the first day</button>` : '')
         // r36: the best streak, readable where the player already looks —
         // a non-interactive line in the panel's own voice, no new screen.
         // Refreshed at open (togglePanel), hidden entirely until a best exists.
@@ -439,7 +439,7 @@ export function createHud() {
     // CTA needs pointer-events while the veil itself takes none, so the
     // blade keeps working underneath. Two faces of the same element:
     //   - the web demo: a link to the App Store (or "coming soon");
-    //   - the shell (1.2): "unlock the full game · $2.99" (StoreKit's
+    //   - the shell (1.2): "unlock the first day · $2.99" (StoreKit's
     //     localized price string) and the "restore purchase" link Apple
     //     requires on any paywall. Both call store.js, and the veil listens
     //     for 'entitlement' to change its mind while it is up: a purchase or
@@ -453,11 +453,11 @@ export function createHud() {
       const url = (typeof __ZS_APPSTORE_URL__ !== 'undefined' && __ZS_APPSTORE_URL__) || '';
       const el = document.createElement('div');
       el.className = 'zs-title zs-demo';
-      const buyLabel = () => `unlock the full game${S && S.price ? ` · ${S.price}` : ''}`;
+      const buyLabel = () => `unlock the first day${S && S.price ? ` · ${S.price}` : ''}`;
       el.innerHTML =
         `<div class="zs-title-word">The orchard continues</div>`
         + (shell
-          ? `<div class="zs-title-sub"><span>you have played three levels of ten — unlock the rest of the day,`
+          ? `<div class="zs-title-sub"><span>the first three levels are yours to keep — unlock the rest of the first day,`
             + ` once: no ads, no accounts, no tracking</span></div>`
             + `<div class="zs-demo-cta zs-demo-buy">${buyLabel()}</div>`
             + `<div class="zs-demo-restore">restore purchase</div>`

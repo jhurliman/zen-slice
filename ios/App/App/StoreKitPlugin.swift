@@ -3,7 +3,9 @@ import StoreKit
 
 /// The one purchase (1.2) — Chord Cut becomes a free download with the first
 /// three levels open and a single non-consumable unlocking the rest of the
-/// day. Same shape as GameCenterPlugin: a CAPPlugin registered from
+/// day. POSITIONING: the ~18-minute arc is THE FIRST ALBUM ("The First Day"),
+/// not "the full game" — later packs (new levels, fruit, instruments) are
+/// their own products, album2…, so nothing here says "full". Same shape as GameCenterPlugin: a CAPPlugin registered from
 /// GameViewController.capacitorDidLoad, reached from JS through the injected
 /// global (`Capacitor.Plugins.StoreKit`, see src/core/store.js), so the web
 /// build carries zero wrapper bytes. StoreKit 2 only.
@@ -14,7 +16,7 @@ import StoreKit
 ///   purchase() → status + { outcome: purchased | cancelled | pending | unavailable | unverified | error }
 ///   restore()  → AppStore.sync() then status + { outcome: restored }
 ///
-/// GRANDFATHERING. Everyone who bought the paid 1.0/1.1 owns the full game.
+/// GRANDFATHERING. Everyone who bought the paid 1.0/1.1 owns the first day.
 /// Two independent tests on the app receipt (AppTransaction), either entitles:
 ///   1. originalPurchaseDate < FREE_SWITCH — the instant the ASC price change
 ///      to Free is scheduled for (2026-10-01T00:00:00Z). Date wins: someone
@@ -39,7 +41,7 @@ public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "restore", returnType: CAPPluginReturnPromise),
     ]
 
-    static let PRODUCT_ID = "org.jhurliman.chordcut.full"
+    static let PRODUCT_ID = "org.jhurliman.chordcut.album1"
     /// 1.1's final build number. 1.2's first build must be strictly greater.
     static let PAID_THROUGH_BUILD = 5
     static let FREE_SWITCH: Date = ISO8601DateFormatter().date(from: "2026-10-01T00:00:00Z")!

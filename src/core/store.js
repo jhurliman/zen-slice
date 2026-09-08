@@ -1,5 +1,13 @@
 /**
- * store.js — who owns the whole day (1.2).
+ * store.js — who owns the first day (1.2).
+ *
+ * POSITIONING. The ~18-minute arc, Still Water to Dreaming of Bliss, is THE
+ * FIRST ALBUM — product `org.jhurliman.chordcut.album1`, shown as "The First
+ * Day". Later packs (new levels, fruit, instruments) are their own products,
+ * album2…; when the second one exists this module grows from one boolean to
+ * an owned-set keyed by pack and the gate asks for the pack a level belongs
+ * to. Nothing player-facing says "full game", so that transition is a
+ * rename of nothing.
  *
  * Chord Cut is a free download with the first three levels open; one
  * non-consumable purchase unlocks the rest. This module owns that single
