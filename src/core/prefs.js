@@ -20,8 +20,12 @@ const KEY = 'zs-prefs';
 // right default for everyone who never opens the panel; the named levels pin
 // it and turn the governor off. main.js validates the string against
 // GFX_MODES, so a hand-edited localStorage cannot wedge the renderer.
+// `entitled` (1.2) is the cached answer to "does this install own the whole
+// day" — store.js writes it from StoreKit and reads it at boot so the level-3
+// gate is right offline and before StoreKit answers. Meaningless (and never
+// written) outside the native shell.
 const DEFAULTS = Object.freeze({
-  sound: true, haptics: true, bestScore: 0, debug: false, gfx: 'auto',
+  sound: true, haptics: true, bestScore: 0, debug: false, gfx: 'auto', entitled: false,
 });
 
 // ══ r43b: THE SESSION MIRROR ════════════════════════════════════════════════

@@ -44,9 +44,12 @@ const THREE_TSL = require.resolve('three/tsl');
 // ── the DEMO build (what GitHub Pages publishes) ─────────────────────────
 // DEMO=1 gates the web build to the first three levels of the day arc; the
 // page-turn to level 3 becomes the full-game veil (director.js + hud.js).
-// The App Store build never sets it, so esbuild compiles the gate out
-// entirely — the shipped app is provably ungated. A plain `node build.mjs`
-// also produces the ungated game: that is intended (see README §License).
+// Since 1.2 the same gate is DATA-driven inside the App Store build
+// (src/core/store.js: the shell asks StoreKitPlugin whether this install
+// owns the whole day — a paid 1.0/1.1 install or the one purchase). DEMO=1
+// only pins the answer to "no" and points the veil at the App Store. A plain
+// `node build.mjs` outside the shell is entitled by construction — the open
+// build is the whole game: that is intended (see README §License).
 // APPSTORE_URL lights up the veil's CTA link; APPSTORE_ID additionally turns
 // on Safari's Smart App Banner. Both stay empty until the app is live.
 const DEMO = process.env.DEMO === '1';
