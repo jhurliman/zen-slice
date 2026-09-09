@@ -45,11 +45,11 @@ const browser = await chromium.launch({
   args: [...renderArgs(), '--autoplay-policy=no-user-gesture-required', '--no-sandbox', '--disable-dev-shm-usage'],
 });
 
-/** The fake bridge. `cfg`: { entitled, price, hang, purchase: 'ok'|'cancel'|'pending'|'error', restore: 'ok'|'none' } */
+/** The fake bridge. `cfg`: { entitled, price, hang, receipt: 'verified'|'unavailable', purchase: 'ok'|'cancel'|'pending'|'error', restore: 'ok'|'none' } */
 const bridge = (cfg) => {
   window.__sk = { entitled: !!cfg.entitled, calls: [] };
   const snap = (extra) => ({
-    entitled: window.__sk.entitled, price: cfg.price,
+    entitled: window.__sk.entitled, price: cfg.price, receipt: cfg.receipt || 'verified',
     reason: window.__sk.entitled ? 'purchase' : 'none', ...extra,
   });
   window.Capacitor = {
@@ -140,7 +140,7 @@ let R = await page.evaluate(`(${(() => {
   return { native: S.native, entitled: S.entitled, price: S.price, ready: S.ready, calls: window.__sk.calls.map((c) => c[0] + ':' + JSON.stringify(c[1])), prefsEntitled: (JSON.parse(localStorage.getItem('zs-prefs') || '{}')).entitled };
 }).toString()})()`);
 check('store sees the shell, not entitled, price from StoreKit', R.native === true && R.entitled === false && R.price === '$2.99' && R.ready === true, JSON.stringify(R));
-check('status() was asked once at boot, testing off (debug pref off)', R.calls.length === 1 && R.calls[0] === 'status:{"testing":false}', JSON.stringify(R.calls));
+check('status() was asked once at boot', R.calls.length === 1 && R.calls[0] === 'status:undefined', JSON.stringify(R.calls));
 check('the cached answer was written to prefs', R.prefsEntitled === false, `prefs.entitled=${R.prefsEntitled}`);
 let G = await page.evaluate(reachGate);
 check('the page to level 3 is withheld and demoend fired once', G.level === 2 && G.demoend === 1, JSON.stringify(G));
@@ -191,6 +191,16 @@ check('prefs answer first: entitled from the cache while status() never returns'
 G = await page.evaluate(reachGate);
 check('no veil, the page turns', G.level === 3 && G.demoend === 0, JSON.stringify(G));
 await page.close();
+// the receipt could not be read: an inconclusive "not entitled" must not take the day away
+page = await open(ctxA, { entitled: false, price: '$2.99', receipt: 'unavailable' });
+R = await page.evaluate(() => { const S = window.ZS.ctx.store; return { entitled: S.entitled, reason: S.reason, prefs: (JSON.parse(localStorage.getItem('zs-prefs') || '{}')).entitled }; });
+check('receipt unavailable + cached owned: still owned, cache untouched', R.entitled === true && R.prefs === true, JSON.stringify(R));
+await page.close();
+page = await open(ctxA, { entitled: false, price: '$2.99', receipt: 'verified' });
+R = await page.evaluate(() => { const S = window.ZS.ctx.store; return { entitled: S.entitled, prefs: (JSON.parse(localStorage.getItem('zs-prefs') || '{}')).entitled }; });
+check('a VERIFIED not-entitled (refund) does take it away', R.entitled === false && R.prefs === false, JSON.stringify(R));
+await page.close();
+
 await ctxA.close();
 
 // ── 3. restore, cancel, pending, the settings row ──
@@ -228,7 +238,7 @@ G = await page.evaluate(reachGate);
 await page.evaluate(() => window.__tap('.zs-demo-restore'));
 await page.waitForTimeout(100);
 V = await page.evaluate(veil);
-check('a restore that finds nothing says so and keeps the veil', V && V.up && /no purchase found/.test(V.sub) && V.buy !== null, JSON.stringify(V));
+check('a restore that finds nothing says so and keeps the veil', V && V.up && /nothing to restore/.test(V.sub) && V.buy !== null, JSON.stringify(V));
 await page.evaluate(() => window.__tap('.zs-demo-buy'));
 await page.waitForTimeout(100);
 V = await page.evaluate(veil);

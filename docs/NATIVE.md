@@ -116,9 +116,12 @@ unlocked — install works either way.)
   prefs, announces `'entitlement'` on the bus). Paid 1.0/1.1 installs are
   grandfathered from the app receipt: `originalPurchaseDate` before
   2026-10-01T00:00Z, or `originalAppVersion` (the ORIGINAL install's build
-  number on iOS) ≤ 5. In sandbox/TestFlight both fields are synthetic and every
-  install looks paid; the debug pref sends `{ testing: true }`, which skips the
-  receipt tests so the purchase can be exercised on a device. `ios/App/Products.storekit`
+  number on iOS) ≤ 5. Only a PRODUCTION receipt (`AppTransaction.environment`) can
+  grandfather: sandbox/TestFlight receipts are synthetic (version "1.0", a 2013
+  date) and would otherwise hide the paywall from App Review itself. An
+  unreadable receipt reports `receipt: "unavailable"`; store.js treats that as
+  inconclusive (never lowers a cached entitlement; retries every 30 s for a few
+  minutes and on foreground). `ios/App/Products.storekit`
   is the Xcode StoreKit configuration for local runs (scheme → Run → Options →
   StoreKit Configuration). `tools/storeprobe.mjs` covers the JS side against a
   mocked bridge.

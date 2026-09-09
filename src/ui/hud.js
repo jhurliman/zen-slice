@@ -503,7 +503,11 @@ export function createHud() {
         if (e.busy) { buy.textContent = '…'; return; }
         buy.textContent = buyLabel();
         if (e.outcome === 'pending') sub.textContent = 'waiting for approval — the orchard will open when it arrives';
-        else if (e.outcome === 'restored') sub.textContent = 'no purchase found for this apple id';
+        else if (e.outcome === 'restored') {
+          sub.textContent = e.receipt === 'unavailable'
+            ? 'the app store did not answer — check you are online and signed in, then try again'
+            : 'nothing to restore for this apple id — bought chord cut before it was free? sign in to the same apple id and try again';
+        }
         else if (e.outcome === 'unavailable' || e.outcome === 'error') sub.textContent = 'the app store did not answer — try again in a moment';
       });
     };

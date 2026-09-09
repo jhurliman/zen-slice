@@ -27,10 +27,18 @@ import StoreKit
 ///      being 5. Parsed defensively: a dotted string is a marketing version
 ///      (compare < 1.2), a bare integer is the build.
 /// ⚠ In sandbox and TestFlight both fields are synthetic (originalAppVersion
-/// is "1.0", the date is 2013), so every tester is grandfathered. The JS side
-/// passes { testing: true } when the debug pref is on (a toggle that only
-/// exists in non-App-Store builds), which skips the receipt tests so the
-/// purchase path can be exercised on a device.
+/// is "1.0", the date is 2013), so EVERY sandbox install would look paid —
+/// including App Review's, which would then be unable to find the purchase
+/// (a Guideline 2.1 rejection). So the receipt tests apply ONLY when the
+/// receipt's environment is .production: sandbox, TestFlight and Xcode see
+/// the veil and can buy (for free) like any new player; real App Store
+/// receipts grandfather as intended.
+///
+/// NEVER DOWNGRADE ON A GUESS. If the app receipt cannot be read (offline on
+/// the first launch after the update, or not signed in to the App Store)
+/// `receipt` is "unavailable" and store.js keeps whatever it already knows
+/// instead of taking "not entitled" for an answer — a paid customer must not
+/// meet the veil because the network was slow.
 @objc(StoreKitPlugin)
 public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "StoreKitPlugin"
@@ -65,7 +73,8 @@ public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
                 var data: [String: Any] = ["entitled": entitled, "reason": entitled ? "purchase" : "none",
                                            "price": "", "outcome": "update"]
                 if let p = await Self.product() { data["price"] = p.displayPrice }
-                self.notifyListeners("entitlement", data: data)
+                data["receipt"] = "verified"
+                DispatchQueue.main.async { self.notifyListeners("entitlement", data: data) }
             }
         }
     }
@@ -73,22 +82,19 @@ public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
     deinit { updates?.cancel() }
 
     @objc func status(_ call: CAPPluginCall) {
-        let testing = call.getBool("testing") ?? false
-        Task { call.resolve(await Self.snapshot(testing: testing)) }
+        Task { call.resolve(await Self.snapshot()) }
     }
 
     @objc func restore(_ call: CAPPluginCall) {
-        let testing = call.getBool("testing") ?? false
         Task {
             try? await AppStore.sync()
-            var s = await Self.snapshot(testing: testing)
+            var s = await Self.snapshot()
             s["outcome"] = "restored"
             call.resolve(s)
         }
     }
 
     @objc func purchase(_ call: CAPPluginCall) {
-        let testing = call.getBool("testing") ?? false
         Task {
             guard let product = await Self.product() else {
                 call.resolve(["entitled": false, "reason": "none", "price": "", "outcome": "unavailable"])
@@ -103,7 +109,7 @@ public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
                 case .success(let verification):
                     if case .verified(let t) = verification {
                         await t.finish()
-                        var s = await Self.snapshot(testing: testing)
+                        var s = await Self.snapshot()
                         s["outcome"] = "purchased"
                         call.resolve(s)
                     } else {
@@ -125,9 +131,11 @@ public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - the facts
 
-    static func snapshot(testing: Bool) async -> [String: Any] {
-        var out: [String: Any] = ["entitled": false, "reason": "none", "price": ""]
-        if !testing, let why = await grandfathered() {
+    static func snapshot() async -> [String: Any] {
+        var out: [String: Any] = ["entitled": false, "reason": "none", "price": "", "receipt": "unavailable"]
+        let (readable, why) = await grandfathered()
+        if readable { out["receipt"] = "verified" }
+        if let why {
             out["entitled"] = true; out["reason"] = why
         } else if await owned() {
             out["entitled"] = true; out["reason"] = "purchase"
@@ -147,11 +155,14 @@ public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
         return false
     }
 
-    static func grandfathered() async -> String? {
-        guard let result = try? await AppTransaction.shared, case .verified(let tx) = result else { return nil }
-        if tx.originalPurchaseDate < FREE_SWITCH { return "grandfather-date" }
-        if paidBuild(tx.originalAppVersion) { return "grandfather-build" }
-        return nil
+    /// (receipt readable, why entitled). Only a PRODUCTION receipt can
+    /// grandfather — see the header for why sandbox must not.
+    static func grandfathered() async -> (Bool, String?) {
+        guard let result = try? await AppTransaction.shared, case .verified(let tx) = result else { return (false, nil) }
+        guard tx.environment == .production else { return (true, nil) }
+        if tx.originalPurchaseDate < FREE_SWITCH { return (true, "grandfather-date") }
+        if paidBuild(tx.originalAppVersion) { return (true, "grandfather-build") }
+        return (true, nil)
     }
 
     /// "5" → build 5 (≤ PAID_THROUGH_BUILD entitles); "1.1" → marketing < 1.2 entitles.

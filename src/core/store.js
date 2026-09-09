@@ -29,9 +29,16 @@
  *     missing answer leaves the cache in place.
  * Every answer is announced on the bus as 'entitlement'
  *   { entitled, price, reason, outcome?, busy? }
- * so the veil can react while it is up. `testing` (the debug pref, which
- * only exists in non-App-Store builds) asks the plugin to skip the receipt
- * tests, because in sandbox/TestFlight every install looks grandfathered.
+ * so the veil can react while it is up.
+ *
+ * NEVER DOWNGRADE ON A GUESS. An answer whose `receipt` is "unavailable"
+ * (the app receipt could not be read: offline on the first launch after the
+ * update, or signed out of the App Store) is INCONCLUSIVE — it can raise
+ * the entitlement (a purchase that verified) but never lower a cached
+ * "owned" to "not owned", and it is retried every 30 s for a few minutes and
+ * on every return to the foreground. A paid customer must never meet the
+ * veil because the network was slow; that is the support ticket this
+ * module exists to prevent.
  */
 import { loadPrefs, savePref } from './prefs.js';
 
@@ -39,24 +46,30 @@ export function createStore() {
   const api = { native: false, entitled: true, price: '', reason: 'open', busy: false, ready: false };
   let ctx, plugin = null;
 
-  const testing = () => { try { return loadPrefs().debug === true; } catch (_) { return false; } };
   const publish = (extra) => {
     ctx.bus.emit('entitlement', {
       entitled: api.entitled, price: api.price, reason: api.reason, busy: api.busy, ...extra,
     });
   };
+  let retries = 0, retryT = 0;
   const take = (s, outcome) => {
     if (!s || typeof s !== 'object') { publish({ outcome: outcome || 'error' }); return; }
-    api.entitled = s.entitled === true;
-    api.reason = s.reason || (api.entitled ? 'purchase' : 'none');
     if (typeof s.price === 'string' && s.price) api.price = s.price;
-    api.ready = true;
-    savePref('entitled', api.entitled);
-    publish({ outcome: s.outcome || outcome, message: s.message });
+    const conclusive = s.receipt !== 'unavailable';
+    if (s.entitled === true) {
+      api.entitled = true; api.reason = s.reason || 'purchase';
+    } else if (conclusive) {
+      api.entitled = false; api.reason = s.reason || 'none';
+    } else if (!api.entitled) {
+      // inconclusive and nothing cached: ask again soon, without a tap
+      if (retries < 10) { retries++; retryT = setTimeout(() => api.refresh(), 30000); }
+    }
+    if (conclusive || api.entitled) { api.ready = true; savePref('entitled', api.entitled); }
+    publish({ outcome: s.outcome || outcome, message: s.message, receipt: s.receipt });
   };
   const call = (method) => {
     try {
-      const p = plugin[method]({ testing: testing() });
+      const p = plugin[method]();
       return p && p.then ? p : Promise.resolve(p);
     } catch (e) { return Promise.reject(e); }
   };
@@ -99,7 +112,11 @@ export function createStore() {
       if (!document.hidden && !api.entitled && !api.busy) api.refresh();
     });
   };
-  api.refresh = () => (plugin ? call('status').then((s) => { take(s, 'status'); return s; }).catch(() => null) : Promise.resolve(null));
+  api.refresh = () => {
+    if (!plugin) return Promise.resolve(null);
+    clearTimeout(retryT);
+    return call('status').then((s) => { take(s, 'status'); return s; }).catch(() => null);
+  };
   api.purchase = () => run('purchase');
   api.restore = () => run('restore');
 

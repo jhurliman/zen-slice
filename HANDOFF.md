@@ -255,11 +255,14 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
         price propagates would otherwise carry 1.2's build number and be
         asked to pay again. Date wins over build.
      ⚠ In sandbox and TestFlight `originalAppVersion` is always `"1.0"` and
-     `originalPurchaseDate` is synthetic, so both branches must be tested
-     with an Xcode StoreKit configuration file, not on TestFlight. ⚠ In sandbox and
-     TestFlight `originalAppVersion` is always `"1.0"`, so this branch must
-     be tested with an Xcode StoreKit configuration file (set the app
-     version there), not on TestFlight. Compare as an integer, not a string.
+     `originalPurchaseDate` is synthetic — which would grandfather APP
+     REVIEW's device and hide the purchase from them (Guideline 2.1
+     rejection). So (1.2f) the receipt tests run only when
+     `AppTransaction.environment == .production`; sandbox/TestFlight/Xcode
+     see the veil and buy for free. An unreadable receipt is reported as
+     `receipt: "unavailable"` and store.js never lowers a cached entitlement
+     on it (retries every 30 s ×10 and on foreground). Compare the build as
+     an integer, not a string.
    - **The gate.** The demo gate (`director.js` DEMO GATE, `__ZS_DEMO__`)
      already withholds the page-turn to level 3 and emits `demoend`; the
      veil in `hud.js` already renders the CTA. Generalize: the gate fires
