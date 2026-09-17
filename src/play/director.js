@@ -561,7 +561,9 @@ export function createDirector({ seed = 20260806 } = {}) {
     // itself needs, which is exactly the stall the player reported. The
     // title's marquee melon is deliberately NOT gated: it is the composition,
     // it is one cached mesh, and its pipeline is compiled by phase 2.
-    const warming = ctx.prewarmed === false;
+    // r51: …and while the dark start's curtain is down (main.js) — the first
+    // toss is into a lit sky, never one the player cannot see yet
+    const warming = ctx.prewarmed === false || ctx.dark === true;
     if (!held && !warming && !arriving) levelT += sdt;
     api.progress = journeyProgress();
     const L = LEVELS[api.level];

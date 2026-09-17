@@ -330,7 +330,13 @@ export async function boot(canvas) {
   // first toss, and the first cut of each species compiled the cap pipeline
   // mid-swipe. Fire-and-forget; skipped under ?capture (probes drive the sim
   // dark and pay their own compile cost when they actually draw).
-  if (!flags.capture) Promise.resolve().then(() => director.prewarmPipelines?.());
+  // r51: the dark start (below) waits for the whole warmup, not just the
+  // gate — the deadline releases `prewarmed` at 4 s while phases keep
+  // compiling, and those late compiles were the last hitches measured.
+  let warmSettled = !!flags.capture;
+  if (!flags.capture) {
+    Promise.resolve().then(() => director.prewarmPipelines?.()).catch(() => {}).then(() => { warmSettled = true; });
+  }
 
   // ── slow motion ────────────────────────────────────────────────────────────
   let slowUntil = 0, slowTarget = 1;
@@ -446,6 +452,40 @@ export async function boot(canvas) {
   const stalls = [];
   const stats = { fps: 0, ms: 0, tier: ctx.quality.tier, fruit: 0, frames: 0 };
   let fpsAcc = 0, fpsN = 0;
+  // ══ r51: THE DARK START ═══════════════════════════════════════════════════
+  // Measured on the iPhone (the r42 ledger, pulled from the container after a
+  // real launch): seven frames of 69-160 ms in the first 3.7 s, one per
+  // warmup phase (scene compile, then each species), every one with the
+  // warmup still running — and not a single frame over 33 ms in the 26 s
+  // after it settled. So the roughness "in the first few seconds of fruit
+  // flying" is the pipeline warmup hitching whatever is on screen: the
+  // title's marquee melon, or the first toss if the player taps early. The
+  // fix is not to show it. A black curtain sits over the world (under the
+  // title, so the name still reads) from the first frame, and lifts when
+  // timing has STABILISED against the wall clock: the warmup has finished
+  // AND no frame has missed two vsyncs for DARK_QUIET_MS — or, as a ceiling
+  // a player will never wait past, DARK_MAX_MS after boot. director.js holds
+  // the arc while `ctx.dark`, so the first toss is always into a lit sky.
+  // Never under ?capture: probes measure pixels and pay no warmup.
+  const DARK_MAX_MS = 5000, DARK_QUIET_MS = 500;
+  let dark = null, litAt = -1, lastStallWall = bootAt;
+  if (!flags.capture) {
+    dark = document.createElement('div');
+    dark.id = 'zs-dark';
+    document.body.appendChild(dark);
+    ctx.dark = true;
+  }
+  function maybeLift(wall) {
+    if (!dark) return;
+    const since = wall - bootAt;
+    const stable = warmSettled && stats.frames >= 12 && (wall - lastStallWall) > DARK_QUIET_MS;
+    if (!stable && since < DARK_MAX_MS) return;
+    ctx.dark = false;
+    litAt = +(since / 1000).toFixed(2);
+    const el = dark; dark = null;
+    el.classList.add('lit');
+    setTimeout(() => el.remove(), 1800);
+  }
   let virtualNow = performance.now() / 1000;   // harness-controlled clock
   let useVirtual = false;
 
@@ -490,6 +530,13 @@ export async function boot(canvas) {
         warm: ctx.prewarmed === false ? 0 : 1, fruit: director.live?.length ?? 0,
         tier: ctx.quality.tier,
       });
+    }
+    // r51: the curtain's stability clock — CPU time of the frame OR the wall
+    // gap since the last one (a missed vsync the CPU never saw)
+    if (!useVirtual) {
+      const wall = performance.now();
+      if (ms > 33 || (!syntheticDt && dt > 0.034)) lastStallWall = wall;
+      maybeLift(wall);
     }
     if (prof) {
       prof.frames++;
@@ -554,6 +601,8 @@ export async function boot(canvas) {
      *  `ZS.warm()` is its companion: the per-phase cost of the warm start. */
     stalls: () => stalls.slice(),
     warm: () => ({ done: ctx.prewarmed, phases: ctx.warmLog || [] }),
+    /** r51: seconds after boot the dark start lifted (-1 while dark / under ?capture). */
+    lit: () => litAt,
     setTier: applyTier,
     /** r39: manual render-scale override for testing, same spirit as setTier —
      *  applies immediately, and the governor may adjust it afterwards. */
@@ -646,7 +695,7 @@ export async function boot(canvas) {
       try {
         const diag = JSON.stringify({
           at: +((performance.now() - bootAt) / 1000).toFixed(1),
-          warm: ZS.warm(), stalls,
+          warm: ZS.warm(), stalls, lit: litAt,
           gov: (() => { try { return ZS.gov(); } catch (_) { return null; } })(),
           backend: ZS.backend, frames: stats.frames, fps: Math.round(stats.fps),
         });

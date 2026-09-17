@@ -546,3 +546,14 @@ html, body {
 /* r38f: a dead module commandeers the flag badge (dev builds only — see
    hud.js). Red, no uppercase mangling of the error text. */
 .zs-flag.fault { color: rgba(255, 110, 100, 0.95); text-transform: none; letter-spacing: 0.04em; }
+
+/* ══ r51: THE DARK START (main.js) ══════════════════════════════════════════
+ * Over the world and the HUD, under the title (z 10) and the veil (z 11): the
+ * name reads on black while the pipelines warm; the world fades in beneath it
+ * once frame timing has settled. Removed from the DOM after the fade. */
+#zs-dark {
+  position: fixed; inset: 0; z-index: 9;
+  background: #000; pointer-events: none;
+  opacity: 1; transition: opacity 1.4s ease;
+}
+#zs-dark.lit { opacity: 0; }
