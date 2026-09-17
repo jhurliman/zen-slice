@@ -347,13 +347,7 @@ export async function boot(canvas) {
   // first toss, and the first cut of each species compiled the cap pipeline
   // mid-swipe. Fire-and-forget; skipped under ?capture (probes drive the sim
   // dark and pay their own compile cost when they actually draw).
-  // r51: the dark start (below) waits for the whole warmup, not just the
-  // gate — the deadline releases `prewarmed` at 4 s while phases keep
-  // compiling, and those late compiles were the last hitches measured.
-  let warmSettled = !!flags.capture;
-  if (!flags.capture) {
-    Promise.resolve().then(() => director.prewarmPipelines?.()).catch(() => {}).then(() => { warmSettled = true; });
-  }
+  if (!flags.capture) Promise.resolve().then(() => director.prewarmPipelines?.());
 
   // ── slow motion ────────────────────────────────────────────────────────────
   let slowUntil = 0, slowTarget = 1;
@@ -471,22 +465,17 @@ export async function boot(canvas) {
   try { window.addEventListener('pointerdown', () => { strokes++; }, { capture: true, passive: true }); } catch (_) { /* */ }
   const stats = { fps: 0, ms: 0, tier: ctx.quality.tier, fruit: 0, frames: 0 };
   let fpsAcc = 0, fpsN = 0;
-  // ══ r51: THE DARK START ═══════════════════════════════════════════════════
-  // Measured on the iPhone (the r42 ledger, pulled from the container after a
-  // real launch): seven frames of 69-160 ms in the first 3.7 s, one per
-  // warmup phase (scene compile, then each species), every one with the
-  // warmup still running — and not a single frame over 33 ms in the 26 s
-  // after it settled. So the roughness "in the first few seconds of fruit
-  // flying" is the pipeline warmup hitching whatever is on screen: the
-  // title's marquee melon, or the first toss if the player taps early. The
-  // fix is not to show it. A black curtain sits over the world (under the
-  // title, so the name still reads) from the first frame, and lifts when
-  // timing has STABILISED against the wall clock: the warmup has finished
-  // AND no frame has missed two vsyncs for DARK_QUIET_MS — or, as a ceiling
-  // a player will never wait past, DARK_MAX_MS after boot. director.js holds
-  // the arc while `ctx.dark`, so the first toss is always into a lit sky.
-  // Never under ?capture: probes measure pixels and pay no warmup.
-  const DARK_MAX_MS = 5000, DARK_QUIET_MS = 500;
+  // ══ r51: THE DARK START, r51d: A FADE, NOT A WAIT ═══════════════════════
+  // r51 held a black curtain until frame timing settled (5 s ceiling). On a
+  // warm shader cache that hid every warmup hitch; on a FRESH INSTALL (the
+  // r51b ledger) the warmup ran 8.7 s, past the ceiling, and the player
+  // still met 500-700 ms stalls on the first two slices — "the extra
+  // fade-in delay doesn't really add anything and makes startup a bit more
+  // confusing". So the curtain is now a one-second fade from black over the
+  // first frames (the very first render blocks ~1 s cold while the scene
+  // compiles; nobody needs to see that frame), and the stutter is handled
+  // where it lives: director.js warms only the first page's species before
+  // play and the rest at their page turns (r51d). Never under ?capture.
   let dark = null, litAt = -1, lastStallWall = bootAt;
   if (!flags.capture) {
     dark = document.createElement('div');
@@ -495,15 +484,12 @@ export async function boot(canvas) {
     ctx.dark = true;
   }
   function maybeLift(wall) {
-    if (!dark) return;
-    const since = wall - bootAt;
-    const stable = warmSettled && stats.frames >= 12 && (wall - lastStallWall) > DARK_QUIET_MS;
-    if (!stable && since < DARK_MAX_MS) return;
+    if (!dark || stats.frames < 2) return;
     ctx.dark = false;
-    litAt = +(since / 1000).toFixed(2);
+    litAt = +((wall - bootAt) / 1000).toFixed(2);
     const el = dark; dark = null;
     el.classList.add('lit');
-    setTimeout(() => el.remove(), 1800);
+    setTimeout(() => el.remove(), 1400);
   }
   let virtualNow = performance.now() / 1000;   // harness-controlled clock
   let useVirtual = false;
