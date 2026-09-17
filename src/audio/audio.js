@@ -116,8 +116,27 @@ export function createAudio() {
     }
   }
 
+  // ══ r51c: THE TAP PAYS FOR NOTHING BUT resume() ══════════════════════════
+  // Measured on the iPhone (the r51b ledger): the title tap cost 193 ms
+  // outside the frame loop. Everything unlock() did in the gesture — build
+  // the AudioContext and its master chain, synthesise the swish bank and the
+  // thump, and (through the same tap's 'level' event) synthesise the first
+  // room's reverb IR on the spot — runs at BOOT instead, under the dark
+  // start's curtain, spaced out like warmSpaces already was. Only resume()
+  // needs the gesture (iOS). The piano kit's OfflineAudioContext renders stay
+  // deferred to 1.5 s after unlock (r18: they starve the media thread if
+  // fired as the live context starts).
+  function warmAtBoot() {
+    if (nosound || engine.actx) return;
+    if (!engine.ensure()) return;   // no AudioContext: unlock() will say so
+    try { thumpBuf = makeThumpBuffer(engine.actx); } catch (_) { /* */ }
+    try { swishBank = makeSwishBank(engine.actx); } catch (_) { /* */ }
+    setTimeout(() => engine.warmSpaces?.(), 250);
+  }
+
   function unlock() {
     if (nosound) return;
+    const t0 = performance.now();
     if (!engine.ensure()) { api.enabled = false; return; }
     if (started) {
       // r18: the gesture listeners stay attached FOREVER, and after first
@@ -130,8 +149,8 @@ export function createAudio() {
     started = true;
     engine.resume();
     engine.setMaster(masterLevel(), 0.25);   // audible within ~0.5 s, not ~2.5
-    thumpBuf = makeThumpBuffer(engine.actx);
-    swishBank = makeSwishBank(engine.actx);
+    if (!thumpBuf) thumpBuf = makeThumpBuffer(engine.actx);   // r51c: normally built at boot
+    if (!swishBank) swishBank = makeSwishBank(engine.actx);
     conductor.start(playNote);
     conductor.setCaps(caps);
     engine.setPianoCap(caps.voices);
@@ -143,10 +162,12 @@ export function createAudio() {
     // r37: pre-build the reverb IRs once the room is quiet — 3.5 s after
     // unlock (the piano render owns 1.5 s+), so a later level landing never
     // pays synchronous IR math on its first frame (engine.warmSpaces).
-    setTimeout(() => engine.warmSpaces?.(), 3500);
+    setTimeout(() => engine.warmSpaces?.(), 3500);   // no-op for rooms already built at boot
     setTimeout(() => {
       renderPianoKit().then((kit) => { pianoKit = kit; }).catch(fail);
     }, 1500);
+    // r51c: what the gesture cost, for the diag dump (ctx.tapLog)
+    if (ctxRef) (ctxRef.tapLog = ctxRef.tapLog || []).push({ what: 'unlock', ms: +(performance.now() - t0).toFixed(1) });
   }
   api.unlock = unlock;   // harness path: no real gesture ever fires
 
@@ -155,6 +176,9 @@ export function createAudio() {
     // permanent — see unlock(): after first use these are the resume path
     ['pointerdown', 'touchstart', 'keydown'].forEach((ev) =>
       window.addEventListener(ev, unlock, { passive: true }));
+    // r51c: the audio graph and its buffers are built at boot, not in the
+    // first tap — a beat after init so the module set finishes wiring
+    setTimeout(warmAtBoot, 120);
 
     // r36: shared return-to-foreground path — resume, unmute, and arm the
     // zombie watchdog to check FAST (~0.5 s instead of up to 3): baseline
@@ -210,8 +234,12 @@ export function createAudio() {
       c.bus.emit('arrival', { in: Math.max(0, t - engine.now()), beat: 60 / conductor.bpm });
     };
     c.bus.on('level', guard((e) => {
+      const t0 = performance.now();
       conductor.setLevel(e.level);
       engine.setSpace(SPACE_FOR_LEVEL[Math.max(0, Math.min(SPACE_FOR_LEVEL.length - 1, e.level | 0))]);
+      // r51c: the first room change is the one that used to synthesise its
+      // IR in the tap; recorded so the phone can show it no longer does
+      if (c.tapLog && c.tapLog.length < 6) c.tapLog.push({ what: 'level' + e.level, ms: +(performance.now() - t0).toFixed(1) });
     }));
     c.bus.on('reset', guard(() => {
       pending.length = 0; pendingAt = -1; pendingQuant = -1;

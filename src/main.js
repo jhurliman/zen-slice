@@ -727,7 +727,7 @@ export async function boot(canvas) {
       try {
         const diag = JSON.stringify({
           at: +((performance.now() - bootAt) / 1000).toFixed(1),
-          warm: ZS.warm(), stalls, lit: litAt,
+          warm: ZS.warm(), stalls, lit: litAt, tap: ctx.tapLog || [],
           gov: (() => { try { return ZS.gov(); } catch (_) { return null; } })(),
           backend: ZS.backend, frames: stats.frames, fps: Math.round(stats.fps),
         });
