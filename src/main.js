@@ -298,6 +298,7 @@ export async function boot(canvas) {
     console.error(`[zs] module "${rec.module}" disabled: ${phase}() threw`, e);
   }
 
+  let worstMs = 0, worstKey = '';   // r51b: per-frame attribution, reset in tick()
   function safe(m, phase, a, b, c) {
     const fn = m[phase];
     if (fn === undefined || m.__zsDead) return;
@@ -309,6 +310,22 @@ export async function boot(canvas) {
       const e = prof.mod[key] || (prof.mod[key] = { n: 0, sum: 0, max: 0, s: [] });
       e.n++; e.sum += d; if (d > e.max) e.max = d;
       if (e.s.length < 40000) e.s.push(d);
+      return;
+    }
+    // r51b: cheap attribution for the stall ledger (debug builds): the
+    // slowest module call of the current frame. One performance.now() pair
+    // per call, ~40 ns each.
+    if (__ZS_DEBUG_UI__) {
+      const t0 = performance.now();
+      try { fn.call(m, a, b, c); } catch (e) {
+        m.__zsDead = true;
+        const rec = { module: m.__zsName, phase, error: String(e && e.stack ? e.stack : e).slice(0, 400) };
+        moduleErrors.push(rec);
+        console.error(`[zs] module "${rec.module}" disabled: ${phase}() threw`, e);
+        return;
+      }
+      const d = performance.now() - t0;
+      if (d > worstMs) { worstMs = d; worstKey = m.__zsName + '.' + phase; }
       return;
     }
     try {
@@ -450,6 +467,8 @@ export async function boot(canvas) {
   const bootAt = performance.now();
   /** @type {{t:number,ms:number,warm:number,fruit:number,tier:number}[]} r42 */
   const stalls = [];
+  let lastTickEnd = 0, strokes = 0;
+  try { window.addEventListener('pointerdown', () => { strokes++; }, { capture: true, passive: true }); } catch (_) { /* */ }
   const stats = { fps: 0, ms: 0, tier: ctx.quality.tier, fruit: 0, frames: 0 };
   let fpsAcc = 0, fpsN = 0;
   // ══ r51: THE DARK START ═══════════════════════════════════════════════════
@@ -495,8 +514,14 @@ export async function boot(canvas) {
     // a backgrounded tab can hand us a huge or negative delta). A negative dt
     // silently poisons the accumulator forever, so clamp hard.
     if (!(dt > 0)) { dt = SIM_DT; syntheticDt = true; }
+    const rawDt = dt;
     if (dt > 0.1) dt = 0.1;
     const nowS = nowSec();
+    worstMs = 0; worstKey = '';
+    // r51b: time spent OUTSIDE tick since the last one — pointer handlers,
+    // style recalc, GC, and the idle wait for vsync (~16 ms at 60 Hz, so
+    // only the excess over that is a stall)
+    const outside = lastTickEnd > 0 ? wallStart - lastTickEnd : 0;
 
     const target = nowS < slowUntil ? slowTarget : 1;
     if (nowS >= slowUntil) slowTarget = 1;
@@ -524,13 +549,20 @@ export async function boot(canvas) {
     // comparison per frame, always on, and keeps the first 48 frames that blew
     // four vsyncs at 120 Hz. Virtual-clock frames are excluded: `ms` there is
     // wall time for a step the harness asked for, not a hitch anyone saw.
-    if (!useVirtual && ms > 33 && stalls.length < 48) {
+    // r51b: OR a wall gap over two vsyncs (a hitch the CPU never saw), and
+    // each entry says what it was doing: the slowest module call, the time
+    // outside tick, how many strokes and cuts so far.
+    if (!useVirtual && (ms > 33 || (!syntheticDt && rawDt > 0.034)) && stalls.length < 48) {
       stalls.push({
         t: +((performance.now() - bootAt) / 1000).toFixed(2), ms: +ms.toFixed(1),
+        dt: +(rawDt * 1000).toFixed(0), out: +outside.toFixed(0),
+        worst: worstKey ? `${worstKey}:${worstMs.toFixed(1)}` : '',
+        strokes, cuts: ctx.score?.total ?? 0,
         warm: ctx.prewarmed === false ? 0 : 1, fruit: director.live?.length ?? 0,
         tier: ctx.quality.tier,
       });
     }
+    lastTickEnd = performance.now();
     // r51: the curtain's stability clock — CPU time of the frame OR the wall
     // gap since the last one (a missed vsync the CPU never saw)
     if (!useVirtual) {
@@ -711,6 +743,7 @@ export async function boot(canvas) {
     setTimeout(dump, 2500);
     setTimeout(dump, 12000);
     setTimeout(dump, 30000);
+    setTimeout(dump, 60000);
   }
 
   window.ZS = ZS;
