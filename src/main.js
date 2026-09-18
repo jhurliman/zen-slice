@@ -67,6 +67,7 @@ import { createHud } from './ui/hud.js';
 import { createHaptics } from './input/haptics.js';
 import { createAudio } from './audio/audio.js';
 import { initNative } from './core/native.js';
+import { createStore } from './core/store.js';
 import { initTuner } from './ui/tuner.js';
 
 const PROFILES = {
@@ -184,9 +185,11 @@ export async function boot(canvas) {
   const hud = createHud();
   const haptics = createHaptics();
   const audio = createAudio();
+  // 1.2: entitlement first — director's gate and hud's veil read ctx.store
+  const store = createStore();
 
-  const modules = [stage, director, fluid, blade, slicer, score, hud, haptics, audio];
-  const names = ['stage', 'director', 'fluid', 'blade', 'slicer', 'score', 'hud', 'haptics', 'audio'];
+  const modules = [store, stage, director, fluid, blade, slicer, score, hud, haptics, audio];
+  const names = ['store', 'stage', 'director', 'fluid', 'blade', 'slicer', 'score', 'hud', 'haptics', 'audio'];
   for (let i = 0; i < modules.length; i++) modules[i].__zsName = names[i];
   // Capacitor shell bootstrap (r26): no-op outside the native app
   ctx.native = initNative();
@@ -199,6 +202,7 @@ export async function boot(canvas) {
   }
   ctx.stage = stage;
   ctx.score = score;
+  ctx.store = store;
 
   /** @type {{module:string,phase:string,error:string}[]} */
   const moduleErrors = [];

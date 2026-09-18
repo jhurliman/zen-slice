@@ -110,4 +110,18 @@ unlocked — install works either way.)
   leaderboard `chordcut.best` (the constant in GameCenterPlugin.swift); they
   are silent no-ops if the leaderboard is missing under App Store Connect →
   App → Services → Game Center.
-- **StoreKit**: not used; nothing is sold.
+- **StoreKit** (1.2): `StoreKitPlugin.swift`, StoreKit 2, one non-consumable
+  `org.jhurliman.chordcut.album1` ("The First Day" — the ~18-minute arc is the first album; later packs are album2…). `status()`/`purchase()`/`restore()` from JS via
+  `Capacitor.Plugins.StoreKit` (src/core/store.js owns `entitled`, caches it in
+  prefs, announces `'entitlement'` on the bus). Paid 1.0/1.1 installs are
+  grandfathered from the app receipt: `originalPurchaseDate` before
+  2026-10-01T00:00Z, or `originalAppVersion` (the ORIGINAL install's build
+  number on iOS) ≤ 5. Only a PRODUCTION receipt (`AppTransaction.environment`) can
+  grandfather: sandbox/TestFlight receipts are synthetic (version "1.0", a 2013
+  date) and would otherwise hide the paywall from App Review itself. An
+  unreadable receipt reports `receipt: "unavailable"`; store.js treats that as
+  inconclusive (never lowers a cached entitlement; retries every 30 s for a few
+  minutes and on foreground). `ios/App/Products.storekit`
+  is the Xcode StoreKit configuration for local runs (scheme → Run → Options →
+  StoreKit Configuration). `tools/storeprobe.mjs` covers the JS side against a
+  mocked bridge.

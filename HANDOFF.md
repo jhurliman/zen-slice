@@ -206,13 +206,38 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
 
 3. **1.2 — free download + $2.99 unlock, due Thu 2026-10-01 (submit by Tue 9/22).**
    The featuring nomination (filed 9/7) names 10/1 as the update's release
-   date, so this is a dated deliverable. Scope, in build order:
+   date, so this is a dated deliverable. **Status 2026-09-08: the code is
+   built** (branch v1.2-unlock → PR): `StoreKitPlugin.swift` (+ pbxproj,
+   GameViewController registration, `Products.storekit`), `src/core/store.js`,
+   the gate in director.js now reads `ctx.store.entitled` (DEMO=1 pins it
+   false; outside the shell it is true), the veil in hud.js has its shell face
+   (price from StoreKit, restore line, thank-you on entitlement) plus an
+   "unlock the first day" settings row, prefs carry `entitled`,
+   `tools/storeprobe.mjs` (27 checks, mocked bridge). PAID_THROUGH_BUILD = 5
+   (1.1's build; re-pin if 1.1 is resubmitted). ASC IAP CREATED 9/8: Apple ID 6809980225, `org.jhurliman.chordcut.album1`,
+   "The First Day" / "Seven more levels: the rest of the day, yours to keep.",
+   $2.99 tier in 175 regions, FAMILY SHARING ON (irreversible; John's call —
+   StoreKit 2's currentEntitlements already includes family-shared
+   transactions), review notes + veil screenshot attached, status Prepare
+   for Submission — it is submitted WITH the 1.2 version ("Add for Review"
+   on the IAP page once the 1.2 version exists). The veil holds the pointer
+   (1.2e) and the ?debug level remote stops at the gate (1.2d). Still to do:
+   device verification (sandbox buy with debug on — the product now exists,
+   so the sandbox can answer; offline relaunch; delete + reinstall +
+   restore), version 1.2 (6), privacy label, the 10/1 sequencing and public
+   copy below. Scope, in build
+   order:
    - **StoreKit plugin.** `ios/App/App/StoreKitPlugin.swift`, same shape as
      `GameCenterPlugin.swift` (a `CAPPlugin` registered in the shell, called
      from JS via `window.Capacitor.Plugins.StoreKit`). StoreKit 2 only:
      `Product.products(for:)`, `product.purchase()`, `Transaction.currentEntitlements`,
      `AppStore.sync()` for Restore. One non-consumable, id
-     `org.jhurliman.chordcut.full`. Methods: `status()` →
+     `org.jhurliman.chordcut.album1` (POSITIONING, 9/8: the ~18-minute arc is
+     THE FIRST ALBUM, "The First Day", not "the full game" — future packs
+     with new levels/fruit/instruments are their own products, album2…, each
+     an album release; store.js grows from one boolean to an owned-set keyed
+     by pack and the gate asks for the pack a level belongs to; the display
+     name can change in ASC, the product id cannot). Methods: `status()` →
      `{entitled, price, reason}`, `purchase()`, `restore()`.
    - **Grandfathering.** Two independent tests, either one entitles:
      1. `AppTransaction.shared.originalAppVersion` — on iOS this is the
@@ -230,16 +255,19 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
         price propagates would otherwise carry 1.2's build number and be
         asked to pay again. Date wins over build.
      ⚠ In sandbox and TestFlight `originalAppVersion` is always `"1.0"` and
-     `originalPurchaseDate` is synthetic, so both branches must be tested
-     with an Xcode StoreKit configuration file, not on TestFlight. ⚠ In sandbox and
-     TestFlight `originalAppVersion` is always `"1.0"`, so this branch must
-     be tested with an Xcode StoreKit configuration file (set the app
-     version there), not on TestFlight. Compare as an integer, not a string.
+     `originalPurchaseDate` is synthetic — which would grandfather APP
+     REVIEW's device and hide the purchase from them (Guideline 2.1
+     rejection). So (1.2f) the receipt tests run only when
+     `AppTransaction.environment == .production`; sandbox/TestFlight/Xcode
+     see the veil and buy for free. An unreadable receipt is reported as
+     `receipt: "unavailable"` and store.js never lowers a cached entitlement
+     on it (retries every 30 s ×10 and on foreground). Compare the build as
+     an integer, not a string.
    - **The gate.** The demo gate (`director.js` DEMO GATE, `__ZS_DEMO__`)
      already withholds the page-turn to level 3 and emits `demoend`; the
      veil in `hud.js` already renders the CTA. Generalize: the gate fires
      when `!entitled` — `__ZS_DEMO__` (web) *or* the native shell reporting
-     `entitled:false`. The native veil's CTA becomes "unlock the full game ·
+     `entitled:false`. The native veil's CTA becomes "unlock the first day ·
      $2.99" (price string from StoreKit, localized) plus a small "restore
      purchase" link — Apple rejects paywalls without one. Entitlement is
      read once at boot, cached in prefs so the gate is correct offline and
@@ -251,7 +279,7 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
      "Purchases" added under data not linked to you — check the App Privacy
      questionnaire when submitting.
    - **ASC.** Create the IAP (Pricing: $2.99 tier, localized display name
-     "Full Game", description, review screenshot of the veil), attach it to
+     "The First Day", description, review screenshot of the veil), attach it to
      the 1.1 submission, add review notes: "Paid app transitioning to free
      with unlock; previous purchasers are entitled via
      AppTransaction.originalAppVersion ≤ <1.1's build> or originalPurchaseDate

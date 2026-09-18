@@ -487,6 +487,8 @@ html, body {
  * Reuses .zs-title (veil, fade, tracked caps). Only the CTA and "keep
  * slicing" take pointer events — the blade keeps working under the veil. */
 .zs-demo { z-index: 11; }
+/* 1.2: the veil holds the pointer — swipes stop at the words, not the fruit */
+.zs-veil-hold { pointer-events: auto; }
 .zs-demo .zs-title-word {
   font-size: clamp(20px, 5.6vmin, 44px);
   white-space: normal; text-align: center; max-width: 92vw;
@@ -507,6 +509,16 @@ html, body {
   text-shadow: none;
 }
 .zs-demo-stay { pointer-events: auto; cursor: pointer; }
+/* 1.2: the shell's buy button (same ring as the link) and the restore line
+ * Apple requires beside any paywall — quiet, but reachable */
+.zs-demo-buy { pointer-events: auto; cursor: pointer; }
+.zs-demo-restore {
+  pointer-events: auto; cursor: pointer;
+  margin-top: 14px;
+  font-size: clamp(10px, 2.4vw, 12px);
+  letter-spacing: 0.22em; margin-right: -0.22em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55); text-decoration: underline; text-underline-offset: 3px;
+}
 
 /* prefers-reduced-motion: the level name simply fades — no tracking sweep —
  * and the hint stops pulsing. Callout motion is zeroed in hud.js. */

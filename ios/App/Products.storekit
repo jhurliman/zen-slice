@@ -1,0 +1,40 @@
+{
+  "identifier" : "3B1C2A7E-CHORDCUT-STOREKIT-CONFIG",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "2.99",
+      "familyShareable" : false,
+      "internalID" : "6803614537001",
+      "localizations" : [
+        {
+          "description" : "The first album. The rest of the day: seven more levels, from Orchard Rain to Dreaming of Bliss.",
+          "displayName" : "The First Day",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "org.jhurliman.chordcut.album1",
+      "referenceName" : "The First Day",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6803614537",
+    "_developerTeamID" : "37UW6HK268",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

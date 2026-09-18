@@ -19,5 +19,6 @@ class GameViewController: CAPBridgeViewController {
     // r36: app-local plugins register here — the Capacitor 8 subclassing hook.
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(GameCenterPlugin())
+        bridge?.registerPluginInstance(StoreKitPlugin())   // 1.2: the one purchase
     }
 }

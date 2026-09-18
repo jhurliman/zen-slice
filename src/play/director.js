@@ -107,7 +107,7 @@ export function createDirector({ seed = 20260806 } = {}) {
   let titleWait = 0.5, titleSide = 1;   // r36: the marquee melon's cadence
   let t = 0;
   let levelT = 0;   // sim seconds in the current level (the r18 time gate)
-  let demoEnded = false;   // the demo veil fires once (web demo build only)
+  let demoEnded = false;   // the veil fires once per session (web demo, or the shell while !entitled)
   let blissHeldT = 0;      // r44: sim-seconds the arrival hold has been up
   // running triangle total of the live population, maintained incrementally by
   // add()/remove() so the budget check is two comparisons and not an O(n) sum
@@ -150,6 +150,11 @@ export function createDirector({ seed = 20260806 } = {}) {
 
   api.init = (c) => {
     ctx = c;
+    // 1.2: gaining the day re-arms the gate's one-shot, so a session that
+    // later loses it (a refund reported at the next status()) can see the
+    // veil again. Only on gain: a cancelled purchase must not bring the veil
+    // back on the very next cut after "keep slicing".
+    c.bus.on('entitlement', (e) => { if (e.entitled) demoEnded = false; });
     ctx.fruits = api;
     ctx.physics = physics;
     physics.init(c);
@@ -762,14 +767,18 @@ export function createDirector({ seed = 20260806 } = {}) {
     // player mid-stillness; the slice that finally satisfies both is the one
     // that turns the page.
     if (api.sliced >= L.need && levelT >= L.dur && api.level < LEVELS.length - 1) {
-      // ══ THE DEMO GATE (web build only) ═══════════════════════════════
-      // The published Pages build is the first three levels; the page that
-      // would turn to level 3 announces the full game instead. 'demoend'
-      // fires ONCE — hud.js owns the veil — and the gate blocks only the
-      // page-turn, never the slicing: level 2 keeps playing underneath
-      // forever, in the coda's spirit. Compiled out of the App Store build
-      // (__ZS_DEMO__ is an esbuild define; false makes this dead code).
-      if (typeof __ZS_DEMO__ !== 'undefined' && __ZS_DEMO__ && api.level >= 2) {
+      // ══ THE GATE: three levels, then the unlock ═══════════════════════
+      // The first three levels are open; the page that would turn to level
+      // 3 announces the rest instead while store.entitled is false — the web
+      // demo (never entitled; the veil points at the App Store) and, since
+      // 1.2, the shell before the one purchase (store.js: cached prefs, then
+      // StoreKit, grandfathered paid installs included). 'demoend' fires
+      // ONCE per session — hud.js owns the veil — and the gate blocks only
+      // the page-turn, never the slicing: level 2 keeps playing underneath,
+      // in the coda's spirit. The moment entitlement lands, the next
+      // qualifying cut turns the page. A plain `node build.mjs` outside the
+      // shell is entitled by construction — the open build is the whole game.
+      if (api.level >= 2 && ctx.store && !ctx.store.entitled) {
         if (!demoEnded) { demoEnded = true; ctx.bus.emit('demoend', {}); }
         return;
       }
@@ -787,7 +796,16 @@ export function createDirector({ seed = 20260806 } = {}) {
   /** r20, for the ?debug overlay: jump straight to a level. Emits the same
    *  'level' event a natural advance does, so audio/hud react identically. */
   api.jumpLevel = (n) => {
-    const l = Math.max(0, Math.min(LEVELS.length - 1, n | 0));
+    let l = Math.max(0, Math.min(LEVELS.length - 1, n | 0));
+    // 1.2: the remote respects the gate — while the first day is not owned
+    // it stops at level 2 and raises the veil, so the "end of the free
+    // levels" can be reached from the debug strip without playing four
+    // minutes (the player tried exactly that and "it happily skipped
+    // forward to every level").
+    if (l >= 3 && ctx.store && !ctx.store.entitled) {
+      l = 2;
+      if (!demoEnded) { demoEnded = true; ctx.bus.emit('demoend', {}); }
+    }
     api.level = l; api.sliced = 0; levelT = 0;
     api.progress = journeyProgress();
     ctx.bus.emit('level', { level: l, name: LEVELS[l].name, coda: !isFinite(LEVELS[l].dur) });
