@@ -557,3 +557,25 @@ html, body {
   opacity: 1; transition: opacity 1.0s ease;
 }
 #zs-dark.lit { opacity: 0; }
+
+/* ══ r51e: THE ONE-TIME LOAD LINE (hud.js) ══════════════════════════════════
+ * Above the hint, in its voice: a label and a 2px gold line that fills as the
+ * shader warmup runs at app start. Above the title's vignette (same z, later
+ * in the DOM), gone once the warmup is done. */
+.zs-load {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(max(30px, env(safe-area-inset-bottom)) + 44px);
+  width: min(52vw, 240px); z-index: 10; pointer-events: none;
+  text-align: center; opacity: 0; transition: opacity 0.6s ease;
+}
+.zs-load.show { opacity: 1; }
+.zs-load span {
+  display: block; margin-bottom: 9px;
+  font-size: clamp(9px, 2.3vw, 11px); letter-spacing: 0.22em; margin-right: -0.22em;
+  text-transform: lowercase; color: rgba(200, 220, 255, 0.5);
+}
+.zs-load i {
+  display: block; height: 2px; width: 0%; border-radius: 2px;
+  background: rgba(255, 198, 26, 0.85); box-shadow: 0 0 8px rgba(255, 198, 26, 0.35);
+  transition: width 0.35s ease;
+}

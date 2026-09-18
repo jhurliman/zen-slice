@@ -2,10 +2,11 @@
  * darkprobe.mjs — the dark start (r51/r51d) and the staged warmup (r51d).
  * Boots WITHOUT ?capture (the curtain and the warmup exist only there):
  *   - the curtain is up on the first frame and lifts as a short fade;
- *   - before play only the first page's species compile (marquee melon +
- *     Still Water's pool); the arc waits for them, the melon keeps lobbing;
- *   - a page turn compiles that page's new species; tosses skip a species
- *     until it is warm;
+ *   - the WHOLE day's species compile at app start, first page first, behind
+ *     the HUD's load line; the arc waits for all of it, the melon keeps
+ *     lobbing (r51e);
+ *   - a page turn afterwards compiles nothing new (warmFor is the safety
+ *     net for the deadline case only);
  *   - under ?capture there is no curtain and nothing is gated.
  * Run after `node build.mjs`.
  */
@@ -49,25 +50,25 @@ check('it lifts after the first frames (a fade, not a wait)', R.lit >= 0 && R.li
 console.log('\n── the staged warmup ──');
 await page.mouse.click(215, 500);   // the title goes; the first page may still be warming
 await page.waitForTimeout(300);
-R = await page.evaluate(() => ({ warming: window.ZS.ctx.prewarmed === false, fruit: window.ZS.director.live.length, title: !!document.querySelector('.zs-title:not(.out)') }));
-check('title tapped away: only the marquee melon flies while the first page warms', R.title === false && R.fruit <= 1, JSON.stringify(R));
-await page.waitForFunction(() => window.ZS.warm().done === true, null, { timeout: 30000 }).catch(() => {});
-R = await page.evaluate(() => ({ done: window.ZS.warm().done, phases: window.ZS.warm().phases.map((p) => p.phase) }));
-check('before play: scene, watermelon, orange, apple, the arenas and their crowd — nothing else', R.done === true
-  && R.phases.includes('scene') && R.phases.includes('fruit:watermelon') && R.phases.includes('fruit:orange') && R.phases.includes('fruit:apple')
-  && R.phases.includes('crowd') && !R.phases.includes('fruit:kiwi') && !R.phases.includes('fruit:pineapple') && !R.phases.includes('fruit:rock'), R.phases.join(','));
+R = await page.evaluate(() => ({ warming: window.ZS.ctx.prewarmed === false, fruit: window.ZS.director.live.length, title: !!document.querySelector('.zs-title:not(.out)'), load: !!document.querySelector('.zs-load'), wp: window.ZS.ctx.warmProgress }));
+check('title tapped away: only the marquee melon flies while the day warms, with the load line up', R.title === false && R.fruit <= 1 && R.load && R.wp && R.wp.total >= 9, JSON.stringify(R));
+await page.waitForFunction(() => window.ZS.warm().done === true, null, { timeout: 60000 }).catch(() => {});
+R = await page.evaluate(() => ({ done: window.ZS.warm().done, phases: window.ZS.warm().phases.map((p) => p.phase), wp: window.ZS.ctx.warmProgress }));
+check('before play: the scene, every species (first page first), the arenas and the crowd', R.done === true
+  && R.phases.slice(0, 4).join(',') === 'scene,fruit:watermelon,fruit:orange,fruit:apple'
+  && ['fruit:kiwi', 'fruit:rock', 'fruit:strawberry', 'fruit:pineapple', 'cut-arenas', 'crowd'].every((p) => R.phases.includes(p))
+  && R.wp.done === R.wp.total, R.phases.join(','));
+await page.waitForTimeout(1300);
+R = await page.evaluate(() => !document.querySelector('.zs-load'));
+check('the load line leaves once the warmup is done', R === true);
 await page.waitForTimeout(2500);
 R = await page.evaluate(() => ({ fruit: window.ZS.director.live.length, level: window.ZS.director.level }));
 check('the arc has begun on the first page', R.fruit >= 1 && R.level === 0, JSON.stringify(R));
-await page.evaluate(() => { window.ZS.director.jumpLevel(1); });
-await page.waitForTimeout(150);
-R = await page.evaluate(() => window.ZS.warm().phases.map((p) => p.phase));
-const kiwiStarted = await page.waitForFunction(() => window.ZS.warm().phases.some((p) => p.phase === 'fruit:kiwi'), null, { timeout: 30000 }).then(() => true).catch(() => false);
-R = await page.evaluate(() => window.ZS.warm().phases.map((p) => p.phase));
-check('the page turn to First Light compiles kiwi and the rock, then a crowd of them', kiwiStarted && R.filter((p) => p === 'crowd').length >= 2 || (kiwiStarted && R.includes('fruit:rock')), R.join(','));
-await page.waitForFunction(() => window.ZS.warm().phases.filter((p) => p.phase === 'crowd').length >= 2, null, { timeout: 30000 }).catch(() => {});
-R = await page.evaluate(() => window.ZS.warm().phases.map((p) => p.phase));
-check('…and only those (strawberry waits for Morning Dew)', R.includes('fruit:kiwi') && R.includes('fruit:rock') && !R.includes('fruit:strawberry'), R.join(','));
+const before = await page.evaluate(() => window.ZS.warm().phases.length);
+await page.evaluate(() => { window.ZS.director.jumpLevel(1); window.ZS.director.jumpLevel(5); });
+await page.waitForTimeout(600);
+R = await page.evaluate(() => window.ZS.warm().phases.length);
+check('page turns afterwards compile nothing new (everything is already warm)', R === before, `${before} → ${R}`);
 check('no page errors', errs.length === 0, errs.join(' | '));
 await page.close();
 

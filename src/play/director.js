@@ -227,13 +227,20 @@ export function createDirector({ seed = 20260806 } = {}) {
   // seven-species warmup took 8.7 s, past both the 4 s deadline and the
   // dark start's 5 s ceiling, so the last compiles landed on the player's
   // first two slices. (On a warm cache it is 4.9 s and 70-100 ms a frame.)
-  // There is no async path around a Metal compile on this stack, so the
-  // only lever is WHEN. Before play: the scene, the marquee melon, and the
-  // two species Still Water tosses (orange, apple). Every later species is
-  // compiled at the page turn that introduces it — a natural pause, the
-  // banner and the room change already mark it — and until it is warm the
-  // toss simply skips it. ?capture never warms, so `ready` is always true
-  // there and frozen rng streams are untouched.
+  // There is no async path around a Metal compile on this stack (nor a
+  // worker one: pipelines belong to the device, and the blocked frame is the
+  // GPU process serialising the render behind the compile, whichever thread
+  // issues it), so the only lever is WHEN. r51e, the player's call: ALL of
+  // it at app start, once, behind a progress line the HUD draws from
+  // ctx.warmProgress ("anecdotally i never see stalls later in the game,
+  // only in the first fruit slices"). The arc waits for the whole warmup;
+  // a player who taps the title early watches the marquee melon (sliceable,
+  // compiled first) with the line at the bottom until it is done. The
+  // first page's species still compile first, and `ready`/warmFor remain as
+  // the safety net for the deadline case: a toss skips a species until it
+  // is warm, and a page turn compiles anything still missing. ?capture never
+  // warms, so `ready` is always true there and frozen rng streams are
+  // untouched.
   const warmed = new Set();
   const ready = (id) => ctx.prewarmed === undefined || warmed.has(id);
   const phase = async (name, fn) => {
@@ -241,7 +248,15 @@ export function createDirector({ seed = 20260806 } = {}) {
     const t0 = performance.now();
     try { await fn(); } catch (_) { /* best-effort by design */ }
     log.push({ phase: name, ms: +(performance.now() - t0).toFixed(1) });
+    if (ctx.warmProgress) ctx.warmProgress.done = Math.min(ctx.warmProgress.total, ctx.warmProgress.done + 1);
     await nextFrame();
+  };
+  /** Every species, first page first, then in the order the day introduces them. */
+  const warmOrder = () => {
+    const out = [SPECIES.watermelon, ...speciesFor(0)];
+    for (let l = 1; l < LEVELS.length; l++) for (const sp of speciesFor(l)) out.push(sp);
+    for (const sp of SPECIES_LIST) out.push(sp);
+    return out.filter((sp, i, a) => sp && a.indexOf(sp) === i);
   };
   /** One species, whole and cut: a pipeline compiles on first DRAW, so a
    *  level introducing a species dropped frames on its first toss and the
@@ -324,20 +339,22 @@ export function createDirector({ seed = 20260806 } = {}) {
     // the gate does not cancel the remaining phases: they keep compiling
     // behind the play that has now been allowed to begin, which is strictly
     // the r37 behaviour and therefore never worse than shipping without this.
-    // r51d: 9 s — the cold-cache first page (scene + three species) measured
-    // ~5 s on the iPhone; the marquee melon lobs (and cuts) while this waits.
+    // r51e: 15 s — the whole warmup measured 8.7 s on a cold cache on the
+    // iPhone (4.9 s warm); the marquee melon lobs (and cuts) while this waits,
+    // and the HUD's progress line says why.
     const deadline = setTimeout(() => {
-      if (ctx.prewarmed === false) { ctx.prewarmed = true; log.push({ phase: 'DEADLINE', ms: 9000 }); }
-    }, 9000);
+      if (ctx.prewarmed === false) { ctx.prewarmed = true; log.push({ phase: 'DEADLINE', ms: 15000 }); }
+    }, 15000);
+    const all = warmOrder();
+    ctx.warmProgress = { done: 0, total: 1 + all.length + 2 };
     // 1. THE SCENE AS IT STANDS — stage lights, post graph, fluid's two
     //    systems, the blade ribbon. This is the expensive one (it was hiding
     //    inside chunk 1 before) and it is paid against an empty sky.
     await phase('scene', () => ctx.renderer.compileAsync(ctx.scene, ctx.camera));
 
-    // 2. THE FIRST PAGE'S SPECIES (r51d): the marquee melon and Still
-    //    Water's pool. Everything else waits for its page turn (api.warmFor).
-    const first = [SPECIES.watermelon, ...speciesFor(0)].filter((sp, i, a) => sp && a.indexOf(sp) === i);
-    for (const sp of first) await warmOne(sp);
+    // 2. EVERY SPECIES (r51e), first page first: the marquee melon and Still
+    //    Water's pool, then the rest in the order the day introduces them.
+    for (const sp of all) await warmOne(sp);
 
     // 3. THE CUT ARENAS. cutter.js bump-allocates out of a grow-only buffer
     //    that starts at LENGTH ZERO and doubles on overflow, and capScratch
@@ -356,10 +373,11 @@ export function createDirector({ seed = 20260806 } = {}) {
       }
     });
 
-    // 4. THE LOADED FRAMES, for the first page's species (crowdOf).
-    await crowdOf(first);
+    // 4. THE LOADED FRAMES, for every species (crowdOf caps the bodies).
+    await crowdOf(all);
 
     clearTimeout(deadline);
+    ctx.warmProgress.done = ctx.warmProgress.total;
     ctx.prewarmed = true;
   };
 
