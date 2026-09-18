@@ -222,10 +222,12 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    GPU process serialises the render behind the compile). The only lever is
    WHEN: all of it at start, behind a bar. Read the numbers back with
    tools/darkprobe.mjs (headless) or the diag blob (device, see NATIVE.md).
-   Still to do: ASC — create the 1.2
-   version, attach build 6 and the IAP (Apple ID 6809980225), review notes,
-   MANUAL release, submit; privacy label unchanged (StoreKit purchases are
-   not developer-collected data); the 10/1 sequencing and public copy below. Scope, in build
+   SUBMITTED 2026-09-17 (2 items: iOS App 1.2 (6) +
+   the IAP, one submission; MANUAL release, phased off; What's New,
+   description and review notes rewritten for the free model; privacy
+   label unchanged — StoreKit purchases are not developer-collected data).
+   Still to do: the 10/1 sequencing (price → Free is NOT yet scheduled)
+   and the public copy below. Scope, in build
    order:
    - **StoreKit plugin.** `ios/App/App/StoreKitPlugin.swift`, same shape as
      `GameCenterPlugin.swift` (a `CAPPlugin` registered in the shell, called
