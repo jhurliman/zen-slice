@@ -226,8 +226,11 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
    the IAP, one submission; MANUAL release, phased off; What's New,
    description and review notes rewritten for the free model; privacy
    label unchanged — StoreKit purchases are not developer-collected data).
-   Still to do: the 10/1 sequencing (price → Free is NOT yet scheduled)
-   and the public copy below. Scope, in build
+   Price → Free is SCHEDULED: global price change to $0.00 in all 175
+   regions, effective 2026-10-01, no end date (cancellable under Pricing
+   and Availability → Upcoming Changes). On 10/1: confirm the US listing
+   shows Get, then press Release on 1.2 (manual). Still to do: the public
+   copy below. Scope, in build
    order:
    - **StoreKit plugin.** `ios/App/App/StoreKitPlugin.swift`, same shape as
      `GameCenterPlugin.swift` (a `CAPPlugin` registered in the shell, called
