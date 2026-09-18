@@ -54,8 +54,11 @@ export function createHud() {
   let idleT = 0, panelOpen = false, captureMode = false, reducedMotion = false;
   let swipeCount = 0;
   // r44: 3 → 1.5 s, by request. The glyph's whole idiom is "present only
-  // when the fingertip is still"; three seconds read as absent.
-  const IDLE_SHOW_S = 1.5;
+  // when the fingertip is still"; three seconds read as absent. r50: "no
+  // one is finding it" — the FADE shrank 1.2 → 0.5 s (style.css) and the
+  // wait went 1.5 → 1.2 s (0.5 s on device was "way too aggressive"): the
+  // glyph is fully there ~1.7 s after the hand stops, instead of 2.7.
+  const IDLE_SHOW_S = 1.2;
   // ══ r44: THE ARRIVAL — state for the celebration at Dreaming of Bliss ═══
   // `bliss` is the running interlude or null; see startBliss/endBliss and
   // the step engine in api.frame. `scoreHold` pins the readout at the

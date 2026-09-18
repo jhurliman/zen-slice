@@ -300,7 +300,7 @@ html, body {
   font-size: 22px; letter-spacing: 0.1em;
   color: rgba(255,255,255,0.30);
   padding: 6px 10px;
-  opacity: 0; transition: opacity 1.2s ease;
+  opacity: 0; transition: opacity 0.5s ease;   /* r50: was 1.2s — found faster */
   touch-action: manipulation;
 }
 .zs-gear.show { opacity: 1; pointer-events: auto; }
