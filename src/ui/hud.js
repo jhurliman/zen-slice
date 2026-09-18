@@ -696,7 +696,37 @@ export function createHud() {
     }
   }
 
+  // ══ r51e: THE ONE-TIME LOAD LINE ═══════════════════════════════════════
+  // A thin line above the hint, in the hint's voice, that fills as the
+  // shader warmup (director.prewarmPipelines) progresses — the whole day's
+  // species compile ONCE at app start (cold cache ~9 s, warm ~5 s), and the
+  // arc waits for it. Exists only while ctx.warmProgress does and the warmup
+  // is not done; never under ?capture (the warmup never runs there).
+  let loadEl = null, loadDone = false;
+  function loadLine(c) {
+    if (captureMode || loadDone) return;
+    const wp = c.warmProgress;
+    if (!wp) return;
+    if (!loadEl) {
+      loadEl = document.createElement('div');
+      loadEl.className = 'zs-load';
+      loadEl.innerHTML = '<span>preparing the orchard</span><i></i>';
+      root.appendChild(loadEl);
+      requestAnimationFrame(() => loadEl && loadEl.classList.add('show'));
+    }
+    const f = Math.min(1, wp.done / Math.max(1, wp.total));
+    loadEl.lastElementChild.style.width = `${(f * 100).toFixed(1)}%`;
+    if (c.prewarmed === true) {
+      loadDone = true;
+      const el = loadEl; loadEl = null;
+      el.lastElementChild.style.width = '100%';
+      setTimeout(() => el.classList.remove('show'), 250);
+      setTimeout(() => el.remove(), 1100);
+    }
+  }
+
   api.frame = (dt, alpha, c) => {
+    loadLine(c);
     // ══ r17: SAY WHEN AN EXPERIMENT IS ON ═══════════════════════════════════
     // He added ?dropphys=1 to the live URL and could not tell whether anything
     // had happened — and he was right not to be able to, because at r15's

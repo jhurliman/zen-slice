@@ -224,6 +224,113 @@ export function createDirector({ seed = 20260806 } = {}) {
   //
   // Best-effort throughout, exactly as r37 was: a warmup that throws must never
   // take the boot down. Timings land in ctx.warmLog for tools/stallprobe.mjs.
+  // ══ r51d: WARM WHAT THE PAGE NEEDS, WHEN IT NEEDS IT ═══════════════════
+  // Measured on the iPhone from a FRESH INSTALL (r51b ledger, 2026-09-17):
+  // with WebKit's Metal shader cache empty — every new player's first launch
+  // — the scene compile is 2.5 s and each species 1.0-1.5 s, and each one
+  // surfaces as a 500-1000 ms blocked frame in stage.render. The whole
+  // seven-species warmup took 8.7 s, past both the 4 s deadline and the
+  // dark start's 5 s ceiling, so the last compiles landed on the player's
+  // first two slices. (On a warm cache it is 4.9 s and 70-100 ms a frame.)
+  // There is no async path around a Metal compile on this stack (nor a
+  // worker one: pipelines belong to the device, and the blocked frame is the
+  // GPU process serialising the render behind the compile, whichever thread
+  // issues it), so the only lever is WHEN. r51e, the player's call: ALL of
+  // it at app start, once, behind a progress line the HUD draws from
+  // ctx.warmProgress ("anecdotally i never see stalls later in the game,
+  // only in the first fruit slices"). The arc waits for the whole warmup;
+  // a player who taps the title early watches the marquee melon (sliceable,
+  // compiled first) with the line at the bottom until it is done. The
+  // first page's species still compile first, and `ready`/warmFor remain as
+  // the safety net for the deadline case: a toss skips a species until it
+  // is warm, and a page turn compiles anything still missing. ?capture never
+  // warms, so `ready` is always true there and frozen rng streams are
+  // untouched.
+  const warmed = new Set();
+  const ready = (id) => ctx.prewarmed === undefined || warmed.has(id);
+  const phase = async (name, fn) => {
+    const log = ctx.warmLog || (ctx.warmLog = []);
+    const t0 = performance.now();
+    try { await fn(); } catch (_) { /* best-effort by design */ }
+    log.push({ phase: name, ms: +(performance.now() - t0).toFixed(1) });
+    if (ctx.warmProgress) ctx.warmProgress.done = Math.min(ctx.warmProgress.total, ctx.warmProgress.done + 1);
+    await nextFrame();
+  };
+  /** Every species, first page first, then in the order the day introduces them. */
+  const warmOrder = () => {
+    const out = [SPECIES.watermelon, ...speciesFor(0)];
+    for (let l = 1; l < LEVELS.length; l++) for (const sp of speciesFor(l)) out.push(sp);
+    for (const sp of SPECIES_LIST) out.push(sp);
+    return out.filter((sp, i, a) => sp && a.indexOf(sp) === i);
+  };
+  /** One species, whole and cut: a pipeline compiles on first DRAW, so a
+   *  level introducing a species dropped frames on its first toss and the
+   *  first cut of each species compiled the cap variant mid-swipe. */
+  const warmOne = (sp) => phase('fruit:' + sp.id, async () => {
+    const warm = [], junk = [];
+    try {
+      const geom = geomFor(sp, ctx.quality.fruitSegments);
+      const mats = matsFor(sp);
+      warm.push(park(new THREE.Mesh(geom, mats)));
+      if (!sp.noCut) {
+        const rind = sp.rind ?? 0.05;
+        const res = cutGeometry(geom, { n: new THREE.Vector3(1, 0, 0), d: 0 }, rind);
+        if (res && res.pos) { warm.push(park(new THREE.Mesh(res.pos, mats))); junk.push(res.pos); }
+        if (res && res.neg) junk.push(res.neg);
+      }
+      for (const m of warm) ctx.scene.add(m);
+      await ctx.renderer.compileAsync(ctx.scene, ctx.camera);
+    } finally {
+      for (const m of warm) ctx.scene.remove(m);
+      for (const j of junk) j.dispose?.();
+    }
+  }).then(() => { warmed.add(sp.id); });
+  /** THE LOADED FRAMES — the player's own suggestion. A whole fruit of each
+   *  listed species and its halves, parked off-frustum and left in the scene
+   *  for three REAL frames through the ordinary post stack, so three mints
+   *  every render object's bind group and uniform buffer here, under load,
+   *  instead of one at a time under the player's thumb. */
+  const crowdOf = (list) => phase('crowd', async () => {
+    const crowd = [], junk = [];
+    try {
+      for (const sp of list) {
+        const geom = geomFor(sp, ctx.quality.fruitSegments);
+        const mats = matsFor(sp);
+        crowd.push(park(new THREE.Mesh(geom, mats)));
+        if (!sp.noCut && crowd.length < 12) {
+          const res = cutGeometry(geom, { n: new THREE.Vector3(1, 0, 0), d: 0 }, sp.rind ?? 0.05);
+          if (res?.pos) { crowd.push(park(new THREE.Mesh(res.pos, mats))); junk.push(res.pos); }
+          if (res?.neg) junk.push(res.neg);
+        }
+      }
+      for (const m of crowd) ctx.scene.add(m);
+      await nextFrame(); await nextFrame(); await nextFrame();
+    } finally {
+      for (const m of crowd) ctx.scene.remove(m);
+      for (const j of junk) j.dispose?.();
+    }
+  });
+  const speciesFor = (level) => {
+    const L = LEVELS[Math.max(0, Math.min(LEVELS.length - 1, level | 0))];
+    const out = [];
+    for (const id of L.pool) if (SPECIES[id] && !out.includes(SPECIES[id])) out.push(SPECIES[id]);
+    if (L.rock > 0 && SPECIES.rock) out.push(SPECIES.rock);
+    return out;
+  };
+  let warmChain = Promise.resolve();
+  /** Compile the species a level introduces, in order, then a crowd of them.
+   *  Serialised: page turns during a warm queue behind it. */
+  api.warmFor = (level) => {
+    if (ctx.prewarmed === undefined) return;   // never started (?capture): nothing is gated
+    const want = speciesFor(level).filter((sp) => !warmed.has(sp.id));
+    if (!want.length) return;
+    warmChain = warmChain.then(async () => {
+      const fresh = [];
+      for (const sp of want) if (!warmed.has(sp.id)) { await warmOne(sp); fresh.push(sp); }
+      if (fresh.length) await crowdOf(fresh);
+    }).catch(() => { /* best-effort */ });
+  };
+
   api.prewarmPipelines = async () => {
     if (!ctx?.renderer?.compileAsync || !ctx.scene) return;
     ctx.prewarmed = false;
@@ -237,45 +344,22 @@ export function createDirector({ seed = 20260806 } = {}) {
     // the gate does not cancel the remaining phases: they keep compiling
     // behind the play that has now been allowed to begin, which is strictly
     // the r37 behaviour and therefore never worse than shipping without this.
+    // r51e: 15 s — the whole warmup measured 8.7 s on a cold cache on the
+    // iPhone (4.9 s warm); the marquee melon lobs (and cuts) while this waits,
+    // and the HUD's progress line says why.
     const deadline = setTimeout(() => {
-      if (ctx.prewarmed === false) { ctx.prewarmed = true; log.push({ phase: 'DEADLINE', ms: 4000 }); }
-    }, 4000);
-    const phase = async (name, fn) => {
-      const t0 = performance.now();
-      try { await fn(); } catch (_) { /* best-effort by design */ }
-      log.push({ phase: name, ms: +(performance.now() - t0).toFixed(1) });
-      await nextFrame();
-    };
-
+      if (ctx.prewarmed === false) { ctx.prewarmed = true; log.push({ phase: 'DEADLINE', ms: 15000 }); }
+    }, 15000);
+    const all = warmOrder();
+    ctx.warmProgress = { done: 0, total: 1 + all.length + 2 };
     // 1. THE SCENE AS IT STANDS — stage lights, post graph, fluid's two
     //    systems, the blade ribbon. This is the expensive one (it was hiding
     //    inside chunk 1 before) and it is paid against an empty sky.
     await phase('scene', () => ctx.renderer.compileAsync(ctx.scene, ctx.camera));
 
-    // 2. EVERY SPECIES, whole and cut. A pipeline compiles on first DRAW, so a
-    //    level introducing a species dropped frames on its first toss and the
-    //    first cut of each species compiled the cap variant mid-swipe.
-    for (const sp of SPECIES_LIST) {
-      await phase('fruit:' + sp.id, async () => {
-        const warm = [], junk = [];
-        try {
-          const geom = geomFor(sp, ctx.quality.fruitSegments);
-          const mats = matsFor(sp);
-          warm.push(park(new THREE.Mesh(geom, mats)));
-          if (!sp.noCut) {
-            const rind = sp.rind ?? 0.05;
-            const res = cutGeometry(geom, { n: new THREE.Vector3(1, 0, 0), d: 0 }, rind);
-            if (res && res.pos) { warm.push(park(new THREE.Mesh(res.pos, mats))); junk.push(res.pos); }
-            if (res && res.neg) junk.push(res.neg);
-          }
-          for (const m of warm) ctx.scene.add(m);
-          await ctx.renderer.compileAsync(ctx.scene, ctx.camera);
-        } finally {
-          for (const m of warm) ctx.scene.remove(m);
-          for (const j of junk) j.dispose?.();
-        }
-      });
-    }
+    // 2. EVERY SPECIES (r51e), first page first: the marquee melon and Still
+    //    Water's pool, then the rest in the order the day introduces them.
+    for (const sp of all) await warmOne(sp);
 
     // 3. THE CUT ARENAS. cutter.js bump-allocates out of a grow-only buffer
     //    that starts at LENGTH ZERO and doubles on overflow, and capScratch
@@ -294,35 +378,11 @@ export function createDirector({ seed = 20260806 } = {}) {
       }
     });
 
-    // 4. THE LOADED FRAMES — the player's own suggestion. A full stage's worth
-    //    of bodies (a whole fruit of every species, four halves, and a stone)
-    //    parked off-frustum and left in the scene for three REAL frames, drawn
-    //    by the ordinary loop through the ordinary post stack. Nothing is
-    //    presented that was not already on screen; what changes is that three
-    //    mints every render object's bind group and uniform buffer here,
-    //    under load, instead of one at a time under the player's thumb.
-    await phase('crowd', async () => {
-      const crowd = [], junk = [];
-      try {
-        for (const sp of SPECIES_LIST) {
-          const geom = geomFor(sp, ctx.quality.fruitSegments);
-          const mats = matsFor(sp);
-          crowd.push(park(new THREE.Mesh(geom, mats)));
-          if (!sp.noCut && crowd.length < 12) {
-            const res = cutGeometry(geom, { n: new THREE.Vector3(1, 0, 0), d: 0 }, sp.rind ?? 0.05);
-            if (res?.pos) { crowd.push(park(new THREE.Mesh(res.pos, mats))); junk.push(res.pos); }
-            if (res?.neg) junk.push(res.neg);
-          }
-        }
-        for (const m of crowd) ctx.scene.add(m);
-        await nextFrame(); await nextFrame(); await nextFrame();
-      } finally {
-        for (const m of crowd) ctx.scene.remove(m);
-        for (const j of junk) j.dispose?.();
-      }
-    });
+    // 4. THE LOADED FRAMES, for every species (crowdOf caps the bodies).
+    await crowdOf(all);
 
     clearTimeout(deadline);
+    ctx.warmProgress.done = ctx.warmProgress.total;
     ctx.prewarmed = true;
   };
 
@@ -566,13 +626,18 @@ export function createDirector({ seed = 20260806 } = {}) {
     // itself needs, which is exactly the stall the player reported. The
     // title's marquee melon is deliberately NOT gated: it is the composition,
     // it is one cached mesh, and its pipeline is compiled by phase 2.
-    const warming = ctx.prewarmed === false;
+    // r51: …and while the dark start's curtain is down (main.js) — the first
+    // toss is into a lit sky, never one the player cannot see yet
+    const warming = ctx.prewarmed === false || ctx.dark === true;
     if (!held && !warming && !arriving) levelT += sdt;
     api.progress = journeyProgress();
     const L = LEVELS[api.level];
     updateVisibleBox();
 
-    if (held) {
+    // r51d: the marquee melon keeps lobbing while the first page warms
+    // after the title is gone — a sliceable melon, not an empty sky (its
+    // pipelines are the first thing compiled)
+    if (held || warming) {
       let whole = 0;
       for (let i = 0; i < api.live.length; i++) if (api.live[i].generation === 0) whole++;
       if (whole === 0 && (titleWait -= sdt) <= 0) {
@@ -633,7 +698,7 @@ export function createDirector({ seed = 20260806 } = {}) {
           // two gaps apart, which always clears too. If five will not fit
           // inside one stroke's reach, four fly instead.
           const fanPool = [];
-          for (const id of L.pool) if (SPECIES[id].radius <= 1.0) fanPool.push(id);
+          for (const id of L.pool) if (SPECIES[id].radius <= 1.0 && ready(id)) fanPool.push(id);
           const DZ = 0.6;
           let n = Math.min(ctx.quality.maxFruit, api.level >= 5 ? 5 : 4);
           let ids, xs, span;
@@ -665,8 +730,10 @@ export function createDirector({ seed = 20260806 } = {}) {
           for (let i = 0; i < n; i++) {
             // the L.rock > 0 guard keeps levels with no rocks from drawing rng,
             // so their spawn streams (and frozen probe baselines) are untouched
-            if (L.rock > 0 && rng() < L.rock) spawn('rock');
-            else spawn(L.pool[Math.floor(rng() * L.pool.length)]);
+            // r51d: a species still compiling for this page is skipped, not
+            // substituted — the rng draw is unchanged, only the toss is withheld
+            if (L.rock > 0 && rng() < L.rock) { if (ready('rock')) spawn('rock'); }
+            else { const id = L.pool[Math.floor(rng() * L.pool.length)]; if (ready(id)) spawn(id); }
           }
           nextSpawn = rr(rng, L.every[0], L.every[1]) + (n - 1) * 0.25;
         }
@@ -790,6 +857,7 @@ export function createDirector({ seed = 20260806 } = {}) {
         level: api.level, name: LEVELS[api.level].name,
         coda: !isFinite(LEVELS[api.level].dur),
       });
+      api.warmFor(api.level);   // r51d: this page's new species, at the turn
     }
   };
 
@@ -809,6 +877,7 @@ export function createDirector({ seed = 20260806 } = {}) {
     api.level = l; api.sliced = 0; levelT = 0;
     api.progress = journeyProgress();
     ctx.bus.emit('level', { level: l, name: LEVELS[l].name, coda: !isFinite(LEVELS[l].dur) });
+    api.warmFor(l);
   };
 
   api.reset = () => {
