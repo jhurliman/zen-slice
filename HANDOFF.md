@@ -206,25 +206,30 @@ warning was about booting the **WebGPU adapter** under them (re-verified r32).
 
 3. **1.2 — free download + $2.99 unlock, due Thu 2026-10-01 (submit by Tue 9/22).**
    The featuring nomination (filed 9/7) names 10/1 as the update's release
-   date, so this is a dated deliverable. **Status 2026-09-08: the code is
-   built** (branch v1.2-unlock → PR): `StoreKitPlugin.swift` (+ pbxproj,
-   GameViewController registration, `Products.storekit`), `src/core/store.js`,
-   the gate in director.js now reads `ctx.store.entitled` (DEMO=1 pins it
-   false; outside the shell it is true), the veil in hud.js has its shell face
-   (price from StoreKit, restore line, thank-you on entitlement) plus an
-   "unlock the first day" settings row, prefs carry `entitled`,
-   `tools/storeprobe.mjs` (27 checks, mocked bridge). PAID_THROUGH_BUILD = 5
-   (1.1's build; re-pin if 1.1 is resubmitted). ASC IAP CREATED 9/8: Apple ID 6809980225, `org.jhurliman.chordcut.album1`,
-   "The First Day" / "Seven more levels: the rest of the day, yours to keep.",
-   $2.99 tier in 175 regions, FAMILY SHARING ON (irreversible; John's call —
-   StoreKit 2's currentEntitlements already includes family-shared
-   transactions), review notes + veil screenshot attached, status Prepare
-   for Submission — it is submitted WITH the 1.2 version ("Add for Review"
-   on the IAP page once the 1.2 version exists). The veil holds the pointer
-   (1.2e) and the ?debug level remote stops at the gate (1.2d). Still to do:
-   device verification (sandbox buy with debug on — the product now exists,
-   so the sandbox can answer; offline relaunch; delete + reinstall +
-   restore), version 1.2 (6), privacy label, the 10/1 sequencing and public
+   date, so this is a dated deliverable. **Status 2026-09-17: 1.2 (6) is
+   archived and uploaded** from main 33b4a61 — #51 the purchase (StoreKit
+   plugin, store.js, gate + veil; product `org.jhurliman.chordcut.album1`
+   "The First Day", grandfather by production receipt only: originalPurchaseDate
+   < 2026-10-01T00:00Z or originalAppVersion ≤ 5), #52 the settings glyph
+   (1.2 s idle, 0.5 s fade), #53 the boot (r51: every species' pipelines
+   compile ONCE at app start behind the HUD's "preparing the orchard" line,
+   the arc waits; audio graph + IRs built at boot; a 1 s fade from black;
+   the stall ledger names the slowest module call), #54 the bump. On device:
+   sandbox buy, airplane-mode relaunch, delete + reinstall all passed.
+   ⚠ BOOT LESSON: a Metal pipeline compile blocks the frame — ~1 s each on a
+   cold shader cache (every fresh install), ~80 ms warm — and neither
+   compileAsync nor a worker avoids it (pipelines belong to the device; the
+   GPU process serialises the render behind the compile). The only lever is
+   WHEN: all of it at start, behind a bar. Read the numbers back with
+   tools/darkprobe.mjs (headless) or the diag blob (device, see NATIVE.md).
+   SUBMITTED 2026-09-17 (2 items: iOS App 1.2 (6) +
+   the IAP, one submission; MANUAL release, phased off; What's New,
+   description and review notes rewritten for the free model; privacy
+   label unchanged — StoreKit purchases are not developer-collected data).
+   Price → Free is SCHEDULED: global price change to $0.00 in all 175
+   regions, effective 2026-10-01, no end date (cancellable under Pricing
+   and Availability → Upcoming Changes). On 10/1: confirm the US listing
+   shows Get, then press Release on 1.2 (manual). Still to do: the public
    copy below. Scope, in build
    order:
    - **StoreKit plugin.** `ios/App/App/StoreKitPlugin.swift`, same shape as
