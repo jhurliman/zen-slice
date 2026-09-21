@@ -1,12 +1,13 @@
 # Chord Cut
 
-### ▶ [Play the demo](https://jhurliman.github.io/zen-slice/) · [itch.io](https://jhurliman.itch.io/chord-cut) · 🍉 [App Store · $2.99](https://apps.apple.com/us/app/chord-cut/id6803614537) · ⚖️ GPLv3
+### ▶ [Play the demo](https://jhurliman.github.io/zen-slice/) · [itch.io](https://jhurliman.itch.io/chord-cut) · 🍉 [App Store · Free](https://apps.apple.com/us/app/chord-cut/id6803614537) · ⚖️ GPLv3
 
 **On a phone: open that link in Safari, then Share → Add to Home Screen.** It
 launches full-screen with no browser chrome, which is what the framing is
 composed for. The web build is the first three levels of the game's
-ten-level day arc; the full journey is the paid iOS app on the App Store —
-buying it is how you support this work.
+ten-level day arc. The iOS app is free and opens with the same three
+levels; one purchase, The First Day ($2.99), unlocks the rest of the day —
+that purchase is how you support this work.
 
 ![A watermelon splitting along a golden blade trail, juice mid-flight, DYAD +66](docs/readme-hero.jpg)
 
@@ -99,8 +100,9 @@ DEMO=1 node build.mjs # → the demo-gated build GitHub Pages and itch.io publis
 ```
 
 Yes: a plain `node build.mjs` gives you the complete, ungated game — that is
-intended, not an oversight. If you enjoy it, the full game is $2.99 on the
-[App Store](https://apps.apple.com/us/app/chord-cut/id6803614537).
+intended, not an oversight. If you enjoy it, the iOS app is free on the
+[App Store](https://apps.apple.com/us/app/chord-cut/id6803614537) and The
+First Day unlock is $2.99.
 
 Published from `main` on every push:
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) to GitHub Pages,
